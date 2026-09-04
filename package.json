@@ -1,6 +1,6 @@
 {
   "name": "ostia",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "description": "Fast profiling and benchmarking for Bun.",
   "type": "module",
   "exports": {

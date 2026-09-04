@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.1.4 — 2026-09-04
+
+**Features**
+
+- `--jobs` runs suite files concurrently (defaults to 1; first failure kills
+  the rest)
+- `group()` / `task()` accept `{ description }`, carried into the document with
+  the numbers; renderers prefer `entry.group` over splitting the id so task
+  names may contain slashes
+- minimal per-task JSON format for LLM and CI consumers: one object per timing
+  run with stats, in-group relative, warning codes, and comparison delta — no
+  sample array or prose
+
+**Performance**
+
+- raise the default sample floor with per-trial cost (+2 per decade; 3 at
+  ≤1ms, 10 from ~3s); runs that undercut it via an explicit `minSamples` carry
+  a structured `low-sample-count` warning
+
 ## 0.1.3 — 2026-09-04
 
 **Fixes**

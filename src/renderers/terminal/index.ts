@@ -9,6 +9,17 @@ function commandLabel(w: Workload): string {
   return w.label ?? w.command?.join(" ") ?? w.entry?.task ?? w.id
 }
 
+/** Group name a task belongs to, derived from the "${groupName}/${taskName}"
+ * id ostia's bench registry assigns to `entry.task` (see registry.ts's
+ * `taskId`). Workloads without a group (or not from `task()` at all) have no
+ * "/" and so return undefined. */
+function groupOf(workload: Workload | undefined): string | undefined {
+  const id = workload?.entry?.task
+  if (!id) return undefined
+  const idx = id.lastIndexOf("/")
+  return idx === -1 ? undefined : id.slice(0, idx)
+}
+
 export const terminalRenderer: Renderer<Record<string, never>> = {
   name: "table",
   async render(doc: ProfileDocument): Promise<RenderResult> {
@@ -39,6 +50,23 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const fastestMedian = Math.min(...rows.map((r) => r.run.timing.median))
     const showRelative = rows.length > 1
 
+    // Groups with >1 sibling get a Relative baseline scoped to the fastest
+    // task within that group; ungrouped tasks and solo-in-group tasks fall
+    // back to the whole-run fastest, matching pre-grouping behavior.
+    const siblingsByGroup = new Map<string, typeof rows>()
+    for (const row of rows) {
+      const key = groupOf(row.workload)
+      if (key === undefined) continue
+      const arr = siblingsByGroup.get(key)
+      if (arr) arr.push(row)
+      else siblingsByGroup.set(key, [row])
+    }
+    const referenceFor = (row: (typeof rows)[number]): number => {
+      const siblings = siblingsByGroup.get(groupOf(row.workload) ?? "")
+      if (!siblings || siblings.length <= 1) return fastestMedian
+      return Math.min(...siblings.map((s) => s.run.timing.median))
+    }
+
     const lines: string[] = []
     const labelWidth = Math.max(7, ...rows.map((r) => r.label.length))
     const header = showRelative
@@ -47,13 +75,14 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     lines.push(header)
     lines.push("-".repeat(header.length))
 
-    for (const { run, label } of rows) {
+    for (const row of rows) {
+      const { run, label } = row
       const t = run.timing
       const meanCell = `${fmtMs(t.mean)} ± ${fmtMs(t.stddev)}`
       const rangeCell = `${fmtMs(t.min)}…${fmtMs(t.max)}`
       let line = `${label.padEnd(labelWidth)}   ${meanCell.padEnd(15)}  ${rangeCell.padEnd(18)}`
       if (showRelative) {
-        const relative = t.median / fastestMedian
+        const relative = t.median / referenceFor(row)
         line += relative === 1 ? "  1.00×" : `  ${relative.toFixed(2)}× slower`
       }
       lines.push(line)

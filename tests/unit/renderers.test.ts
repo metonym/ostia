@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import {
+  makeEntryWorkload,
   makeSubprocessWorkload,
   makeTimingRun,
   newDocument,
@@ -62,6 +63,68 @@ describe("renderers - golden output on fixed fake data", () => {
     doc.runs = [doc.runs[0]!]
     const result = await renderers.table.render(doc, {})
     expect(result.text).not.toContain("Relative")
+  })
+
+  test("table renderer scopes Relative to siblings within the same group", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+
+    // Group "css": a ~41ms task and a ~20ms sibling (~2.05x apart).
+    const wSlow = makeEntryWorkload(
+      "suite.ts",
+      "css/optimizeCssWithReport",
+      "css/optimizeCssWithReport",
+    )
+    const wFast = makeEntryWorkload(
+      "suite.ts",
+      "css/optimizeCssFast",
+      "css/optimizeCssFast",
+    )
+    // Group "strings" (alone): a ~1µs task, unrelated to group "css".
+    const wTiny = makeEntryWorkload(
+      "suite.ts",
+      "strings/noSubstring",
+      "strings/noSubstring",
+    )
+
+    const samplesSlow = [
+      41_000_000, 41_200_000, 40_800_000, 41_100_000, 40_900_000,
+    ]
+    const samplesFast = [
+      20_000_000, 20_200_000, 19_800_000, 20_100_000, 19_900_000,
+    ]
+    const samplesTiny = [1_000, 1_200, 800, 1_100, 900]
+
+    const runSlow = makeTimingRun({
+      workload: wSlow,
+      configFingerprint: "cfg",
+      trials: trials(samplesSlow),
+      timing: computeTimingStats(samplesSlow),
+      warnings: [],
+    })
+    const runFast = makeTimingRun({
+      workload: wFast,
+      configFingerprint: "cfg",
+      trials: trials(samplesFast),
+      timing: computeTimingStats(samplesFast),
+      warnings: [],
+    })
+    const runTiny = makeTimingRun({
+      workload: wTiny,
+      configFingerprint: "cfg",
+      trials: trials(samplesTiny),
+      timing: computeTimingStats(samplesTiny),
+      warnings: [],
+    })
+
+    const doc = newDocument([wSlow, wFast, wTiny], [runSlow, runFast, runTiny])
+    const result = await renderers.table.render(doc, {})
+    const lines = result.text!.split("\n")
+    const slowLine = lines.find((l) => l.includes("css/optimizeCssWithReport"))
+
+    // ~41ms is ~2.05x its group sibling (~20ms), not ~40000x the unrelated
+    // near-zero task in the other group.
+    expect(slowLine).toContain("2.05× slower")
   })
 
   test("json renderer round-trips schema-critical fields and is deterministic", async () => {

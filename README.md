@@ -176,6 +176,12 @@ rest sharing a process). `--jobs` then pools across those per-task processes the
 it pools across per-file ones, so pair a higher `--jobs` with `--isolate` deliberately -
 overhead now scales with task count, not file count.
 
+`--gc` calls `Bun.gc(true)` between trials (default: off, which hides allocation cost as
+Bun/V8 batch calls together and amortize it away). `task(name, fn, { gc })` /
+`group(name, fn, { gc })` override the suite-wide default per task or group, the same
+override pattern as `isolate` - useful when a few allocation-heavy tasks need GC settled
+between trials but the rest of the suite doesn't.
+
 ```
 Command                                  Mean [ms]        Min…Max [ms]        Relative
 --------------------------------------------------------------------------------------

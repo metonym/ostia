@@ -303,6 +303,29 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-isolate-jobs`]).exited
   }, 30_000)
 
+  test("per-task/group gc overrides resolve independently of the suite-wide flag", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-gc.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-gc-mixed`,
+    })
+
+    const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
+    const fingerprintFor = (label: string) =>
+      doc.runs.find((r) => r.workloadId === byLabel.get(label)!.id)!
+        .configFingerprint
+
+    // "plain" (gc: false, resolved) and "g-gc/a" (gc: true via its group) must
+    // fingerprint differently even though neither set a suite-wide --gc.
+    expect(fingerprintFor("plain")).not.toBe(fingerprintFor("g-gc/a"))
+    expect(fingerprintFor("solo-gc")).toBe(fingerprintFor("g-gc/a"))
+    // task-level gc: false overrides the enclosing group's gc: true
+    expect(fingerprintFor("g-gc/b")).toBe(fingerprintFor("plain"))
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-gc-mixed`]).exited
+  }, 30_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

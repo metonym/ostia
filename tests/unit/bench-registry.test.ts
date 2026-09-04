@@ -5,6 +5,7 @@ import {
   group,
   resetRegistry,
   task,
+  taskGc,
   taskId,
   taskIsolate,
 } from "../../src/bench/registry"
@@ -221,5 +222,36 @@ describe("bench/registry - taskIsolate", () => {
     )
     const [t] = getRegisteredTasks()
     expect(taskIsolate(t!, true)).toBe(false)
+  })
+})
+
+describe("bench/registry - taskGc", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("falls back to the suite-wide default when neither task nor group set gc", () => {
+    task("solo", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(taskGc(t!, false)).toBe(false)
+    expect(taskGc(t!, true)).toBe(true)
+  })
+
+  test("group gc wins over the suite-wide default", () => {
+    group("g", () => task("a", () => 1), { gc: true })
+    const [t] = getRegisteredTasks()
+    expect(taskGc(t!, false)).toBe(true)
+  })
+
+  test("task gc wins over its group's and the suite-wide default", () => {
+    group(
+      "g",
+      () => {
+        task("a", () => 1, { gc: false })
+      },
+      { gc: true },
+    )
+    const [t] = getRegisteredTasks()
+    expect(taskGc(t!, true)).toBe(false)
   })
 })

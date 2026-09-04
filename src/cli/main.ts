@@ -80,7 +80,8 @@ Flags:
                        Concurrent CPU-bound processes contend for cores, caches and turbo
                        headroom, so numbers taken at --jobs > 1 are noisier and not
                        like-for-like with a baseline measured at 1. "auto" = CPU count.
-  --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
+  --gc                Bun.gc(true) between trials (default: off - hides allocation cost).
+                       Per-task { gc } / per-group { gc } override this default.
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
   --isolate           give every task its own subprocess instead of sharing its suite
@@ -106,7 +107,8 @@ Suite files register tasks like:
     task("small input", () => parse(smallBuf))
     task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
   }, { description: "parser throughput on representative inputs" })
-Per-task options override --time-budget / --min-samples for that task only.
+Per-task options override --time-budget / --min-samples / --gc / --isolate for that task
+only; per-group { gc } / { isolate } set the default for every task in that group.
 Optional { description } on group() and task() flows into the document (Workload.description
 / Workload.groupDescription) so the intent travels with the numbers.
 

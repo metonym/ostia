@@ -69,8 +69,13 @@ in its own spawned child process (isolated from CLI startup state).
 Flags:
   --time-budget MS    sampling budget per task; always runs at least this long (default: 500)
   --min-samples N     hard floor on samples per task, kept even when it overruns the
-                       budget. Default: cost-aware - as many as fit in the budget,
-                       clamped to 3..20, so one slow task can't blow the total.
+                       budget. Default: cost-aware - as many as fit in the budget (max 20),
+                       but never below the floor the task's per-trial cost earns it: 3 at
+                       <=1ms, +2 per decade of cost, 10 from ~3s up. Cheap tasks are
+                       time-bound and collect thousands either way; only the few expensive
+                       tasks in a suite pay for the extra rigor. A run that ends below its
+                       cost-class floor (only possible with an explicit --min-samples or
+                       per-task minSamples) carries a "low-sample-count" warning.
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)

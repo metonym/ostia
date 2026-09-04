@@ -116,7 +116,7 @@ export interface JitTierBreakdown {
   topFramesByTier?: { tier: string; frameKey: string; samples: number }[]
 }
 
-type WarningCode =
+export type WarningCode =
   | "slow-first-run"
   | "outliers-detected"
   | "fast-command"
@@ -126,6 +126,7 @@ type WarningCode =
   | "empty-profile"
   | "below-timer-resolution"
   | "cache-fallback-rerun"
+  | "low-sample-count"
 
 export interface Warning {
   code: WarningCode

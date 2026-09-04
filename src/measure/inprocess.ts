@@ -7,8 +7,9 @@ export interface InprocessTimingOptions {
   timeBudgetMs?: number
   /** Hard floor on the number of trials. When set, the loop keeps sampling past the
    * time budget until this many trials exist, however slow each one is. When unset,
-   * the floor is cost-aware: as many trials as fit in the budget, clamped to
-   * [3, 20], so a slow task never overruns the budget by more than one trial. */
+   * the floor is cost-aware (see `defaultSampleFloor`): as many trials as fit in the
+   * budget, capped at 20, but never below the rigor floor the task's per-trial cost
+   * earns it (3 at ≤1ms, rising to 10 for multi-second calls). */
   minSamples?: number
   /** Warmup budget as a fraction of `timeBudgetMs` (default: 0.1), not a call
    * count. Warmup always runs at least one call; for a task slower than the
@@ -18,8 +19,12 @@ export interface InprocessTimingOptions {
 }
 
 const DEFAULT_TIME_BUDGET_MS = 500
-const DEFAULT_MIN_SAMPLES = 20
-const MIN_SAMPLES_FLOOR = 3
+// Cap on the budget-derived floor. Only matters as an upper bound: a task cheap
+// enough to fit 20 trials in the budget is time-bound and collects far more.
+const BUDGET_FLOOR_CAP = 20
+const RIGOR_FLOOR_MIN = 3
+const RIGOR_FLOOR_CAP = 10
+const RIGOR_SAMPLES_PER_DECADE = 2
 const DEFAULT_WARMUP_FRACTION = 0.1
 // A single trial is batched until it spans at least this long, so the timer's
 // resolution doesn't dominate the reading.
@@ -34,6 +39,32 @@ export interface InprocessTimingResult {
   trials: Trial[]
   timing: TimingStats
   warnings: Warning[]
+}
+
+/** The sample count a task's per-trial cost earns it regardless of the time
+ * budget: 3 at 1ms or less, two more per decade of cost, capped at 10 from about
+ * 3s up. Cheap tasks never see this floor (the budget fills them with thousands
+ * of trials); it only lifts the few expensive tasks in a suite, which are exactly
+ * the ones where a 3-sample mean is shakiest and where each extra trial buys the
+ * most. Spending scales with cost by design: a 100ms task pays ~0.7s for 7
+ * trials, a 2.4s task ~24s for 10, instead of a flat 3 for both. */
+export function rigorFloor(trialCostNs: number): number {
+  const decadesAboveOneMs = Math.log10(Math.max(1, trialCostNs) / 1e6)
+  const floor = Math.round(
+    RIGOR_FLOOR_MIN + RIGOR_SAMPLES_PER_DECADE * decadesAboveOneMs,
+  )
+  return Math.min(RIGOR_FLOOR_CAP, Math.max(RIGOR_FLOOR_MIN, floor))
+}
+
+/** Cost-aware default floor when no explicit `minSamples` is given: as many
+ * trials as fit in the budget (capped at 20) so one slow task can't blow the
+ * suite's total, but never fewer than the task's `rigorFloor`. */
+export function defaultSampleFloor(
+  trialCostNs: number,
+  timeBudgetNs: number,
+): number {
+  const fit = Math.floor(timeBudgetNs / trialCostNs)
+  return Math.min(BUDGET_FLOOR_CAP, Math.max(fit, rigorFloor(trialCostNs)))
 }
 
 // Prevents the JIT from eliminating calls whose result is otherwise unused. Write-only
@@ -114,11 +145,7 @@ export async function measureTask(
   }
   const trialCostNs = singleCallNs * batchSize
   const minSamples =
-    opts.minSamples ??
-    Math.min(
-      DEFAULT_MIN_SAMPLES,
-      Math.max(MIN_SAMPLES_FLOOR, Math.floor(timeBudgetNs / trialCostNs)),
-    )
+    opts.minSamples ?? defaultSampleFloor(trialCostNs, timeBudgetNs)
 
   const trials: Trial[] = []
   const start = Bun.nanoseconds()
@@ -140,5 +167,26 @@ export async function measureTask(
   const samples = trials.map((t) => t.wallNs)
   const timing = computeTimingStats(samples)
   const warnings = timingWarnings(timing, [], "inprocess")
+
+  // The default floor guarantees the rigor target, so this only fires when an
+  // explicit `minSamples` (suite-wide or per-task) undercut it. Structured so a
+  // renderer or an agent can flag "this number is thin" without re-deriving the
+  // policy from the raw sample array.
+  const target = rigorFloor(trialCostNs)
+  if (trials.length < target) {
+    warnings.push({
+      code: "low-sample-count",
+      message: `Only ${trials.length} sample(s) at ~${fmtCost(trialCostNs)} per trial; ${target} is the floor for this cost class. Raise minSamples or the time budget for a steadier number.`,
+      data: { samples: trials.length, target, trialCostNs },
+    })
+  }
+
   return { trials, timing, warnings }
+}
+
+function fmtCost(ns: number): string {
+  if (ns >= 1e9) return `${(ns / 1e9).toFixed(2)}s`
+  if (ns >= 1e6) return `${(ns / 1e6).toFixed(1)}ms`
+  if (ns >= 1e3) return `${(ns / 1e3).toFixed(1)}µs`
+  return `${ns.toFixed(0)}ns`
 }

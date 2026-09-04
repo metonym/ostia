@@ -33,6 +33,7 @@ export type {
   Workload,
 } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
+export type { MinimalLine } from "./renderers/minimal/index.ts"
 
 interface RunOptions {
   commands: (string | string[])[]

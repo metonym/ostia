@@ -157,6 +157,7 @@ without re-deriving the policy from the raw sample array.
 ostia bench bench/*.ts
 ostia bench --time-budget 500 --min-samples 50 bench/stats.ts
 ostia bench bench/*.ts --jobs auto          # suite files in parallel, see below
+ostia bench bench/*.ts --format minimal       # one compact JSON object per task
 ```
 
 `--jobs N|auto` runs that many suite files at once, each still in its own child process.
@@ -165,14 +166,6 @@ wall-clock win - but concurrent CPU-bound processes contend for cores, caches an
 headroom, so numbers taken at `--jobs > 1` are noisier and not like-for-like with a
 baseline measured at 1. It defaults to 1 for that reason; opt in for exploratory runs,
 keep 1 for anything you `compare` or `ci` against.
-
-```
-Command                                  Mean [ms]        Min…Max [ms]        Relative
---------------------------------------------------------------------------------------
-stats/computeTimingStats (1e3 samples)   0.014 ± 0.016    0.012…0.598         1.00×
-stats/computeTimingStats (1e4 samples)   0.484 ± 0.052    0.434…0.680         38.22× slower
-stats/timingWarnings (1e3 samples)       0.036 ± 0.020    0.032…0.541         2.82× slower
-```
 
 ```
 Command                                  Mean [ms]        Min…Max [ms]        Relative
@@ -208,7 +201,21 @@ ostia report out.json                 # table (default)
 ostia report out.json --format markdown
 ostia report out.json --format json
 ostia report out.json --format jsonl
+ostia report out.json --format minimal
 ```
+
+Minimal format - one JSON object per timing run, no header, no raw sample array, no prose.
+Built to pipe straight into an LLM agent's context: the full document carries every
+sample (tens of thousands for a fast task), which is tokens a reviewer never reads.
+Numbers stay in ns so they line up with `compare` deltas and the JSON document.
+
+```
+{"task":"diffText()/append at end","group":"diffText()","samples":9282,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"relative":1,"warnings":[],"unit":"ns"}
+{"task":"repaint/4000 chars","group":"repaint","description":"full repaint every keystroke","samples":3,"mean":2.61e9,"median":2.4e9,"stddevPct":15.3,"relative":47800,"warnings":[{"code":"low-sample-count","data":{"samples":3,"target":10}}],"unit":"ns"}
+```
+
+`ostia compare ... --format minimal` adds `delta: { medianPct, meanPct, verdict, pass }` to
+each line, so "did this PR regress" is `lines.some(l => l.delta?.verdict === "regressed")`.
 
 Markdown:
 
@@ -489,6 +496,7 @@ Pure functions of a `ProfileDocument`. Each returns `{ text? }` and/or `{ files?
 | `markdown` | agent- and human-readable report |
 | `json` | pretty JSON document |
 | `jsonl` | one metadata line, then one line per run |
+| `minimal` | one compact line per timing run, no sample array; for LLM/CI consumption |
 | `collapsed` | folded stacks (`name;name;name count`) |
 | `mermaid` | top-N call tree |
 | `speedscope` | speedscope.app JSON |

@@ -5,6 +5,7 @@ export type FormatName =
   | "json"
   | "markdown"
   | "jsonl"
+  | "minimal"
   | "collapsed"
   | "mermaid"
   | "speedscope"

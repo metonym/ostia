@@ -4,6 +4,7 @@ import { jsonRenderer } from "./json/index.ts"
 import { jsonlRenderer } from "./jsonl/index.ts"
 import { markdownRenderer } from "./markdown/index.ts"
 import { mermaidRenderer } from "./mermaid/index.ts"
+import { minimalRenderer } from "./minimal/index.ts"
 import { speedscopeRenderer } from "./speedscope/index.ts"
 import { terminalRenderer } from "./terminal/index.ts"
 import type { FormatName, Renderer } from "./types.ts"
@@ -14,6 +15,7 @@ export const renderers: Record<FormatName, Renderer<any>> = {
   json: jsonRenderer,
   markdown: markdownRenderer,
   jsonl: jsonlRenderer,
+  minimal: minimalRenderer,
   collapsed: collapsedRenderer,
   mermaid: mermaidRenderer,
   speedscope: speedscopeRenderer,

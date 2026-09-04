@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.3 — 2026-09-04
+
+**Fixes**
+
+- treat single-task groups as their own Relative baseline instead of falling
+  back to the whole-run fastest task
+
 ## 0.1.2 — 2026-09-04
 
 **Features**

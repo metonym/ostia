@@ -18,6 +18,10 @@ export interface Workload {
   command?: string[]
   shell?: string
   entry?: { file: string; task: string }
+  /** Marks this task as the in-run Relative reference for its group (see
+   * `task(name, fn, { baseline: true })`). At most one per group is
+   * meaningful; renderers use the first they encounter. */
+  baseline?: boolean
 }
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"

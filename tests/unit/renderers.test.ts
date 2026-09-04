@@ -127,6 +127,52 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(slowLine).toContain("2.05× slower")
   })
 
+  test("table renderer computes Relative against an explicit baseline task", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+
+    // "old" is marked baseline even though "new" is faster: Relative should
+    // read from "old", not from the group's fastest task.
+    const wOld = makeEntryWorkload(
+      "suite.ts",
+      "impl/old",
+      "impl/old",
+      /* baseline */ true,
+    )
+    const wNew = makeEntryWorkload("suite.ts", "impl/new", "impl/new")
+
+    const samplesOld = [
+      20_000_000, 20_200_000, 19_800_000, 20_100_000, 19_900_000,
+    ]
+    const samplesNew = [
+      10_000_000, 10_200_000, 9_800_000, 10_100_000, 9_900_000,
+    ]
+
+    const runOld = makeTimingRun({
+      workload: wOld,
+      configFingerprint: "cfg",
+      trials: trials(samplesOld),
+      timing: computeTimingStats(samplesOld),
+      warnings: [],
+    })
+    const runNew = makeTimingRun({
+      workload: wNew,
+      configFingerprint: "cfg",
+      trials: trials(samplesNew),
+      timing: computeTimingStats(samplesNew),
+      warnings: [],
+    })
+
+    const doc = newDocument([wOld, wNew], [runOld, runNew])
+    const result = await renderers.table.render(doc, {})
+    const lines = result.text!.split("\n")
+    const oldLine = lines.find((l) => l.includes("impl/old"))
+    const newLine = lines.find((l) => l.includes("impl/new"))
+
+    expect(oldLine).toContain("1.00× (baseline)")
+    expect(newLine).toContain("2.00× faster")
+  })
+
   test("json renderer round-trips schema-critical fields and is deterministic", async () => {
     const doc = fixedDoc()
     const result1 = await renderers.json.render(doc, {})

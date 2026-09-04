@@ -31,13 +31,11 @@ bun src/cli/main.ts bench bench/stats.ts   # a single suite
 ## Baseline
 
 `.ostia/baselines/bench-main.json` is a local reference snapshot for comparing
-future runs against (gitignored with the rest of `.ostia/`). Capture it with a
-much smaller time budget than `bun run bench`
-(`--time-budget 3 --min-samples 30` via `bun run bench:baseline`). At full 500ms/task
-fidelity, nanosecond-scale tasks batch into millions of samples and the exported
-document (which embeds the full raw sample array per the schema's agent contract)
-balloons past 400MB. The smaller budget keeps the file in the low single-digit
-MB while still producing a valid `ProfileDocument`.
+future runs against (gitignored with the rest of `.ostia/`). Capture it with
+`bun run bench:baseline` (`--time-budget 3000 --min-samples 30`). The exported
+document embeds the full raw sample array per the schema's agent contract; fast
+tasks are batched so a budget yields about 10k trials at most, which keeps the
+file in the tens of MB at this fidelity.
 
 This is separate from `bun run baseline` / `ostia ci`, which gate the subprocess
 workloads in `ostia.config.json`. Use that path when you want a hard local or CI

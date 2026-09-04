@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test"
 import { measureTask } from "../../src/measure/inprocess"
 
+function spin(ms: number): number {
+  const end = Bun.nanoseconds() + ms * 1e6
+  let acc = 0
+  while (Bun.nanoseconds() < end) acc = (acc + 1) | 0
+  return acc
+}
+
 describe("measure/inprocess", () => {
   test("respects minSamples and produces trial wall times", async () => {
     const result = await measureTask(() => 1 + 1, {
@@ -84,6 +91,40 @@ describe("measure/inprocess", () => {
     })
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
     expect(Array.isArray(result.trials)).toBe(true)
+  })
+
+  test("a sub-microsecond task is batched so a budget yields bounded trials", async () => {
+    const result = await measureTask(() => 1, { timeBudgetMs: 100 })
+    // Target is ~10k per full budget; allow JIT tier-up mid-run to overshoot it.
+    expect(result.trials.length).toBeLessThan(100_000)
+    expect(result.trials.length).toBeGreaterThanOrEqual(3)
+  })
+
+  test("default sample floor is cost-aware: a slow task does not overrun the budget by 20x", async () => {
+    const callMs = 20
+    const start = Bun.nanoseconds()
+    const result = await measureTask(() => spin(callMs), { timeBudgetMs: 100 })
+    const totalMs = (Bun.nanoseconds() - start) / 1e6
+    // Budget fits 5 calls; the old rule forced 20 (400ms+).
+    expect(result.trials.length).toBeGreaterThanOrEqual(3)
+    expect(result.trials.length).toBeLessThan(10)
+    expect(totalMs).toBeLessThan(300)
+  })
+
+  test("explicit minSamples is a hard floor even past the budget", async () => {
+    const result = await measureTask(() => spin(2), {
+      timeBudgetMs: 5,
+      minSamples: 12,
+    })
+    expect(result.trials.length).toBeGreaterThanOrEqual(12)
+  })
+
+  test("warmupFraction 0 still measures", async () => {
+    const result = await measureTask(() => 1, {
+      timeBudgetMs: 10,
+      warmupFraction: 0,
+    })
+    expect(result.trials.length).toBeGreaterThanOrEqual(3)
   })
 
   test("warnings property exists and is an array", async () => {

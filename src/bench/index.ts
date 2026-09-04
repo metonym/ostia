@@ -28,6 +28,12 @@ export interface BenchOptions {
    * many cheap ones sharing a process). Multiplies process-spawn overhead by
    * task count instead of file count. */
   isolate?: boolean
+  /** Scripts run, in order, before each suite file loads - in the same
+   * subprocess, so they can install globals (jsdom's `document`/`window`) or
+   * register a `Bun.plugin()` file-loader (e.g. for `.svelte`/`.vue`) ahead
+   * of the suite's own top-level code. Consumer-authored; ostia ships no
+   * preload scripts itself. */
+  preload?: string[]
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -66,6 +72,9 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
 
   const resolvedSuites = opts.suites.map((suiteFile) =>
     suiteFile.startsWith("/") ? suiteFile : `${cwd}/${suiteFile}`,
+  )
+  const resolvedPreloads = (opts.preload ?? []).map((preloadFile) =>
+    preloadFile.startsWith("/") ? preloadFile : `${cwd}/${preloadFile}`,
   )
 
   // A pool of `jobs` workers pulling from a shared cursor of spawn targets.
@@ -130,6 +139,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         ...taskOpts,
         filter: opts.filter,
         isolate: opts.isolate,
+        preload: resolvedPreloads,
         planOnly: true,
       } satisfies RunnerOpts),
     ])
@@ -177,6 +187,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       JSON.stringify({
         ...taskOpts,
         taskIds: item.taskIds,
+        preload: resolvedPreloads,
         // Omitted (not `false`) for shared items, so a run with no isolated
         // tasks produces byte-identical workloads to one that never touched
         // isolate at all.

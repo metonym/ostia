@@ -326,6 +326,50 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-gc-mixed`]).exited
   }, 30_000)
 
+  test("a suite that needs a preload-installed global fails without --preload", async () => {
+    await expect(
+      bench({
+        suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-dom.ts`],
+        timeBudgetMs: 10,
+        minSamples: 3,
+        outDir: `${OUT_DIR}-preload-missing`,
+      }),
+    ).rejects.toThrow()
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-preload-missing`]).exited
+  }, 20_000)
+
+  test("--preload runs before the suite file loads, in the same subprocess", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-dom.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      preload: [`${import.meta.dir}/../fixtures/bench-preload-dom-setup.ts`],
+      outDir: `${OUT_DIR}-preload-dom`,
+    })
+
+    expect(doc.workloads.map((w) => w.label)).toEqual(["reads-document-title"])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-preload-dom`]).exited
+  }, 20_000)
+
+  test("multiple --preload scripts run in order, sharing state with each other and the suite", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-preload-order.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      preload: [
+        `${import.meta.dir}/../fixtures/bench-preload-order-a.ts`,
+        `${import.meta.dir}/../fixtures/bench-preload-order-b.ts`,
+      ],
+      outDir: `${OUT_DIR}-preload-order`,
+    })
+
+    expect(doc.workloads.map((w) => w.label)).toEqual(["order-check"])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-preload-order`]).exited
+  }, 20_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

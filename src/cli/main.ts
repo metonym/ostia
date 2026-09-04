@@ -91,6 +91,10 @@ Flags:
                        --jobs then pools across those per-task processes, so pair a
                        higher --jobs with --isolate deliberately: overhead now scales
                        with task count, not file count.
+  --preload PATH      script imported before each suite file loads, in the same
+                       subprocess (repeatable; runs in the order given). Use it to
+                       install globals (jsdom's document/window) or register a
+                       Bun.plugin() file-loader before the suite's own code runs.
   --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
@@ -127,6 +131,7 @@ Examples:
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
   ostia bench benches/*.ts --filter parse
   ostia bench benches/*.ts --jobs auto --format minimal
+  ostia bench --preload ./bench/jsdom-setup.ts benches/*.dom.bench.ts
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -326,6 +331,7 @@ interface BenchArgs {
   gc: boolean
   filter?: string
   isolate: boolean
+  preload: string[]
   outDir?: string
   exportJson?: string
   format: FormatName
@@ -341,6 +347,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   let gc = false
   let filter: string | undefined
   let isolate = false
+  const preload: string[] = []
   let outDir: string | undefined
   let exportJson: string | undefined
   let format: FormatName = "table"
@@ -369,6 +376,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
         break
       case "--isolate":
         isolate = true
+        break
+      case "--preload":
+        preload.push(argv[++i]!)
         break
       case "--out-dir":
         outDir = argv[++i]
@@ -399,6 +409,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     gc,
     filter,
     isolate,
+    preload,
     outDir,
     exportJson,
     format,
@@ -435,6 +446,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       gc: parsed.gc,
       filter: parsed.filter,
       isolate: parsed.isolate,
+      preload: parsed.preload,
       outDir: parsed.outDir,
     })
   } catch (err) {

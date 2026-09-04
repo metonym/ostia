@@ -34,7 +34,7 @@ Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into 
 timing numbers above):
 
 ```sh
-ostia run --runs 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json fixtures/work.ts
+ostia run --runs 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json fixtures/work.ts
 ```
 
 ```
@@ -45,10 +45,16 @@ bun fixtures/work.ts   275.815 ± 2.853  273.334…281.384
 CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 297.578ms)
   100.0%    284.19ms self  hashLoop
     0.0%      0.00ms self  (root)
-  artifact: .ostia/artifacts/<run-id>-cpu.cpuprofile
+  artifact: node_modules/.cache/ostia/artifacts/<run-id>-cpu.cpuprofile
 ```
 
-Gate a change against a local baseline (baselines are gitignored under `.ostia/`):
+Scratch/artifact output defaults to `node_modules/.cache/ostia` (already gitignored
+everywhere, no setup needed - same convention as Babel/ESLint/Jest caches). Baselines are
+the one exception: they default to `.ostia/baselines/` at the repo root instead, since
+they need to survive `node_modules` reinstalls between branches and CI jobs, so gitignore
+`.ostia/` if you use `ostia ci`.
+
+Gate a change against a local baseline:
 
 ```sh
 bun run baseline   # on known-good: measure ostia.config.json -> .ostia/baselines/main.json
@@ -120,7 +126,7 @@ Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
      321  closure
      216  object shape
      104  hidden
-  artifact: .ostia/artifacts/<run-id>-heap.heapsnapshot
+  artifact: node_modules/.cache/ostia/artifacts/<run-id>-heap.heapsnapshot
 ```
 
 ### `ostia bench`
@@ -192,9 +198,9 @@ Turn CPU evidence into files for other tools. Formats: `collapsed`, `mermaid`,
 `speedscope`, `cpuprofile` (pass-through of a real CDP artifact when present).
 
 ```sh
-ostia viz .ostia/doc.json --format collapsed
-ostia viz .ostia/doc.json --format mermaid
-ostia viz .ostia/doc.json --format speedscope > flame.json
+ostia viz doc.json --format collapsed
+ostia viz doc.json --format mermaid
+ostia viz doc.json --format speedscope > flame.json
 ```
 
 Collapsed stacks (one line per stack; feeds `flamegraph.pl` and friends):
@@ -270,6 +276,10 @@ Exit codes: `0` pass, `1` regression, `2` harness error (missing config/baseline
 
 `inputs` is optional. Workloads with no `inputs` always rerun (cache fails conservative).
 
+Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
+scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're
+independent - `baselineDir` doesn't move just because you override `outDir`.
+
 #### Baselines (local and CI)
 
 Baselines are JSON under `.ostia/baselines/` (gitignored). `ostia ci` only needs the file
@@ -332,7 +342,7 @@ const doc = await run({
   cpu: true,
   heap: false,
   cpuIntervalUs: 200,
-  outDir: ".ostia",
+  outDir: "node_modules/.cache/ostia", // default; artifacts land under here
 })
 ```
 
@@ -411,8 +421,8 @@ const diffs = compareDocuments(baselineDoc, candidateDoc, {
 ### `saveDocument` / `loadDocument`
 
 ```ts
-await saveDocument(doc, ".ostia/doc.json")
-const loaded: ProfileDocument = await loadDocument(".ostia/doc.json")
+await saveDocument(doc, "doc.json")
+const loaded: ProfileDocument = await loadDocument("doc.json")
 ```
 
 ### `renderers`

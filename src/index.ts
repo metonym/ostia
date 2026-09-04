@@ -41,7 +41,7 @@ interface RunOptions {
   outDir?: string
 }
 
-const DEFAULT_OUT_DIR = ".ostia"
+const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function run(opts: RunOptions): Promise<ProfileDocument> {

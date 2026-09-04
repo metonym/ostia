@@ -10,16 +10,28 @@ export interface OstiaConfig {
   runs: number | null
   warmup: number
   outDir: string
+  baselineDir: string
   baseline: string
   cpuIntervalUs: number
   thresholds: Thresholds
   workloads: WorkloadConfig[]
 }
 
+// Scratch/artifact output: node_modules is already gitignored everywhere,
+// so consumers get that for free (matches node_modules/.cache/<tool> as
+// used by Babel, ESLint, Jest, etc).
+const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
+
+// Baselines are the one output that must survive node_modules churn (bun
+// install, CI job boundaries, branch switches) - they stay at the repo
+// root by default, independent of outDir.
+const DEFAULT_BASELINE_DIR = ".ostia/baselines"
+
 export const DEFAULT_CONFIG: OstiaConfig = {
   runs: null,
   warmup: 3,
-  outDir: ".ostia",
+  outDir: DEFAULT_OUT_DIR,
+  baselineDir: DEFAULT_BASELINE_DIR,
   baseline: "main",
   cpuIntervalUs: 1000,
   thresholds: DEFAULT_THRESHOLDS,
@@ -40,5 +52,5 @@ export async function loadConfig(
 }
 
 export function baselinePath(config: OstiaConfig, name?: string): string {
-  return `${config.outDir}/baselines/${name ?? config.baseline}.json`
+  return `${config.baselineDir}/${name ?? config.baseline}.json`
 }

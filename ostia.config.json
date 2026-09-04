@@ -1,7 +1,6 @@
 {
   "runs": 15,
   "warmup": 3,
-  "outDir": ".ostia",
   "baseline": "main",
   "thresholds": {
     "timingPct": 15,

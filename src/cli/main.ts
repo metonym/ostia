@@ -45,7 +45,7 @@ Flags:
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
-  --out-dir PATH      directory for captured artifacts (default: .ostia)
+  --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json (default: table)
   --quiet             suppress the rendered report (still writes --export-json)
@@ -74,7 +74,7 @@ Flags:
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
-  --out-dir PATH      directory for scratch IPC files (default: .ostia)
+  --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json (default: table)
   --quiet             suppress the rendered report (still writes --export-json)
@@ -134,7 +134,7 @@ Flags:
   --help        show this message
 
 Examples:
-  ostia viz run.json --format speedscope --out-dir .ostia/viz
+  ostia viz run.json --format speedscope --out-dir node_modules/.cache/ostia/viz
   ostia viz run.json --format collapsed | flamegraph.pl > flame.svg
 `
 

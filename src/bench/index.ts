@@ -1,6 +1,7 @@
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { ProfileDocument, Run, Workload } from "../ir/types.ts"
+import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
   suites: string[]
@@ -12,10 +13,21 @@ export interface BenchOptions {
    * 1). Files are independent by design, so this is a wall-clock win for
    * multi-file suites, but concurrent CPU-bound processes contend for cores,
    * caches, memory bandwidth and turbo headroom: timings taken under `jobs > 1`
-   * are noisier and not like-for-like with a baseline measured at 1. */
+   * are noisier and not like-for-like with a baseline measured at 1. When
+   * `isolate` puts some tasks in their own subprocess, `jobs` pools across
+   * those per-task processes the same way - so the same noise/wall-clock
+   * tradeoff now scales with task count, not just file count. */
   jobs?: number
   outDir?: string
   cwd?: string
+  /** Give every task its own subprocess instead of sharing its suite file's,
+   * isolating each task's JIT tier state, inline caches and heap shape from
+   * every other task the way suite files are already isolated from each
+   * other. `TaskOptions.isolate` / `GroupOptions.isolate` override this per
+   * task or group for mixed suites (e.g. a few outlier-prone tasks isolated,
+   * many cheap ones sharing a process). Multiplies process-spawn overhead by
+   * task count instead of file count. */
+  isolate?: boolean
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -24,6 +36,20 @@ const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 /** Logical CPUs available to this process, for `--jobs auto`. */
 export function availableJobs(): number {
   return Math.max(1, navigator.hardwareConcurrency || 1)
+}
+
+interface PlannedTask {
+  id: string
+  isolate: boolean
+}
+
+/** One subprocess spawn: either every non-isolated task in a suite file
+ * sharing one process (`markIsolated: false`), or a single isolated task
+ * alone in its own (`markIsolated: true`). */
+interface WorkItem {
+  suiteIndex: number
+  taskIds: string[]
+  markIsolated: boolean
 }
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
@@ -36,73 +62,165 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     timeBudgetMs: opts.timeBudgetMs,
     minSamples: opts.minSamples,
     gc: opts.gc,
-    filter: opts.filter,
   }
 
-  // Results land by suite index so the document's workload order matches the
-  // suite order on the command line regardless of which child finishes first.
-  const perSuite: ProfileDocument[] = new Array(opts.suites.length)
-  const inFlight = new Set<ReturnType<typeof Bun.spawn>>()
-  let next = 0
-  let failure: Error | undefined
+  const resolvedSuites = opts.suites.map((suiteFile) =>
+    suiteFile.startsWith("/") ? suiteFile : `${cwd}/${suiteFile}`,
+  )
 
-  const runSuite = async (index: number): Promise<void> => {
-    const suiteFile = opts.suites[index]!
-    const resolvedSuite = suiteFile.startsWith("/")
-      ? suiteFile
-      : `${cwd}/${suiteFile}`
-    const outputPath = `${tmpDir}/${fp("bench-out", resolvedSuite)}.json`
+  // A pool of `jobs` workers pulling from a shared cursor of spawn targets.
+  // The first failure stops the pool: remaining queued targets are skipped
+  // and in-flight children are killed, so a broken target fails the run fast
+  // instead of after every other target has spent its budget.
+  const spawnPooled = async (
+    argvList: string[][],
+    describe: (index: number) => string,
+  ): Promise<void> => {
+    const inFlight = new Set<ReturnType<typeof Bun.spawn>>()
+    let next = 0
+    let failure: Error | undefined
 
-    const proc = Bun.spawn(
-      ["bun", RUNNER_PATH, resolvedSuite, outputPath, JSON.stringify(taskOpts)],
-      {
-        cwd,
-        stdout: "inherit",
-        stderr: "inherit",
-        stdin: "ignore",
-      },
-    )
-    inFlight.add(proc)
-    const exitCode = await proc.exited
-    inFlight.delete(proc)
-    if (exitCode !== 0) {
-      throw new Error(
-        `Bench suite failed: ${suiteFile} (runner exited ${exitCode})`,
-      )
-    }
-    perSuite[index] = await loadDocument(outputPath)
-  }
-
-  // A fixed pool of `jobs` workers pulling from a shared cursor. The first
-  // failure stops the pool: remaining queued suites are skipped and in-flight
-  // children are killed, so a broken file fails the run fast instead of after
-  // every other suite has spent its budget.
-  const worker = async (): Promise<void> => {
-    while (failure === undefined && next < opts.suites.length) {
-      const index = next++
-      try {
-        await runSuite(index)
-      } catch (err) {
-        failure ??= err instanceof Error ? err : new Error(String(err))
-        for (const proc of inFlight) proc.kill()
+    const worker = async (): Promise<void> => {
+      while (failure === undefined && next < argvList.length) {
+        const index = next++
+        try {
+          const proc = Bun.spawn(argvList[index]!, {
+            cwd,
+            stdout: "inherit",
+            stderr: "inherit",
+            stdin: "ignore",
+          })
+          inFlight.add(proc)
+          const exitCode = await proc.exited
+          inFlight.delete(proc)
+          if (exitCode !== 0) {
+            throw new Error(
+              `Bench suite failed: ${describe(index)} (runner exited ${exitCode})`,
+            )
+          }
+        } catch (err) {
+          failure ??= err instanceof Error ? err : new Error(String(err))
+          for (const proc of inFlight) proc.kill()
+        }
       }
     }
+
+    await Promise.all(
+      Array.from({ length: Math.min(jobs, argvList.length) }, worker),
+    )
+    if (failure) throw failure
   }
 
   try {
-    await Promise.all(
-      Array.from({ length: Math.min(jobs, opts.suites.length) }, worker),
+    // Phase 1: for each suite file, discover its registered tasks and each
+    // one's effective isolate (task/group override, else the suite-wide
+    // default) without running any benchmark. This is what lets `isolate`
+    // work per task/group even when the suite-wide flag is off, and lets
+    // `--jobs` pool at task granularity below instead of always file
+    // granularity.
+    const planPaths = resolvedSuites.map(
+      (suite) => `${tmpDir}/${fp("bench-plan", suite)}.json`,
     )
-    if (failure) throw failure
+    const planArgv = resolvedSuites.map((suite, i) => [
+      "bun",
+      RUNNER_PATH,
+      suite,
+      planPaths[i]!,
+      JSON.stringify({
+        ...taskOpts,
+        filter: opts.filter,
+        isolate: opts.isolate,
+        planOnly: true,
+      } satisfies RunnerOpts),
+    ])
+    await spawnPooled(planArgv, (i) => opts.suites[i]!)
+
+    const plans: PlannedTask[][] = await Promise.all(
+      planPaths.map(async (p) => {
+        const { tasks } = (await Bun.file(p).json()) as {
+          tasks: PlannedTask[]
+        }
+        return tasks
+      }),
+    )
+
+    // Phase 2: flatten each suite's plan into work items and run them
+    // through the same jobs pool. Non-isolated tasks in a suite share one
+    // subprocess, exactly as every suite ran before `isolate` existed;
+    // isolated tasks each get their own.
+    const items: WorkItem[] = []
+    for (let s = 0; s < plans.length; s++) {
+      const shared = plans[s]!.filter((t) => !t.isolate).map((t) => t.id)
+      if (shared.length > 0) {
+        items.push({ suiteIndex: s, taskIds: shared, markIsolated: false })
+      }
+      for (const t of plans[s]!) {
+        if (t.isolate) {
+          items.push({
+            suiteIndex: s,
+            taskIds: [t.id],
+            markIsolated: true,
+          })
+        }
+      }
+    }
+
+    const itemPaths = items.map(
+      (item, i) =>
+        `${tmpDir}/${fp("bench-item", resolvedSuites[item.suiteIndex]!, i)}.json`,
+    )
+    const itemArgv = items.map((item, i) => [
+      "bun",
+      RUNNER_PATH,
+      resolvedSuites[item.suiteIndex]!,
+      itemPaths[i]!,
+      JSON.stringify({
+        ...taskOpts,
+        taskIds: item.taskIds,
+        // Omitted (not `false`) for shared items, so a run with no isolated
+        // tasks produces byte-identical workloads to one that never touched
+        // isolate at all.
+        ...(item.markIsolated && { markIsolated: true }),
+      } satisfies RunnerOpts),
+    ])
+    await spawnPooled(itemArgv, (i) => opts.suites[items[i]!.suiteIndex]!)
+
+    const itemDocs = await Promise.all(itemPaths.map(loadDocument))
+
+    // Reassemble each suite's contribution in the plan's order (registration
+    // order, filtered) regardless of which item a task landed in, then
+    // concatenate suites in command-line order - the same ordering guarantee
+    // bench() has always made, now independent of isolate/spawn granularity.
+    const workloads: Workload[] = []
+    const runs: Run[] = []
+    for (let s = 0; s < plans.length; s++) {
+      const sharedIndex = items.findIndex(
+        (it) => it.suiteIndex === s && !it.markIsolated,
+      )
+      const sharedDoc = sharedIndex >= 0 ? itemDocs[sharedIndex]! : undefined
+      let sharedPtr = 0
+      const isolatedDocById = new Map<string, ProfileDocument>()
+      items.forEach((it, i) => {
+        if (it.suiteIndex === s && it.markIsolated) {
+          isolatedDocById.set(it.taskIds[0]!, itemDocs[i]!)
+        }
+      })
+
+      for (const t of plans[s]!) {
+        if (t.isolate) {
+          const doc = isolatedDocById.get(t.id)!
+          workloads.push(doc.workloads[0]!)
+          runs.push(doc.runs[0]!)
+        } else {
+          workloads.push(sharedDoc!.workloads[sharedPtr]!)
+          runs.push(sharedDoc!.runs[sharedPtr]!)
+          sharedPtr++
+        }
+      }
+    }
+
+    return newDocument(workloads, runs)
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited
   }
-
-  const workloads: Workload[] = []
-  const runs: Run[] = []
-  for (const suiteDoc of perSuite) {
-    workloads.push(...suiteDoc.workloads)
-    runs.push(...suiteDoc.runs)
-  }
-  return newDocument(workloads, runs)
 }

@@ -53,6 +53,7 @@ export interface EntryWorkloadOptions {
   group?: string
   description?: string
   groupDescription?: string
+  isolated?: boolean
 }
 
 /** `taskName` is the registry's "group/name" id and is all the workload id
@@ -78,6 +79,7 @@ export function makeEntryWorkload(
     ...(opts.groupDescription !== undefined && {
       groupDescription: opts.groupDescription,
     }),
+    ...(opts.isolated !== undefined && { isolated: opts.isolated }),
   }
 }
 

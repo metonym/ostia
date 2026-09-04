@@ -167,6 +167,15 @@ headroom, so numbers taken at `--jobs > 1` are noisier and not like-for-like wit
 baseline measured at 1. It defaults to 1 for that reason; opt in for exploratory runs,
 keep 1 for anything you `compare` or `ci` against.
 
+`--isolate` gives every task its own child process instead of sharing its suite file's,
+isolating each task's JIT tier state, inline caches and heap shape from every other task
+in the run - the same guarantee suite files already get from each other, at task
+granularity. `task(name, fn, { isolate })` / `group(name, fn, { isolate })` override the
+suite-wide default for mixed suites (e.g. a couple of outlier-prone tasks isolated, the
+rest sharing a process). `--jobs` then pools across those per-task processes the same way
+it pools across per-file ones, so pair a higher `--jobs` with `--isolate` deliberately -
+overhead now scales with task count, not file count.
+
 ```
 Command                                  Mean [ms]        Min…Max [ms]        Relative
 --------------------------------------------------------------------------------------

@@ -6,6 +6,7 @@ import {
   resetRegistry,
   task,
   taskId,
+  taskIsolate,
 } from "../../src/bench/registry"
 
 describe("bench/registry", () => {
@@ -189,5 +190,36 @@ describe("bench/registry - filterTasks", () => {
     task("b", () => 2)
     const all = getRegisteredTasks()
     expect(all.map(taskId)).toEqual(["g1/a", "b"])
+  })
+})
+
+describe("bench/registry - taskIsolate", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("falls back to the suite-wide default when neither task nor group set isolate", () => {
+    task("solo", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(taskIsolate(t!, false)).toBe(false)
+    expect(taskIsolate(t!, true)).toBe(true)
+  })
+
+  test("group isolate wins over the suite-wide default", () => {
+    group("g", () => task("a", () => 1), { isolate: true })
+    const [t] = getRegisteredTasks()
+    expect(taskIsolate(t!, false)).toBe(true)
+  })
+
+  test("task isolate wins over its group's and the suite-wide default", () => {
+    group(
+      "g",
+      () => {
+        task("a", () => 1, { isolate: false })
+      },
+      { isolate: true },
+    )
+    const [t] = getRegisteredTasks()
+    expect(taskIsolate(t!, true)).toBe(false)
   })
 })

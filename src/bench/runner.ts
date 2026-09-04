@@ -16,7 +16,27 @@ import {
   getRegisteredTasks,
   resetRegistry,
   taskId as taskIdOf,
+  taskIsolate,
 } from "./registry.ts"
+
+export interface RunnerOpts extends InprocessTimingOptions {
+  /** Regex, matched against "group/name" task ids (see `filterTasks`). */
+  filter?: string
+  /** Exact task-id allowlist, applied after `filter`. Used to hand a single
+   * suite-wide `bench()` call's already-resolved isolation plan to a
+   * per-work-item runner spawn instead of re-deriving it from `filter`. */
+  taskIds?: string[]
+  /** Suite-wide isolate default, consulted only in `planOnly` mode to compute
+   * each task's effective isolate (task/group overrides still win). */
+  isolate?: boolean
+  /** Stamped onto every workload this invocation produces, recording whether
+   * it ran in a subprocess dedicated to it alone. */
+  markIsolated?: boolean
+  /** Import the suite, resolve `filter`/`taskIds`/`isolate`, and report the
+   * resulting task ids and their effective isolate instead of running any
+   * benchmark. */
+  planOnly?: boolean
+}
 
 async function main(): Promise<number> {
   const [suiteFile, outputPath, optsJson] = process.argv.slice(2)
@@ -27,9 +47,7 @@ async function main(): Promise<number> {
     return 2
   }
 
-  const opts: InprocessTimingOptions & { filter?: string } = optsJson
-    ? JSON.parse(optsJson)
-    : {}
+  const opts: RunnerOpts = optsJson ? JSON.parse(optsJson) : {}
 
   resetRegistry()
   await import(suiteFile)
@@ -41,12 +59,25 @@ async function main(): Promise<number> {
     return 2
   }
 
-  const tasks = filterTasks(registered, opts.filter)
+  let tasks = filterTasks(registered, opts.filter)
+  if (opts.taskIds) {
+    const wanted = new Set(opts.taskIds)
+    tasks = tasks.filter((t) => wanted.has(taskIdOf(t)))
+  }
   if (tasks.length === 0) {
     process.stderr.write(
       `bench runner: --filter ${JSON.stringify(opts.filter)} matched zero of ${registered.length} registered tasks in ${suiteFile}.\n`,
     )
     return 2
+  }
+
+  if (opts.planOnly) {
+    const plan = tasks.map((t) => ({
+      id: taskIdOf(t),
+      isolate: taskIsolate(t, opts.isolate ?? false),
+    }))
+    await Bun.write(outputPath, JSON.stringify({ tasks: plan }))
+    return 0
   }
 
   const workloads = []
@@ -59,6 +90,7 @@ async function main(): Promise<number> {
       group: t.groupName,
       description: t.opts?.description,
       groupDescription: t.groupDescription,
+      isolated: opts.markIsolated,
     })
     workloads.push(workload)
     // Per-task options win over the suite-wide ones. The fingerprint is per task

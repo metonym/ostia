@@ -83,6 +83,13 @@ Flags:
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
+  --isolate           give every task its own subprocess instead of sharing its suite
+                       file's, isolating JIT tier state and heap shape between tasks the
+                       way suite files are already isolated from each other. Per-task
+                       { isolate } / per-group { isolate } override this default.
+                       --jobs then pools across those per-task processes, so pair a
+                       higher --jobs with --isolate deliberately: overhead now scales
+                       with task count, not file count.
   --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
@@ -306,6 +313,7 @@ interface BenchArgs {
   jobs?: number
   gc: boolean
   filter?: string
+  isolate: boolean
   outDir?: string
   exportJson?: string
   format: FormatName
@@ -320,6 +328,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   let jobs: number | undefined
   let gc = false
   let filter: string | undefined
+  let isolate = false
   let outDir: string | undefined
   let exportJson: string | undefined
   let format: FormatName = "table"
@@ -345,6 +354,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
         break
       case "--filter":
         filter = argv[++i]
+        break
+      case "--isolate":
+        isolate = true
         break
       case "--out-dir":
         outDir = argv[++i]
@@ -374,6 +386,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     jobs,
     gc,
     filter,
+    isolate,
     outDir,
     exportJson,
     format,
@@ -409,6 +422,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       jobs: parsed.jobs,
       gc: parsed.gc,
       filter: parsed.filter,
+      isolate: parsed.isolate,
       outDir: parsed.outDir,
     })
   } catch (err) {

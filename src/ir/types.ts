@@ -32,6 +32,10 @@ export interface Workload {
   /** The enclosing group's `group(name, fn, { description })`. Repeated on every
    * workload in the group so each record is self-contained. */
   groupDescription?: string
+  /** Whether this task ran in a subprocess dedicated to it alone (`isolate`
+   * on the task, its group, or the suite), vs. sharing its suite file's
+   * subprocess with other tasks. */
+  isolated?: boolean
 }
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"

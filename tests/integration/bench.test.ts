@@ -211,6 +211,98 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-jobs-fail`]).exited
   }, 20_000)
 
+  test("isolate: true marks every task's workload as isolated and preserves registration order", async () => {
+    const bare = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-isolate-bare`,
+    })
+    const isolated = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      isolate: true,
+      outDir: `${OUT_DIR}-isolate-all`,
+    })
+
+    expect(isolated.workloads.map((w) => w.label)).toEqual(
+      bare.workloads.map((w) => w.label),
+    )
+    expect(bare.workloads.every((w) => w.isolated === undefined)).toBe(true)
+    expect(isolated.workloads.every((w) => w.isolated === true)).toBe(true)
+
+    await Bun.spawn([
+      "rm",
+      "-rf",
+      `${OUT_DIR}-isolate-bare`,
+      `${OUT_DIR}-isolate-all`,
+    ]).exited
+  }, 30_000)
+
+  test("per-task/group isolate overrides work without a suite-wide isolate flag", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-isolate.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-isolate-mixed`,
+    })
+
+    const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
+    // registration order is preserved regardless of which subprocess a task
+    // ran in
+    expect(doc.workloads.map((w) => w.label)).toEqual([
+      "plain",
+      "solo-isolated",
+      "g-isolated/a",
+      "g-isolated/b",
+    ])
+    expect(byLabel.get("plain")!.isolated).toBeUndefined()
+    expect(byLabel.get("solo-isolated")!.isolated).toBe(true)
+    expect(byLabel.get("g-isolated/a")!.isolated).toBe(true)
+    // task-level isolate: false overrides the enclosing group's isolate: true
+    expect(byLabel.get("g-isolated/b")!.isolated).toBeUndefined()
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-isolate-mixed`]).exited
+  }, 30_000)
+
+  test("--filter narrows correctly under isolate: true - unmatched tasks are never spawned", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      isolate: true,
+      filter: "math",
+      outDir: `${OUT_DIR}-isolate-filter`,
+    })
+    expect(doc.workloads.map((w) => w.label).sort()).toEqual([
+      "math/hotInner-large",
+      "math/hotInner-small",
+    ])
+    expect(doc.workloads.every((w) => w.isolated === true)).toBe(true)
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-isolate-filter`]).exited
+  }, 20_000)
+
+  test("isolate: true + jobs still produces one document with correct per-task attribution", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      isolate: true,
+      jobs: 3,
+      outDir: `${OUT_DIR}-isolate-jobs`,
+    })
+    expect(doc.workloads).toHaveLength(3)
+    expect(doc.runs).toHaveLength(3)
+    const runByWorkload = new Map(doc.runs.map((r) => [r.workloadId, r]))
+    for (const w of doc.workloads) {
+      expect(runByWorkload.get(w.id)).toBeDefined()
+    }
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-isolate-jobs`]).exited
+  }, 30_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

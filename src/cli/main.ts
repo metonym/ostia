@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { bench } from "../bench/index.ts"
+import { availableJobs, bench } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
 import { loadConfig } from "../config/index.ts"
@@ -76,6 +76,10 @@ Flags:
                        tasks in a suite pay for the extra rigor. A run that ends below its
                        cost-class floor (only possible with an explicit --min-samples or
                        per-task minSamples) carries a "low-sample-count" warning.
+  --jobs N|auto       suite files to run at once, each still in its own process (default: 1).
+                       Concurrent CPU-bound processes contend for cores, caches and turbo
+                       headroom, so numbers taken at --jobs > 1 are noisier and not
+                       like-for-like with a baseline measured at 1. "auto" = CPU count.
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
@@ -293,6 +297,7 @@ interface BenchArgs {
   suites: string[]
   timeBudgetMs?: number
   minSamples?: number
+  jobs?: number
   gc: boolean
   filter?: string
   outDir?: string
@@ -306,6 +311,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   const suites: string[] = []
   let timeBudgetMs: number | undefined
   let minSamples: number | undefined
+  let jobs: number | undefined
   let gc = false
   let filter: string | undefined
   let outDir: string | undefined
@@ -323,6 +329,11 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       case "--min-samples":
         minSamples = Number(argv[++i])
         break
+      case "--jobs": {
+        const raw = argv[++i]
+        jobs = raw === "auto" ? availableJobs() : Number(raw)
+        break
+      }
       case "--gc":
         gc = true
         break
@@ -354,6 +365,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     suites,
     timeBudgetMs,
     minSamples,
+    jobs,
     gc,
     filter,
     outDir,
@@ -377,6 +389,10 @@ async function benchCommand(argv: string[]): Promise<number> {
     )
     return 2
   }
+  if (parsed.jobs !== undefined && !(parsed.jobs >= 1)) {
+    process.stderr.write(`--jobs expects a positive integer or "auto".\n`)
+    return 2
+  }
 
   let doc: ProfileDocument
   try {
@@ -384,6 +400,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       suites: parsed.suites,
       timeBudgetMs: parsed.timeBudgetMs,
       minSamples: parsed.minSamples,
+      jobs: parsed.jobs,
       gc: parsed.gc,
       filter: parsed.filter,
       outDir: parsed.outDir,

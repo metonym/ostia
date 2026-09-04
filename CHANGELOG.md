@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.1.6 — 2026-09-04
+
+**Features**
+
+- `--preload` / `preload` imports one or more scripts before the suite file in
+  the same subprocess (mirrors Bun's `--preload` for globals, plugins, etc.)
+- `range(start, end, multiplier)` geometric sweep helper for `task()`
+- per-task/group `gc` override (task → group → suite-wide `--gc` → false) so
+  allocation-heavy and cheap tasks can share a suite file
+
 ## 0.1.5 — 2026-09-04
 
 **Features**

@@ -90,8 +90,10 @@ Suite files register tasks like:
   group("parse", () => {
     task("small input", () => parse(smallBuf))
     task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
-  })
+  }, { description: "parser throughput on representative inputs" })
 Per-task options override --time-budget / --min-samples for that task only.
+Optional { description } on group() and task() flows into the document (Workload.description
+/ Workload.groupDescription) so the intent travels with the numbers.
 
 Examples:
   ostia bench benches/parse.ts

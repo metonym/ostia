@@ -47,19 +47,37 @@ export function makeInprocessWorkload(
   return { id, kind: "inprocess", label }
 }
 
+export interface EntryWorkloadOptions {
+  label?: string
+  baseline?: boolean
+  group?: string
+  description?: string
+  groupDescription?: string
+}
+
+/** `taskName` is the registry's "group/name" id and is all the workload id
+ * hashes over: descriptions, the explicit group field and the baseline flag are
+ * annotations, so adding or editing them never orphans a saved baseline. */
 export function makeEntryWorkload(
   file: string,
   taskName: string,
-  label?: string,
-  baseline?: boolean,
+  opts: EntryWorkloadOptions = {},
 ): Workload {
   const id = fp("wl", "inprocess-entry", file, taskName)
   return {
     id,
     kind: "inprocess",
-    entry: { file, task: taskName },
-    label,
-    baseline,
+    entry: {
+      file,
+      task: taskName,
+      ...(opts.group !== undefined && { group: opts.group }),
+    },
+    ...(opts.label !== undefined && { label: opts.label }),
+    ...(opts.baseline !== undefined && { baseline: opts.baseline }),
+    ...(opts.description !== undefined && { description: opts.description }),
+    ...(opts.groupDescription !== undefined && {
+      groupDescription: opts.groupDescription,
+    }),
   }
 }
 

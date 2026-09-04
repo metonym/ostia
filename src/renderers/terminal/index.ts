@@ -1,4 +1,5 @@
 import type { ProfileDocument, Run, Workload } from "../../ir/types.ts"
+import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -7,17 +8,6 @@ function fmtMs(ns: number): string {
 
 function commandLabel(w: Workload): string {
   return w.label ?? w.command?.join(" ") ?? w.entry?.task ?? w.id
-}
-
-/** Group name a task belongs to, derived from the "${groupName}/${taskName}"
- * id ostia's bench registry assigns to `entry.task` (see registry.ts's
- * `taskId`). Workloads without a group (or not from `task()` at all) have no
- * "/" and so return undefined. */
-function groupOf(workload: Workload | undefined): string | undefined {
-  const id = workload?.entry?.task
-  if (!id) return undefined
-  const idx = id.lastIndexOf("/")
-  return idx === -1 ? undefined : id.slice(0, idx)
 }
 
 export const terminalRenderer: Renderer<Record<string, never>> = {
@@ -47,31 +37,10 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       }
     })
 
-    const fastestMedian = Math.min(...rows.map((r) => r.run.timing.median))
     const showRelative = rows.length > 1
-
-    // Grouped tasks get their own Relative baseline: the group's explicit
-    // `task(..., { baseline: true })` task if one is marked, else its
-    // fastest task (which, for a single-task group, is that task itself).
-    // Ungrouped tasks fall back to the whole-run fastest, matching
-    // pre-grouping behavior.
-    const siblingsByGroup = new Map<string, typeof rows>()
-    for (const row of rows) {
-      const key = groupOf(row.workload)
-      if (key === undefined) continue
-      const arr = siblingsByGroup.get(key)
-      if (arr) arr.push(row)
-      else siblingsByGroup.set(key, [row])
-    }
-    const referenceFor = (row: (typeof rows)[number]): number => {
-      const groupKey = groupOf(row.workload)
-      if (groupKey === undefined) return fastestMedian
-      const siblings = siblingsByGroup.get(groupKey) ?? [row]
-      const baselineRow = siblings.find((s) => s.workload?.baseline)
-      return baselineRow
-        ? baselineRow.run.timing.median
-        : Math.min(...siblings.map((s) => s.run.timing.median))
-    }
+    // Grouped tasks get their own Relative baseline (see relative.ts);
+    // ungrouped tasks fall back to the whole-run fastest.
+    const references = relativeReferences(rows)
 
     const lines: string[] = []
     const labelWidth = Math.max(7, ...rows.map((r) => r.label.length))
@@ -88,7 +57,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       const rangeCell = `${fmtMs(t.min)}…${fmtMs(t.max)}`
       let line = `${label.padEnd(labelWidth)}   ${meanCell.padEnd(15)}  ${rangeCell.padEnd(18)}`
       if (showRelative) {
-        const relative = t.median / referenceFor(row)
+        const relative = t.median / (references.get(row) ?? t.median)
         if (relative === 1) {
           line += workload?.baseline ? "  1.00× (baseline)" : "  1.00×"
         } else if (relative > 1) {

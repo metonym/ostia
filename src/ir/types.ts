@@ -17,11 +17,21 @@ export interface Workload {
   label?: string
   command?: string[]
   shell?: string
-  entry?: { file: string; task: string }
+  /** `task` is the "group/name" id the bench registry assigns; `group` is the
+   * enclosing `group()` name when there is one. Renderers prefer `group` over
+   * splitting `task` on "/", so task names may contain slashes. */
+  entry?: { file: string; task: string; group?: string }
   /** Marks this task as the in-run Relative reference for its group (see
    * `task(name, fn, { baseline: true })`). At most one per group is
    * meaningful; renderers use the first they encounter. */
   baseline?: boolean
+  /** What this task measures and why, from `task(name, fn, { description })`.
+   * Travels with the data so a reader of the document has intent, not just
+   * numbers. */
+  description?: string
+  /** The enclosing group's `group(name, fn, { description })`. Repeated on every
+   * workload in the group so each record is self-contained. */
+  groupDescription?: string
 }
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"

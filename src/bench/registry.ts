@@ -7,10 +7,20 @@ export interface TaskOptions {
   /** Per-task hard floor on trials; overrides the suite-wide `--min-samples` /
    * `minSamples`. */
   minSamples?: number
+  /** What this task measures and why. Flows into `Workload.description` so the
+   * intent travels with the numbers instead of living only in a source comment. */
+  description?: string
+}
+
+export interface GroupOptions {
+  /** What this group measures and why. Flows into `Workload.groupDescription`
+   * on every task in the group. */
+  description?: string
 }
 
 export interface RegisteredTask {
   groupName?: string
+  groupDescription?: string
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
@@ -18,11 +28,11 @@ export interface RegisteredTask {
 }
 
 const tasks: RegisteredTask[] = []
-let currentGroup: string | undefined
+let currentGroup: { name: string; description?: string } | undefined
 
-export function group(name: string, fn: () => void): void {
+export function group(name: string, fn: () => void, opts?: GroupOptions): void {
   const previous = currentGroup
-  currentGroup = name
+  currentGroup = { name, description: opts?.description }
   try {
     fn()
   } finally {
@@ -36,7 +46,8 @@ export function task(
   opts?: TaskOptions,
 ): void {
   tasks.push({
-    groupName: currentGroup,
+    groupName: currentGroup?.name,
+    groupDescription: currentGroup?.description,
     name,
     fn,
     baseline: opts?.baseline,

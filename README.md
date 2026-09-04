@@ -156,6 +156,22 @@ without re-deriving the policy from the raw sample array.
 ```sh
 ostia bench bench/*.ts
 ostia bench --time-budget 500 --min-samples 50 bench/stats.ts
+ostia bench bench/*.ts --jobs auto          # suite files in parallel, see below
+```
+
+`--jobs N|auto` runs that many suite files at once, each still in its own child process.
+Files are independent by design, so for a multi-file suite this is close to a linear
+wall-clock win - but concurrent CPU-bound processes contend for cores, caches and turbo
+headroom, so numbers taken at `--jobs > 1` are noisier and not like-for-like with a
+baseline measured at 1. It defaults to 1 for that reason; opt in for exploratory runs,
+keep 1 for anything you `compare` or `ci` against.
+
+```
+Command                                  Mean [ms]        Min…Max [ms]        Relative
+--------------------------------------------------------------------------------------
+stats/computeTimingStats (1e3 samples)   0.014 ± 0.016    0.012…0.598         1.00×
+stats/computeTimingStats (1e4 samples)   0.484 ± 0.052    0.434…0.680         38.22× slower
+stats/timingWarnings (1e3 samples)       0.036 ± 0.020    0.032…0.541         2.82× slower
 ```
 
 ```
@@ -439,6 +455,7 @@ const doc = await bench({
   suites: ["suite.ts"],
   timeBudgetMs: 500,
   minSamples: 50,
+  jobs: 1, // suite files at once; > 1 trades fidelity for wall time
 })
 ```
 

@@ -166,6 +166,51 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     ]).exited
   }, 20_000)
 
+  test("jobs > 1 runs suite files concurrently but keeps command-line order in the document", async () => {
+    const suites = [
+      `${import.meta.dir}/../fixtures/bench-suite-overrides.ts`,
+      SUITE,
+      `${import.meta.dir}/../fixtures/bench-suite-described.ts`,
+    ]
+    const sequential = await bench({
+      suites,
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-jobs-1`,
+    })
+    const concurrent = await bench({
+      suites,
+      timeBudgetMs: 10,
+      minSamples: 3,
+      jobs: 3,
+      outDir: `${OUT_DIR}-jobs-3`,
+    })
+    expect(concurrent.workloads.map((w) => w.label)).toEqual(
+      sequential.workloads.map((w) => w.label),
+    )
+    expect(concurrent.runs.map((r) => r.workloadId)).toEqual(
+      sequential.runs.map((r) => r.workloadId),
+    )
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-jobs-1`, `${OUT_DIR}-jobs-3`])
+      .exited
+  }, 30_000)
+
+  test("jobs > 1 fails the whole run when any suite fails", async () => {
+    const emptySuite = `${OUT_DIR}-jobs-empty-suite.ts`
+    await Bun.write(emptySuite, "export {}\n")
+    await expect(
+      bench({
+        suites: [SUITE, emptySuite],
+        timeBudgetMs: 10,
+        minSamples: 3,
+        jobs: 2,
+        outDir: `${OUT_DIR}-jobs-fail`,
+      }),
+    ).rejects.toThrow(/Bench suite failed/)
+    await Bun.spawn(["rm", "-f", emptySuite]).exited
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-jobs-fail`]).exited
+  }, 20_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

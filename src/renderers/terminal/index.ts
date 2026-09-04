@@ -50,10 +50,11 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const fastestMedian = Math.min(...rows.map((r) => r.run.timing.median))
     const showRelative = rows.length > 1
 
-    // Groups with >1 sibling get their own Relative baseline: the group's
-    // explicit `task(..., { baseline: true })` task if one is marked, else
-    // its fastest task. Ungrouped tasks and solo-in-group tasks fall back to
-    // the whole-run fastest, matching pre-grouping behavior.
+    // Grouped tasks get their own Relative baseline: the group's explicit
+    // `task(..., { baseline: true })` task if one is marked, else its
+    // fastest task (which, for a single-task group, is that task itself).
+    // Ungrouped tasks fall back to the whole-run fastest, matching
+    // pre-grouping behavior.
     const siblingsByGroup = new Map<string, typeof rows>()
     for (const row of rows) {
       const key = groupOf(row.workload)
@@ -63,8 +64,9 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       else siblingsByGroup.set(key, [row])
     }
     const referenceFor = (row: (typeof rows)[number]): number => {
-      const siblings = siblingsByGroup.get(groupOf(row.workload) ?? "")
-      if (!siblings || siblings.length <= 1) return fastestMedian
+      const groupKey = groupOf(row.workload)
+      if (groupKey === undefined) return fastestMedian
+      const siblings = siblingsByGroup.get(groupKey) ?? [row]
       const baselineRow = siblings.find((s) => s.workload?.baseline)
       return baselineRow
         ? baselineRow.run.timing.median

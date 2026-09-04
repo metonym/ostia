@@ -121,10 +121,15 @@ describe("renderers - golden output on fixed fake data", () => {
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     const slowLine = lines.find((l) => l.includes("css/optimizeCssWithReport"))
+    const tinyLine = lines.find((l) => l.includes("strings/noSubstring"))
 
     // ~41ms is ~2.05x its group sibling (~20ms), not ~40000x the unrelated
     // near-zero task in the other group.
     expect(slowLine).toContain("2.05× slower")
+
+    // "strings" has exactly one task, so it's its own baseline: 1.00×, not a
+    // multiplier against the fastest task in the whole document.
+    expect(tinyLine).toContain("1.00×")
   })
 
   test("table renderer computes Relative against an explicit baseline task", async () => {

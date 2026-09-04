@@ -47,7 +47,7 @@ Flags:
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
   --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
-  --format FORMAT     table | json (default: table)
+  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
 
@@ -85,7 +85,11 @@ Flags:
                        case-sensitive; unmatched tasks are skipped, not timed)
   --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
-  --format FORMAT     table | json (default: table)
+  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
+                       "minimal" is one compact JSON object per task with no raw sample
+                       array: {task, group, description, samples, mean, median, stddevPct,
+                       relative, warnings[{code,data}]} in ns - built to pipe into an LLM
+                       agent's context.
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
 
@@ -103,6 +107,7 @@ Examples:
   ostia bench benches/parse.ts
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
   ostia bench benches/*.ts --filter parse
+  ostia bench benches/*.ts --jobs auto --format minimal
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -112,7 +117,8 @@ Compare two ProfileDocuments (matched by workload id) and rank timing/frame/heap
 
 Flags:
   --export-json PATH  write the resulting document (with comparisons) to PATH
-  --format FORMAT     table | json (default: table)
+  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
+                       "minimal" adds delta: {medianPct, verdict, pass} to each task line
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
 
@@ -121,7 +127,7 @@ Examples:
   ostia compare after.json --baseline .ostia/baselines/main.json
 `
 
-const REPORT_HELP = `ostia report <document.json> [--format table|json|markdown|jsonl]
+const REPORT_HELP = `ostia report <document.json> [--format table|json|markdown|jsonl|minimal]
 
 Render a saved ProfileDocument.
 `

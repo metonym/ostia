@@ -261,3 +261,112 @@ describe("renderers - golden output on fixed fake data", () => {
     }
   })
 })
+
+describe("minimal renderer - one compact JSON object per timing run", () => {
+  test("emits one line per task with stats, no raw sample array, and warning codes with data", async () => {
+    const doc = fixedDoc()
+    doc.runs[1]!.warnings.push({
+      code: "low-sample-count",
+      message: "thin",
+      data: { samples: 3, target: 7 },
+    })
+    const result = await renderers.minimal.render(doc, {})
+    const lines = result.text!.trim().split("\n")
+    expect(lines).toHaveLength(2)
+
+    const a = JSON.parse(lines[0]!)
+    const b = JSON.parse(lines[1]!)
+    expect(a.task).toBe("bun a.ts")
+    expect(a.unit).toBe("ns")
+    expect(a.samples).toBe(5)
+    expect(Array.isArray(a.samples)).toBe(false)
+    expect(a.mean).toBeCloseTo(10_500_000, -3)
+    expect(a.median).toBe(10_500_000)
+    expect(typeof a.stddevPct).toBe("number")
+    expect(a.relative).toBe(1)
+    expect(a.warnings).toEqual([])
+    expect(b.relative).toBeCloseTo(1.952, 2)
+    expect(b.warnings).toEqual([
+      { code: "low-sample-count", data: { samples: 3, target: 7 } },
+    ])
+    for (const key of Object.keys(b)) expect(key).not.toBe("message")
+  })
+
+  test("carries task/group descriptions, group, and baseline flag from the workload", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const w = makeEntryWorkload("suite.ts", "parse/small", {
+      label: "parse/small",
+      group: "parse",
+      baseline: true,
+      description: "small input, exercises the fast path",
+      groupDescription: "parser throughput",
+    })
+    const samples = [1_000, 1_100, 900]
+    const doc = newDocument(
+      [w],
+      [
+        makeTimingRun({
+          workload: w,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const line = JSON.parse((await renderers.minimal.render(doc, {})).text!)
+    expect(line.task).toBe("parse/small")
+    expect(line.group).toBe("parse")
+    expect(line.description).toBe("small input, exercises the fast path")
+    expect(line.groupDescription).toBe("parser throughput")
+    expect(line.baseline).toBe(true)
+    // Single timing run: no Relative, same as the table.
+    expect(line.relative).toBeUndefined()
+  })
+
+  test("includes the comparison delta per task when the document has comparisons", async () => {
+    const doc = fixedDoc()
+    doc.comparisons = [
+      {
+        id: "cmp_x",
+        baselineRunId: "run_base",
+        candidateRunId: doc.runs[0]!.id,
+        timing: {
+          medianDeltaPct: 12.5,
+          meanDeltaPct: 11,
+          verdict: "regressed",
+        },
+        thresholds: {
+          timingPct: 5,
+          frameSelfPct: 10,
+          heapTypePct: 10,
+          minFrameSelfUs: 1000,
+        },
+        verdict: "fail",
+      },
+    ]
+    const lines = (await renderers.minimal.render(doc, {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    expect(lines[0]!.delta).toEqual({
+      medianPct: 12.5,
+      meanPct: 11,
+      verdict: "regressed",
+      pass: false,
+    })
+    expect(lines[1]!.delta).toBeUndefined()
+  })
+
+  test("is far smaller than the full document for a many-sample run", async () => {
+    const doc = fixedDoc()
+    const big = Array.from({ length: 20_000 }, (_, i) => 10_000 + (i % 7))
+    doc.runs[0]!.timing = computeTimingStats(big)
+    doc.runs[0]!.trials = big.map((wallNs, i) => ({ i, wallNs }))
+    const full = (await renderers.json.render(doc, {})).text!
+    const minimal = (await renderers.minimal.render(doc, {})).text!
+    expect(minimal.length).toBeLessThan(full.length / 100)
+    expect(JSON.parse(minimal.trim().split("\n")[0]!).samples).toBe(20_000)
+  })
+})

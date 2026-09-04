@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5 — 2026-09-04
+
+**Features**
+
+- `--isolate` (plus per-task/group overrides) runs each task in its own child
+  process so JIT tier state and heap shape don't leak between tasks; `--jobs`
+  pools across those spawns the same way it pools suite files
+
 ## 0.1.4 — 2026-09-04
 
 **Features**

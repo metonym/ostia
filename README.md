@@ -125,8 +125,11 @@ Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
 
 ### `ostia bench`
 
-In-process microbenchmarks registered with `group()` / `task()`. Time budget + min
-samples (mitata-shaped); batches when a call is too fast for `Bun.nanoseconds()`.
+In-process microbenchmarks registered with `group()` / `task()`. Each task samples
+for `--time-budget` (default 500ms). `--min-samples` is a hard floor kept even when it
+overruns the budget; left unset, the floor is cost-aware (as many trials as fit in the
+budget, clamped to 3..20) so one slow task can't blow the suite's total. Fast calls are
+batched so a trial spans at least 1µs and a full budget yields about 10k trials at most.
 
 ```sh
 ostia bench bench/*.ts
@@ -365,6 +368,8 @@ import { group, task } from "ostia"
 group("parse", () => {
   task("small input", () => parse(smallBuf))
   task("large input", () => parse(largeBuf))
+  // Per-task options override the suite-wide time budget / min samples.
+  task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
 })
 ```
 

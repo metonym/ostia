@@ -62,6 +62,27 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-a`, `${OUT_DIR}-b`]).exited
   }, 20_000)
 
+  test("per-task options override the suite-wide budget and sample floor", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-overrides.ts`],
+      timeBudgetMs: 5,
+      minSamples: 5,
+      outDir: `${OUT_DIR}-overrides`,
+    })
+    const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
+    const runOf = (label: string) =>
+      doc.runs.find((r) => r.workloadId === byLabel.get(label)!.id)!
+    const global = runOf("overrides/global")
+    const pinned = runOf("overrides/pinned")
+    // ~1ms per call, 5ms budget: the global task takes ~5 trials, the pinned one
+    // is held to its own 40-sample floor.
+    expect(global.trials.length).toBeLessThan(40)
+    expect(pinned.trials.length).toBeGreaterThanOrEqual(40)
+    expect(pinned.configFingerprint).not.toBe(global.configFingerprint)
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-overrides`]).exited
+  }, 20_000)
+
   test("a suite with no registered tasks fails the bench run instead of silently returning nothing", async () => {
     const emptySuite = `${OUT_DIR}-empty-suite.ts`
     await Bun.write(emptySuite, "export {}\n")

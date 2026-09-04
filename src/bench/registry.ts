@@ -1,14 +1,20 @@
+export interface TaskOptions {
+  /** Marks this task as the Relative reference for its group in the table
+   * renderer, mirroring mitata's `baseline()`. At most one per group. */
+  baseline?: boolean
+  /** Per-task time budget; overrides the suite-wide `--time-budget` / `timeBudgetMs`. */
+  timeBudgetMs?: number
+  /** Per-task hard floor on trials; overrides the suite-wide `--min-samples` /
+   * `minSamples`. */
+  minSamples?: number
+}
+
 export interface RegisteredTask {
   groupName?: string
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
-}
-
-export interface TaskOptions {
-  /** Marks this task as the Relative reference for its group in the table
-   * renderer, mirroring mitata's `baseline()`. At most one per group. */
-  baseline?: boolean
+  opts?: TaskOptions
 }
 
 const tasks: RegisteredTask[] = []
@@ -34,6 +40,7 @@ export function task(
     name,
     fn,
     baseline: opts?.baseline,
+    opts,
   })
 }
 

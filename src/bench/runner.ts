@@ -49,23 +49,33 @@ async function main(): Promise<number> {
     return 2
   }
 
-  const cfgFp = configFingerprint({
-    timeBudgetMs: opts.timeBudgetMs ?? null,
-    minSamples: opts.minSamples ?? null,
-    gc: opts.gc ?? false,
-  })
-
   const workloads = []
   const runs = []
   for (const t of tasks) {
     const id = taskIdOf(t)
     const workload = makeEntryWorkload(suiteFile, id, id, t.baseline)
     workloads.push(workload)
-    const result = await measureTask(t.fn, opts)
+    // Per-task options win over the suite-wide ones. The fingerprint is per task
+    // for the same reason: two runs of one task only compare like-for-like when
+    // they were measured under the same effective settings.
+    const taskOpts: InprocessTimingOptions = {
+      ...opts,
+      ...(t.opts?.timeBudgetMs !== undefined && {
+        timeBudgetMs: t.opts.timeBudgetMs,
+      }),
+      ...(t.opts?.minSamples !== undefined && {
+        minSamples: t.opts.minSamples,
+      }),
+    }
+    const result = await measureTask(t.fn, taskOpts)
     runs.push(
       makeTimingRun({
         workload,
-        configFingerprint: cfgFp,
+        configFingerprint: configFingerprint({
+          timeBudgetMs: taskOpts.timeBudgetMs ?? null,
+          minSamples: taskOpts.minSamples ?? null,
+          gc: taskOpts.gc ?? false,
+        }),
         trials: result.trials,
         timing: result.timing,
         warnings: result.warnings,

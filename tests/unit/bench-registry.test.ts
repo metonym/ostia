@@ -21,6 +21,14 @@ describe("bench/registry", () => {
     expect(tasks[0]!.groupName).toBeUndefined()
   })
 
+  test("task stores per-task options when given", () => {
+    task("plain", () => 1)
+    task("tuned", () => 1, { timeBudgetMs: 2000, minSamples: 10 })
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.opts).toBeUndefined()
+    expect(tasks[1]!.opts).toEqual({ timeBudgetMs: 2000, minSamples: 10 })
+  })
+
   test("tasks inside group register with correct groupName", () => {
     group("g1", () => {
       task("a", () => 1)

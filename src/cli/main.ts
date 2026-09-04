@@ -67,8 +67,10 @@ Run in-process benchmark suites (registered via group()/task()). Each suite file
 in its own spawned child process (isolated from CLI startup state).
 
 Flags:
-  --time-budget MS    time budget per task, min-samples permitting (default: 500)
-  --min-samples N     minimum samples per task (default: 20)
+  --time-budget MS    sampling budget per task; always runs at least this long (default: 500)
+  --min-samples N     hard floor on samples per task, kept even when it overruns the
+                       budget. Default: cost-aware - as many as fit in the budget,
+                       clamped to 3..20, so one slow task can't blow the total.
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
@@ -82,7 +84,9 @@ Suite files register tasks like:
   import { group, task } from "<pkg>"
   group("parse", () => {
     task("small input", () => parse(smallBuf))
+    task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
   })
+Per-task options override --time-budget / --min-samples for that task only.
 
 Examples:
   ostia bench benches/parse.ts

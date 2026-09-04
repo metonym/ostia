@@ -10,17 +10,26 @@ export interface TaskOptions {
   /** What this task measures and why. Flows into `Workload.description` so the
    * intent travels with the numbers instead of living only in a source comment. */
   description?: string
+  /** Give this task its own subprocess instead of sharing its suite file's,
+   * isolating its JIT tier state and heap shape from every other task in the
+   * run. Overrides the group's and the suite-wide `bench({ isolate })` /
+   * `--isolate` default for this task only. */
+  isolate?: boolean
 }
 
 export interface GroupOptions {
   /** What this group measures and why. Flows into `Workload.groupDescription`
    * on every task in the group. */
   description?: string
+  /** Default `isolate` for every task in this group, unless a task overrides
+   * it with its own `TaskOptions.isolate`. */
+  isolate?: boolean
 }
 
 export interface RegisteredTask {
   groupName?: string
   groupDescription?: string
+  groupIsolate?: boolean
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
@@ -28,11 +37,17 @@ export interface RegisteredTask {
 }
 
 const tasks: RegisteredTask[] = []
-let currentGroup: { name: string; description?: string } | undefined
+let currentGroup:
+  | { name: string; description?: string; isolate?: boolean }
+  | undefined
 
 export function group(name: string, fn: () => void, opts?: GroupOptions): void {
   const previous = currentGroup
-  currentGroup = { name, description: opts?.description }
+  currentGroup = {
+    name,
+    description: opts?.description,
+    isolate: opts?.isolate,
+  }
   try {
     fn()
   } finally {
@@ -48,6 +63,7 @@ export function task(
   tasks.push({
     groupName: currentGroup?.name,
     groupDescription: currentGroup?.description,
+    groupIsolate: currentGroup?.isolate,
     name,
     fn,
     baseline: opts?.baseline,
@@ -66,6 +82,12 @@ export function resetRegistry(): void {
 
 export function taskId(t: RegisteredTask): string {
   return t.groupName ? `${t.groupName}/${t.name}` : t.name
+}
+
+/** A task's own `isolate` wins, then its group's, then the suite-wide
+ * default passed to `bench()`. */
+export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
+  return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate
 }
 
 /** mitata-compatible: filter value is a JS regex source, substring-matched (no

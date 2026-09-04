@@ -15,6 +15,9 @@ export interface TaskOptions {
    * run. Overrides the group's and the suite-wide `bench({ isolate })` /
    * `--isolate` default for this task only. */
   isolate?: boolean
+  /** Overrides the suite-wide `bench({ gc })` / `--gc` (and any
+   * `GroupOptions.gc`) for this task only. */
+  gc?: boolean
 }
 
 export interface GroupOptions {
@@ -24,12 +27,16 @@ export interface GroupOptions {
   /** Default `isolate` for every task in this group, unless a task overrides
    * it with its own `TaskOptions.isolate`. */
   isolate?: boolean
+  /** Default `gc` for every task in this group, unless a task overrides it
+   * with its own `TaskOptions.gc`. */
+  gc?: boolean
 }
 
 export interface RegisteredTask {
   groupName?: string
   groupDescription?: string
   groupIsolate?: boolean
+  groupGc?: boolean
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
@@ -38,7 +45,7 @@ export interface RegisteredTask {
 
 const tasks: RegisteredTask[] = []
 let currentGroup:
-  | { name: string; description?: string; isolate?: boolean }
+  | { name: string; description?: string; isolate?: boolean; gc?: boolean }
   | undefined
 
 export function group(name: string, fn: () => void, opts?: GroupOptions): void {
@@ -47,6 +54,7 @@ export function group(name: string, fn: () => void, opts?: GroupOptions): void {
     name,
     description: opts?.description,
     isolate: opts?.isolate,
+    gc: opts?.gc,
   }
   try {
     fn()
@@ -64,6 +72,7 @@ export function task(
     groupName: currentGroup?.name,
     groupDescription: currentGroup?.description,
     groupIsolate: currentGroup?.isolate,
+    groupGc: currentGroup?.gc,
     name,
     fn,
     baseline: opts?.baseline,
@@ -88,6 +97,12 @@ export function taskId(t: RegisteredTask): string {
  * default passed to `bench()`. */
 export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
   return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate
+}
+
+/** A task's own `gc` wins, then its group's, then the suite-wide default
+ * passed to `bench()`. */
+export function taskGc(t: RegisteredTask, suiteGc: boolean): boolean {
+  return t.opts?.gc ?? t.groupGc ?? suiteGc
 }
 
 /** mitata-compatible: filter value is a JS regex source, substring-matched (no

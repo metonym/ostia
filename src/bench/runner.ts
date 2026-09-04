@@ -15,6 +15,7 @@ import {
   filterTasks,
   getRegisteredTasks,
   resetRegistry,
+  taskGc,
   taskId as taskIdOf,
   taskIsolate,
 } from "./registry.ts"
@@ -104,6 +105,7 @@ async function main(): Promise<number> {
       ...(t.opts?.minSamples !== undefined && {
         minSamples: t.opts.minSamples,
       }),
+      gc: taskGc(t, opts.gc ?? false),
     }
     const result = await measureTask(t.fn, taskOpts)
     runs.push(

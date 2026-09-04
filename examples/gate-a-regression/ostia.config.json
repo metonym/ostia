@@ -1,0 +1,19 @@
+{
+  "runs": 8,
+  "warmup": 2,
+  "outDir": ".ostia",
+  "baseline": "main",
+  "thresholds": {
+    "timingPct": 15,
+    "frameSelfPct": 10,
+    "heapTypePct": 10,
+    "minFrameSelfUs": 1000
+  },
+  "workloads": [
+    {
+      "label": "work",
+      "command": ["bun", "fixtures/work.ts"],
+      "inputs": ["fixtures/work.ts"]
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "example-gate-a-regression",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "demo": "bun demo.ts"
+  }
+}

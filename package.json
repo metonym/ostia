@@ -1,0 +1,31 @@
+{
+  "name": "ostia",
+  "version": "0.1.0",
+  "description": "Fast profiling and benchmarking for Bun.",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "bin": {
+    "ostia": "./src/cli/main.ts"
+  },
+  "scripts": {
+    "build": "bun scripts/build.ts",
+    "test": "bun test",
+    "typecheck": "tsc6",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write . --unsafe",
+    "knip": "knip-bun",
+    "bench": "bun src/cli/main.ts bench bench/*.ts",
+    "bench:baseline": "bun src/cli/main.ts bench bench/*.ts --time-budget 3 --min-samples 30 --export-json .ostia/baselines/bench-main.json",
+    "baseline": "bun scripts/seed-baseline.ts",
+    "dogfood": "bun test && bun src/cli/main.ts ci",
+    "examples": "bun scripts/run-examples.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.12",
+    "@types/bun": "^1.4.0",
+    "knip": "^6.34.0",
+    "typescript": "npm:@typescript/typescript6@^6.0.2"
+  }
+}

@@ -1,0 +1,72 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+
+      - name: Install dependencies
+        run: bun ci
+
+      - name: Lint and format
+        run: bunx biome ci --error-on-warnings
+
+      - name: Unused files and exports
+        run: bun run knip
+
+      - name: Build
+        run: bun run build
+
+      - name: Typecheck
+        run: bun run typecheck
+
+      - name: Run tests
+        run: bun test
+
+      - name: Smoke examples
+        run: bun run examples
+
+      - name: Seed baseline from base branch
+        if: github.event_name == 'pull_request'
+        run: |
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.sha }}"
+          mkdir -p /tmp/ostia-baseline .ostia/baselines
+
+          if git cat-file -e "$BASE_SHA:package.json" 2>/dev/null &&
+             git cat-file -e "$BASE_SHA:ostia.config.json" 2>/dev/null; then
+            git checkout --force "$BASE_SHA"
+            bun ci
+            # Seeder may not exist on base yet; take it from the PR tip and measure base's tree.
+            git show "$HEAD_SHA:scripts/seed-baseline.ts" > scripts/seed-baseline.ts
+            bun scripts/seed-baseline.ts
+            cp .ostia/baselines/main.json /tmp/ostia-baseline/main.json
+            git checkout --force "$HEAD_SHA"
+            bun ci
+            cp /tmp/ostia-baseline/main.json .ostia/baselines/main.json
+          else
+            echo "Base $BASE_SHA has no package.json/ostia.config.json; seeding from PR tip."
+            bun run baseline
+          fi
+
+      - name: Seed baseline (push)
+        if: github.event_name == 'push'
+        run: bun run baseline
+
+      - name: Dogfood (ostia ci)
+        run: bun src/cli/main.ts ci

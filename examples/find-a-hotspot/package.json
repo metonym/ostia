@@ -1,0 +1,9 @@
+{
+  "name": "example-find-a-hotspot",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "demo": "bun demo.ts"
+  }
+}

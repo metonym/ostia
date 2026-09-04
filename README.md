@@ -1,0 +1,439 @@
+# ostia
+
+ostia is a profiling and benchmarking toolkit for Bun.
+
+Use it when you want wall-clock timings, CPU hotspots, heap summaries, or JIT tier
+data in one place, then diff those results or fail CI when something gets slower.
+Everything lands in one schema-versioned JSON document (`ProfileDocument`), so the
+CLI and the library speak the same language.
+
+Zero runtime dependencies. Requires Bun ≥ 1.4.
+
+## Install
+
+```sh
+bun add ostia
+```
+
+## Quick start
+
+Compare two commands:
+
+```sh
+ostia run --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
+```
+
+```
+Command                Mean [ms]        Min…Max [ms]        Relative
+--------------------------------------------------------------------
+bun fixtures/fast.ts   8.413 ± 1.340    7.623…12.365        1.00×
+bun fixtures/slow.ts   21.712 ± 1.157   20.831…24.220       2.62× slower
+```
+
+Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into the
+timing numbers above):
+
+```sh
+ostia run --runs 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json fixtures/work.ts
+```
+
+```
+Command                Mean [ms]        Min…Max [ms]
+----------------------------------------------------
+bun fixtures/work.ts   275.815 ± 2.853  273.334…281.384
+
+CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 297.578ms)
+  100.0%    284.19ms self  hashLoop
+    0.0%      0.00ms self  (root)
+  artifact: .ostia/artifacts/<run-id>-cpu.cpuprofile
+```
+
+Gate a change against a local baseline (baselines are gitignored under `.ostia/`):
+
+```sh
+bun run baseline   # on known-good: measure ostia.config.json -> .ostia/baselines/main.json
+ostia ci           # on your branch: rerun changed workloads, exit 1 on regression
+```
+
+```
+2 workloads
+0 affected by this change
+2 cached
+0 executed
+2 passed  0 regressed
+
+Profile CI: ✓
+```
+
+## What ostia is for
+
+- Time subprocesses or in-process functions without a profiler attached to the timing runs.
+- Capture CPU (`--cpu`), heap (`--heap`), or JSC JIT tiers (`profile(..., { origin: "jsc" })`)
+  as separate evidence on the same document.
+- Diff two documents (`ostia compare`) or fail CI (`ostia ci`) with exit codes `0` / `1` / `2`.
+- Emit files other tools already understand: collapsed stacks, Mermaid, speedscope JSON,
+  raw `.cpuprofile`.
+
+## CLI reference
+
+```
+ostia run <command...>       time commands; optional --cpu / --heap capture
+ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
+ostia compare <a> <b>        diff two ProfileDocuments
+ostia report <document.json> render a saved document
+ostia viz <document.json>    render CPU evidence to a file format
+ostia ci                     run configured workloads vs a baseline, gate regressions
+```
+
+Every subcommand takes `--help` for its full flag list.
+
+### `ostia run`
+
+Clean wall-clock timing by default. `--cpu` / `--heap` schedule one extra instrumented
+trial each, labeled separately in the document.
+
+```sh
+ostia run "bun a.ts" "bun b.ts"
+ostia run --runs 25 --warmup 3 --cpu --heap "bun src/server.ts"
+ostia run --format json --export-json out.json "bun a.ts"
+```
+
+Timing table (two commands get a Relative column automatically):
+
+```
+Command                Mean [ms]        Min…Max [ms]        Relative
+--------------------------------------------------------------------
+bun fixtures/fast.ts   8.413 ± 1.340    7.623…12.365        1.00×
+bun fixtures/slow.ts   21.712 ± 1.157   20.831…24.220       2.62× slower
+```
+
+Heap summary (type counts from the snapshot trial):
+
+```
+Command                    Mean [ms]        Min…Max [ms]
+--------------------------------------------------------
+bun fixtures/allocate.ts   27.079 ± 6.844   23.888…91.799
+
+Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
+    1369  string
+     426  code
+     321  closure
+     216  object shape
+     104  hidden
+  artifact: .ostia/artifacts/<run-id>-heap.heapsnapshot
+```
+
+### `ostia bench`
+
+In-process microbenchmarks registered with `group()` / `task()`. Time budget + min
+samples (mitata-shaped); batches when a call is too fast for `Bun.nanoseconds()`.
+
+```sh
+ostia bench bench/*.ts
+ostia bench --time-budget 500 --min-samples 50 bench/stats.ts
+```
+
+```
+Command                                  Mean [ms]        Min…Max [ms]        Relative
+--------------------------------------------------------------------------------------
+stats/computeTimingStats (1e3 samples)   0.014 ± 0.016    0.012…0.598         1.00×
+stats/computeTimingStats (1e4 samples)   0.484 ± 0.052    0.434…0.680         38.22× slower
+stats/timingWarnings (1e3 samples)       0.036 ± 0.020    0.032…0.541         2.82× slower
+```
+
+### `ostia compare`
+
+Match workloads by id, rank timing / frame / heap deltas, print a verdict per workload.
+
+```sh
+ostia compare before.json after.json
+ostia compare after.json --baseline .ostia/baselines/main.json
+```
+
+```
+✓ bun fixtures/fast.ts
+  timing: -2.9% median (unchanged)
+
+✗ work
+  timing: +1249.2% median (regressed)
+```
+
+### `ostia report`
+
+Render a saved `ProfileDocument` without re-running anything.
+
+```sh
+ostia report out.json                 # table (default)
+ostia report out.json --format markdown
+ostia report out.json --format json
+ostia report out.json --format jsonl
+```
+
+Markdown:
+
+```
+# Profile Report
+
+Bun 1.4.0 · ostia 0.1.0 · darwin/arm64 · 2026-09-04T03:46:02.961Z
+
+## Timing
+
+| Command | Mean ± SD (ms) | Min…Max (ms) | Median (ms) |
+|---|---|---|---|
+| bun -e 1 | 5.477 ± 0.303 | 5.153…5.882 | 5.396 |
+```
+
+### `ostia viz`
+
+Turn CPU evidence into files for other tools. Formats: `collapsed`, `mermaid`,
+`speedscope`, `cpuprofile` (pass-through of a real CDP artifact when present).
+
+```sh
+ostia viz .ostia/doc.json --format collapsed
+ostia viz .ostia/doc.json --format mermaid
+ostia viz .ostia/doc.json --format speedscope > flame.json
+```
+
+Collapsed stacks (one line per stack; feeds `flamegraph.pl` and friends):
+
+```
+(root);(module);hashLoop 1055
+```
+
+Mermaid call tree (top N nodes by self time, never the whole profile):
+
+```
+graph TD
+  n1["(root) (self 0.00ms, total 284.19ms)"]
+  n2["(module) (self 0.00ms, total 284.19ms)"]
+  n3["hashLoop (self 284.19ms, total 284.19ms)"]
+  n1 --> n2
+  n2 --> n3
+```
+
+### `ostia ci`
+
+Reads `ostia.config.json`, fingerprints each workload, reruns only what changed, compares
+against a named baseline, exits `1` on regression.
+
+```sh
+ostia ci
+ostia ci --full                  # ignore cache
+ostia ci --baseline main
+ostia ci --export-json out.json
+```
+
+Pass:
+
+```
+1 workloads
+1 affected by this change
+0 cached
+1 executed
+1 passed  0 regressed
+
+Profile CI: ✓
+```
+
+Fail:
+
+```
+1 workloads
+1 affected by this change
+0 cached
+1 executed
+0 passed  1 regressed (+1249.2% median on work)
+
+Profile CI: ✗
+```
+
+Exit codes: `0` pass, `1` regression, `2` harness error (missing config/baseline, spawn failure).
+
+#### `ostia.config.json`
+
+```json
+{
+  "baseline": "main",
+  "thresholds": { "timingPct": 5 },
+  "workloads": [
+    {
+      "label": "parse",
+      "command": ["bun", "bench/parse.ts"],
+      "inputs": ["src/**/*.ts"]
+    }
+  ]
+}
+```
+
+`inputs` is optional. Workloads with no `inputs` always rerun (cache fails conservative).
+
+#### Baselines (local and CI)
+
+Baselines are JSON under `.ostia/baselines/` (gitignored). `ostia ci` only needs the file
+on disk; it does not need to be committed.
+
+Local branch workflow:
+
+```sh
+git checkout master          # known-good tip
+bun run baseline             # -> .ostia/baselines/main.json
+
+git checkout -b my-opt
+# ... change code ...
+ostia ci                     # or: bun run dogfood
+```
+
+The baseline survives branch switches because it is not tracked. Re-seed only when you
+intentionally accept a new floor. Seeding on the branch you are guarding compares that
+branch to itself.
+
+One-off outside this repo's config:
+
+```sh
+ostia run --export-json .ostia/baselines/main.json "bun bench.ts"
+ostia ci
+```
+
+On pull requests, CI measures the base branch into that same path, checks out the PR,
+and runs `ostia ci` against it. If the base has no `package.json` / `ostia.config.json`
+yet (empty starter commit), CI seeds from the PR tip instead so dogfood still runs.
+
+## Library API
+
+The CLI is a thin wrapper around the library. Same `ProfileDocument` either way.
+
+```ts
+import {
+  run,
+  profile,
+  bench,
+  group,
+  task,
+  compareDocuments,
+  renderers,
+  saveDocument,
+  loadDocument,
+} from "ostia"
+import type { ProfileDocument } from "ostia"
+```
+
+### `run(opts)` → `ProfileDocument`
+
+Subprocess timing, optional CPU/heap capture. Same behavior as `ostia run`.
+
+```ts
+const doc = await run({
+  commands: ["bun a.ts", "bun b.ts"],
+  runs: 10,
+  warmup: 2,
+  cpu: true,
+  heap: false,
+  cpuIntervalUs: 200,
+  outDir: ".ostia",
+})
+```
+
+### `profile(fn, opts)` → `{ result, run }`
+
+In-process capture. `origin: "jsc"` is the only path that reports JIT tiers
+(LLInt / Baseline / DFG / FTL). Default `origin: "inspector"` writes portable CDP-shaped
+evidence instead.
+
+```ts
+const { result, run } = await profile(() => hashLoop(8_000_000), {
+  origin: "jsc",
+  intervalUs: 100,
+})
+
+console.log(run.jit?.tiers)
+// {
+//   llint: 0,
+//   baseline: 9,
+//   dfg: 37,
+//   ftl: 2825,
+// }
+```
+
+### `group` / `task` / `bench`
+
+Register in-process suites, then run them (same as `ostia bench`):
+
+```ts
+// suite.ts
+import { group, task } from "ostia"
+
+group("parse", () => {
+  task("small input", () => parse(smallBuf))
+  task("large input", () => parse(largeBuf))
+})
+```
+
+```ts
+// demo.ts
+import { bench } from "ostia"
+
+const doc = await bench({
+  suites: ["suite.ts"],
+  timeBudgetMs: 500,
+  minSamples: 50,
+})
+```
+
+### `compareDocuments(base, cand, thresholds?)` → `Comparison[]`
+
+Same matching and thresholds as `ostia compare` / `ostia ci`.
+
+```ts
+const diffs = compareDocuments(baselineDoc, candidateDoc, {
+  timingPct: 5,
+  frameSelfPct: 10,
+  heapTypePct: 10,
+  minFrameSelfUs: 1000,
+})
+```
+
+### `saveDocument` / `loadDocument`
+
+```ts
+await saveDocument(doc, ".ostia/doc.json")
+const loaded: ProfileDocument = await loadDocument(".ostia/doc.json")
+```
+
+### `renderers`
+
+Pure functions of a `ProfileDocument`. Each returns `{ text? }` and/or `{ files? }`.
+
+| Name | Output |
+|---|---|
+| `table` | terminal timing / CPU / heap / comparison text |
+| `markdown` | agent- and human-readable report |
+| `json` | pretty JSON document |
+| `jsonl` | one metadata line, then one line per run |
+| `collapsed` | folded stacks (`name;name;name count`) |
+| `mermaid` | top-N call tree |
+| `speedscope` | speedscope.app JSON |
+| `cpuprofile` | verbatim `.cpuprofile` when a CDP artifact exists |
+
+```ts
+const { text } = await renderers.markdown.render(doc)
+const { files } = await renderers.collapsed.render(doc, { runId: someCpuRunId })
+```
+
+Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).
+
+## Examples
+
+[`examples/`](examples/) has six runnable recipes (they spawn `../../src/cli/main.ts`
+or import `../../src` directly; no install step):
+
+- [`compare-two-commands`](examples/compare-two-commands/). Relative timing table.
+- [`find-a-hotspot`](examples/find-a-hotspot/). `--cpu` plus collapsed / Mermaid viz.
+- [`heap-usage`](examples/heap-usage/). `--heap` type breakdown.
+- [`gate-a-regression`](examples/gate-a-regression/). Config, local baseline, and `ostia ci`.
+- [`profile-in-process`](examples/profile-in-process/). `profile(fn, { origin: "jsc" })`.
+- [`benchmark-a-function`](examples/benchmark-a-function/). `bench()` / `group()` / `task()`.
+
+```sh
+cd examples/find-a-hotspot && bun run demo
+bun run examples   # all of them from the repo root
+```

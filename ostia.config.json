@@ -1,0 +1,23 @@
+{
+  "runs": 15,
+  "warmup": 3,
+  "outDir": ".ostia",
+  "baseline": "main",
+  "thresholds": {
+    "timingPct": 15,
+    "frameSelfPct": 10,
+    "heapTypePct": 10,
+    "minFrameSelfUs": 1000
+  },
+  "workloads": [
+    {
+      "label": "cold-start",
+      "command": ["bun", "src/cli/main.ts", "--help"],
+      "inputs": ["src/**/*.ts"]
+    },
+    {
+      "label": "spawn-overhead",
+      "command": ["bun", "-e", "1"]
+    }
+  ]
+}

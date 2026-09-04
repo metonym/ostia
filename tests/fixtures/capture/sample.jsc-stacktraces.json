@@ -1,0 +1,3383 @@
+{
+  "interval": 0.0001,
+  "traces": [
+    {
+      "timestamp": 638140.09331425,
+      "frames": [
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0934699583,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.09364675,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0938051667,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0939337084,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0941064584,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0942316666,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:Baseline:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "Baseline",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.094384875,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.094500875,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.094616,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.094732875,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0948444583,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0949552917,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0950844167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0952490834,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.095367,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0954875,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.095614125,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.095739125,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0958695416,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.096017625,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0961326667,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0962670833,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.09640825,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.096560375,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0967035,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:DFG:bc#11",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 3,
+          "column": 53,
+          "category": "DFG",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.096816375,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0969744166,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.097131625,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0972715,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.097428125,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0975570417,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0977028334,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0978390833,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0979939167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0981260834,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.098271625,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0984083334,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0985674167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0986802917,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0988014167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0989272083,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.09906725,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0992144167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0993414583,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.099502,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.099634375,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.0997530833,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.09989625,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1000420416,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1001917083,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1003174167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.100446,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.100602375,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.100755,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.10091125,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1010705417,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1012051667,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.101363,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.10147475,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1015912917,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1017431667,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1018685417,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.101994125,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.102134375,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.10227275,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1023835833,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1024912084,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1026372083,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1027612083,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1028814584,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1030230416,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1031439167,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1032973333,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1034380833,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1035552083,
+      "frames": [
+        {
+          "sourceID": 2,
+          "name": "hotInner",
+          "location": "#EKFcyf:FTL:<nil>",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "FTL",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "",
+          "location": "#B9C4Rj:LLInt:bc#20",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 28,
+          "category": "LLInt",
+          "flags": 0
+        },
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1038277083,
+      "frames": [
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    },
+    {
+      "timestamp": 638140.1044111666,
+      "frames": [
+        {
+          "sourceID": 4294967295,
+          "name": "profile",
+          "location": "#<nil>:None:<nil>",
+          "line": 4294967295,
+          "column": 4294967295,
+          "category": "Unknown Executable",
+          "flags": 0
+        },
+        {
+          "sourceID": 2,
+          "name": "(module)",
+          "location": "#EDf63f:LLInt:bc#43",
+          "sourceURL": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]",
+          "line": 4,
+          "column": 12,
+          "category": "LLInt",
+          "flags": 0
+        }
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "sourceID": 2,
+      "url": "/Users/eric/conductor/workspaces/npm-packages/ouagadougou/[eval]"
+    }
+  ]
+}

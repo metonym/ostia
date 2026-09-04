@@ -1,0 +1,9 @@
+{
+  "name": "example-compare-two-commands",
+  "private": true,
+  "type": "module",
+  "version": "0.0.0",
+  "scripts": {
+    "demo": "bun demo.ts"
+  }
+}

@@ -370,6 +370,7 @@ import {
   bench,
   group,
   task,
+  range,
   compareDocuments,
   renderers,
   saveDocument,
@@ -461,6 +462,29 @@ group("parse", () => {
   task("current impl", () => parse(buf), { baseline: true })
   task("candidate impl", () => parseFast(buf))
 })
+```
+
+### `range(start, end, multiplier?)` → `number[]`
+
+Geometric sweep points for parameterizing `task()` over a size dimension - mitata's
+`.range(name, start, end, multiplier)` point generation (default multiplier `8`, always
+ending on `end` even if the last step overshot it), without the name templating: build
+the task name yourself in the loop.
+
+```ts
+import { group, task, range } from "ostia"
+
+group("parse", () => {
+  for (const size of range(100, 10_000)) {
+    const input = buildInput(size) // setup, runs once per point, unmeasured
+    task(`${size} items`, () => parse(input))
+  }
+})
+```
+
+```ts
+range(100, 10_000)   // -> [100, 800, 6400, 10000]
+range(100, 100_000)  // -> [100, 800, 6400, 51200, 100000]
 ```
 
 ```ts

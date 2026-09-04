@@ -110,6 +110,16 @@ Per-task options override --time-budget / --min-samples for that task only.
 Optional { description } on group() and task() flows into the document (Workload.description
 / Workload.groupDescription) so the intent travels with the numbers.
 
+Sweep a size dimension with range(start, end, multiplier?) (mitata's .range() point
+generation, default multiplier 8, always ending on the end value):
+  import { group, task, range } from "<pkg>"
+  group("parse", () => {
+    for (const size of range(100, 10_000)) {
+      const input = buildInput(size) // setup, runs once per point, unmeasured
+      task(\`\${size} items\`, () => parse(input))
+    }
+  })
+
 Examples:
   ostia bench benches/parse.ts
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts

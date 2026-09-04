@@ -22,6 +22,7 @@ import { runTimingPhase } from "./measure/timing.ts"
 import { splitCommand } from "./spawn/index.ts"
 
 export { bench } from "./bench/index.ts"
+export { range } from "./bench/range.ts"
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { compareDocuments } from "./compare/index.ts"

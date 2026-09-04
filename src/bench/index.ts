@@ -13,7 +13,7 @@ export interface BenchOptions {
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
-const DEFAULT_OUT_DIR = ".ostia"
+const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR

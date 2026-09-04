@@ -30,6 +30,7 @@ describe("loadConfig", () => {
 
       expect(result!.warmup).toBe(DEFAULT_CONFIG.warmup)
       expect(result!.outDir).toBe(DEFAULT_CONFIG.outDir)
+      expect(result!.baselineDir).toBe(DEFAULT_CONFIG.baselineDir)
       expect(result!.baseline).toBe(DEFAULT_CONFIG.baseline)
       expect(result!.runs).toBe(DEFAULT_CONFIG.runs)
       expect(result!.cpuIntervalUs).toBe(DEFAULT_CONFIG.cpuIntervalUs)
@@ -76,6 +77,7 @@ describe("loadConfig", () => {
         runs: 10,
         warmup: 5,
         outDir: ".custom-tool",
+        baselineDir: ".custom-tool/baselines",
         baseline: "develop",
         cpuIntervalUs: 2000,
         workloads: [{ command: ["node", "app.js"], label: "test" }],
@@ -95,6 +97,7 @@ describe("loadConfig", () => {
       expect(result!.runs).toBe(10)
       expect(result!.warmup).toBe(5)
       expect(result!.outDir).toBe(".custom-tool")
+      expect(result!.baselineDir).toBe(".custom-tool/baselines")
       expect(result!.baseline).toBe("develop")
       expect(result!.cpuIntervalUs).toBe(2000)
       expect(result!.workloads).toHaveLength(1)
@@ -114,7 +117,11 @@ describe("loadConfig", () => {
 
 describe("baselinePath", () => {
   test("returns correct path using config baseline when name is undefined", () => {
-    const config = { ...DEFAULT_CONFIG, outDir: ".ostia", baseline: "main" }
+    const config = {
+      ...DEFAULT_CONFIG,
+      baselineDir: ".ostia/baselines",
+      baseline: "main",
+    }
 
     const result = baselinePath(config, undefined)
 
@@ -122,7 +129,11 @@ describe("baselinePath", () => {
   })
 
   test("returns correct path using explicit name argument when provided", () => {
-    const config = { ...DEFAULT_CONFIG, outDir: ".ostia", baseline: "main" }
+    const config = {
+      ...DEFAULT_CONFIG,
+      baselineDir: ".ostia/baselines",
+      baseline: "main",
+    }
 
     const result = baselinePath(config, "pr-123")
 
@@ -130,10 +141,25 @@ describe("baselinePath", () => {
   })
 
   test("uses explicit name argument even when config.baseline is different", () => {
-    const config = { ...DEFAULT_CONFIG, outDir: ".ostia", baseline: "main" }
+    const config = {
+      ...DEFAULT_CONFIG,
+      baselineDir: ".ostia/baselines",
+      baseline: "main",
+    }
 
     const result = baselinePath(config, "feature-branch")
 
     expect(result).toBe(".ostia/baselines/feature-branch.json")
+  })
+
+  test("stays independent of outDir so baselines survive node_modules churn", () => {
+    const config = {
+      ...DEFAULT_CONFIG,
+      outDir: "node_modules/.cache/ostia",
+      baselineDir: ".ostia/baselines",
+      baseline: "main",
+    }
+
+    expect(baselinePath(config)).toBe(".ostia/baselines/main.json")
   })
 })

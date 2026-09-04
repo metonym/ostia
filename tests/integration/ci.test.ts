@@ -16,9 +16,11 @@ const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 const OUT_DIR = `${import.meta.dir}/../../.ostia-test-ci`
 
 function config(overrides: Partial<OstiaConfig> = {}): OstiaConfig {
+  const outDir = overrides.outDir ?? OUT_DIR
   return {
     ...DEFAULT_CONFIG,
-    outDir: OUT_DIR,
+    outDir,
+    baselineDir: `${outDir}/baselines`,
     baseline: "main",
     runs: 3,
     warmup: 1,

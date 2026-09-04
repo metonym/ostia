@@ -74,6 +74,36 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-empty`]).exited
   }, 20_000)
 
+  test("--filter runs only tasks whose group/name id matches the regex", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 20,
+      minSamples: 5,
+      filter: "math",
+      outDir: `${OUT_DIR}-filter-match`,
+    })
+
+    expect(doc.workloads).toHaveLength(2)
+    const labels = doc.workloads.map((w) => w.label).sort()
+    expect(labels).toEqual(["math/hotInner-large", "math/hotInner-small"])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-filter-match`]).exited
+  }, 20_000)
+
+  test("--filter matching zero tasks fails the bench run instead of returning an empty table", async () => {
+    await expect(
+      bench({
+        suites: [SUITE],
+        timeBudgetMs: 20,
+        minSamples: 5,
+        filter: "nonexistent-xyz",
+        outDir: `${OUT_DIR}-filter-empty`,
+      }),
+    ).rejects.toThrow()
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-filter-empty`]).exited
+  }, 20_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

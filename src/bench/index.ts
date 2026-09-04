@@ -7,6 +7,7 @@ export interface BenchOptions {
   timeBudgetMs?: number
   minSamples?: number
   gc?: boolean
+  filter?: string
   outDir?: string
   cwd?: string
 }
@@ -23,6 +24,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     timeBudgetMs: opts.timeBudgetMs,
     minSamples: opts.minSamples,
     gc: opts.gc,
+    filter: opts.filter,
   }
   const workloads: Workload[] = []
   const runs: Run[] = []

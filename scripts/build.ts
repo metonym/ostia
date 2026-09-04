@@ -20,11 +20,15 @@ mkdirSync(out, { recursive: true })
 const pkg = await Bun.file(join(root, "package.json")).json()
 
 const result = await Bun.build({
-  entrypoints: [join(root, "src/cli/main.ts"), join(root, "src/index.ts")],
+  entrypoints: [
+    join(root, "src/cli/main.ts"),
+    join(root, "src/index.ts"),
+    join(root, "src/bench/runner.ts"),
+  ],
   outdir: out,
   target: "bun",
   minify: true,
-  splitting: false,
+  splitting: true,
   naming: "[name].js",
 })
 
@@ -38,6 +42,11 @@ if (!result.success) {
 const cliOut = join(out, "main.js")
 if (existsSync(cliOut)) {
   renameSync(cliOut, join(out, "cli.js"))
+}
+
+const runnerOut = join(out, "runner.js")
+if (existsSync(runnerOut)) {
+  renameSync(runnerOut, join(out, "runner.ts"))
 }
 
 await bundleDts({

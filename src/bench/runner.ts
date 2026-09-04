@@ -37,6 +37,12 @@ export interface RunnerOpts extends InprocessTimingOptions {
    * resulting task ids and their effective isolate instead of running any
    * benchmark. */
   planOnly?: boolean
+  /** Scripts imported, in order, before the suite file - in this same
+   * subprocess, so a global they install (jsdom's `document`/`window`, a
+   * `Bun.plugin()` file-loader) is visible to a later preload script and to
+   * the suite file itself. Runs ahead of `planOnly` too, since discovering a
+   * suite's tasks already means importing it. */
+  preload?: string[]
 }
 
 async function main(): Promise<number> {
@@ -49,6 +55,10 @@ async function main(): Promise<number> {
   }
 
   const opts: RunnerOpts = optsJson ? JSON.parse(optsJson) : {}
+
+  for (const preloadFile of opts.preload ?? []) {
+    await import(preloadFile)
+  }
 
   resetRegistry()
   await import(suiteFile)

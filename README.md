@@ -182,6 +182,26 @@ Bun/V8 batch calls together and amortize it away). `task(name, fn, { gc })` /
 override pattern as `isolate` - useful when a few allocation-heavy tasks need GC settled
 between trials but the rest of the suite doesn't.
 
+`--preload PATH` (repeatable) imports a script before each suite file loads, in the same
+subprocess - the same shape as Bun's own `--preload` / `bunfig.toml`'s `preload` array. Use
+it to install globals a suite needs at import time (jsdom's `document`/`window`) or register
+a `Bun.plugin()` file-loader (e.g. compiling `.svelte`/`.vue` SFCs) before the suite's own
+top-level code runs. Multiple `--preload` scripts run in the order given, so state one
+installs (a plugin registration, a global) is visible to the next and to the suite itself.
+ostia ships none of this itself - just the hook point:
+
+```ts
+// bench/jsdom-setup.ts
+import { JSDOM } from "jsdom"
+const dom = new JSDOM("<!doctype html>")
+Object.assign(globalThis, { document: dom.window.document, window: dom.window })
+```
+
+```sh
+ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
+```
+
+
 ```
 Command                                  Mean [ms]        Min…Max [ms]        Relative
 --------------------------------------------------------------------------------------

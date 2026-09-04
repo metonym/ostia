@@ -11,7 +11,12 @@ import {
   type InprocessTimingOptions,
   measureTask,
 } from "../measure/inprocess.ts"
-import { getRegisteredTasks, resetRegistry } from "./registry.ts"
+import {
+  filterTasks,
+  getRegisteredTasks,
+  resetRegistry,
+  taskId as taskIdOf,
+} from "./registry.ts"
 
 async function main(): Promise<number> {
   const [suiteFile, outputPath, optsJson] = process.argv.slice(2)
@@ -22,14 +27,24 @@ async function main(): Promise<number> {
     return 2
   }
 
-  const opts: InprocessTimingOptions = optsJson ? JSON.parse(optsJson) : {}
+  const opts: InprocessTimingOptions & { filter?: string } = optsJson
+    ? JSON.parse(optsJson)
+    : {}
 
   resetRegistry()
   await import(suiteFile)
-  const tasks = getRegisteredTasks()
-  if (tasks.length === 0) {
+  const registered = getRegisteredTasks()
+  if (registered.length === 0) {
     process.stderr.write(
       `bench runner: ${suiteFile} registered no tasks (no task() calls found).\n`,
+    )
+    return 2
+  }
+
+  const tasks = filterTasks(registered, opts.filter)
+  if (tasks.length === 0) {
+    process.stderr.write(
+      `bench runner: --filter ${JSON.stringify(opts.filter)} matched zero of ${registered.length} registered tasks in ${suiteFile}.\n`,
     )
     return 2
   }
@@ -43,8 +58,8 @@ async function main(): Promise<number> {
   const workloads = []
   const runs = []
   for (const t of tasks) {
-    const taskId = t.groupName ? `${t.groupName}/${t.name}` : t.name
-    const workload = makeEntryWorkload(suiteFile, taskId, taskId)
+    const id = taskIdOf(t)
+    const workload = makeEntryWorkload(suiteFile, id, id)
     workloads.push(workload)
     const result = await measureTask(t.fn, opts)
     runs.push(

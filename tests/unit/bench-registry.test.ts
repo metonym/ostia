@@ -1,9 +1,11 @@
 import { beforeEach, describe, expect, test } from "bun:test"
 import {
+  filterTasks,
   getRegisteredTasks,
   group,
   resetRegistry,
   task,
+  taskId,
 } from "../../src/bench/registry"
 
 describe("bench/registry", () => {
@@ -77,5 +79,61 @@ describe("bench/registry", () => {
     expect(tasks[0]!.name).toBe("x")
     expect(tasks[1]!.groupName).toBe("g2")
     expect(tasks[1]!.name).toBe("y")
+  })
+})
+
+describe("bench/registry - filterTasks", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("no filter returns every registered task, unchanged order", () => {
+    group("parse", () => {
+      task("small", () => 1)
+    })
+    task("noop", () => 1)
+    const all = getRegisteredTasks()
+    expect(filterTasks(all)).toEqual([...all])
+  })
+
+  test("filter matches against the group/name task id, substring, no anchoring", () => {
+    group("parse", () => {
+      task("small", () => 1)
+      task("large", () => 2)
+    })
+    group("write", () => {
+      task("small", () => 3)
+    })
+    const all = getRegisteredTasks()
+
+    const parseOnly = filterTasks(all, "parse")
+    expect(parseOnly.map(taskId)).toEqual(["parse/small", "parse/large"])
+
+    const small = filterTasks(all, "small")
+    expect(small.map(taskId)).toEqual(["parse/small", "write/small"])
+  })
+
+  test("filter is case-sensitive, matching mitata's default", () => {
+    group("Parse", () => {
+      task("small", () => 1)
+    })
+    const all = getRegisteredTasks()
+    expect(filterTasks(all, "parse")).toHaveLength(0)
+    expect(filterTasks(all, "Parse")).toHaveLength(1)
+  })
+
+  test("filter matching nothing returns an empty array, not a throw", () => {
+    task("solo", () => 1)
+    const all = getRegisteredTasks()
+    expect(filterTasks(all, "nonexistent-xyz")).toEqual([])
+  })
+
+  test("taskId qualifies grouped tasks and leaves ungrouped tasks bare", () => {
+    group("g1", () => {
+      task("a", () => 1)
+    })
+    task("b", () => 2)
+    const all = getRegisteredTasks()
+    expect(all.map(taskId)).toEqual(["g1/a", "b"])
   })
 })

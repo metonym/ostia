@@ -29,3 +29,18 @@ export function resetRegistry(): void {
   tasks.length = 0
   currentGroup = undefined
 }
+
+export function taskId(t: RegisteredTask): string {
+  return t.groupName ? `${t.groupName}/${t.name}` : t.name
+}
+
+/** mitata-compatible: filter value is a JS regex source, substring-matched (no
+ * anchoring), case-sensitive, against the "group/name" task id. */
+export function filterTasks(
+  tasks: readonly RegisteredTask[],
+  filter?: string,
+): RegisteredTask[] {
+  if (!filter) return [...tasks]
+  const re = new RegExp(filter)
+  return tasks.filter((t) => re.test(taskId(t)))
+}

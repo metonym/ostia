@@ -70,6 +70,8 @@ Flags:
   --time-budget MS    time budget per task, min-samples permitting (default: 500)
   --min-samples N     minimum samples per task (default: 20)
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost)
+  --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
+                       case-sensitive; unmatched tasks are skipped, not timed)
   --out-dir PATH      directory for scratch IPC files (default: .ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json (default: table)
@@ -85,6 +87,7 @@ Suite files register tasks like:
 Examples:
   ostia bench benches/parse.ts
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
+  ostia bench benches/*.ts --filter parse
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -280,6 +283,7 @@ interface BenchArgs {
   timeBudgetMs?: number
   minSamples?: number
   gc: boolean
+  filter?: string
   outDir?: string
   exportJson?: string
   format: FormatName
@@ -292,6 +296,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   let timeBudgetMs: number | undefined
   let minSamples: number | undefined
   let gc = false
+  let filter: string | undefined
   let outDir: string | undefined
   let exportJson: string | undefined
   let format: FormatName = "table"
@@ -309,6 +314,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
         break
       case "--gc":
         gc = true
+        break
+      case "--filter":
+        filter = argv[++i]
         break
       case "--out-dir":
         outDir = argv[++i]
@@ -336,6 +344,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     timeBudgetMs,
     minSamples,
     gc,
+    filter,
     outDir,
     exportJson,
     format,
@@ -365,6 +374,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       timeBudgetMs: parsed.timeBudgetMs,
       minSamples: parsed.minSamples,
       gc: parsed.gc,
+      filter: parsed.filter,
       outDir: parsed.outDir,
     })
   } catch (err) {

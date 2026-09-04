@@ -50,9 +50,10 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const fastestMedian = Math.min(...rows.map((r) => r.run.timing.median))
     const showRelative = rows.length > 1
 
-    // Groups with >1 sibling get a Relative baseline scoped to the fastest
-    // task within that group; ungrouped tasks and solo-in-group tasks fall
-    // back to the whole-run fastest, matching pre-grouping behavior.
+    // Groups with >1 sibling get their own Relative baseline: the group's
+    // explicit `task(..., { baseline: true })` task if one is marked, else
+    // its fastest task. Ungrouped tasks and solo-in-group tasks fall back to
+    // the whole-run fastest, matching pre-grouping behavior.
     const siblingsByGroup = new Map<string, typeof rows>()
     for (const row of rows) {
       const key = groupOf(row.workload)
@@ -64,7 +65,10 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const referenceFor = (row: (typeof rows)[number]): number => {
       const siblings = siblingsByGroup.get(groupOf(row.workload) ?? "")
       if (!siblings || siblings.length <= 1) return fastestMedian
-      return Math.min(...siblings.map((s) => s.run.timing.median))
+      const baselineRow = siblings.find((s) => s.workload?.baseline)
+      return baselineRow
+        ? baselineRow.run.timing.median
+        : Math.min(...siblings.map((s) => s.run.timing.median))
     }
 
     const lines: string[] = []
@@ -76,14 +80,20 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     lines.push("-".repeat(header.length))
 
     for (const row of rows) {
-      const { run, label } = row
+      const { run, label, workload } = row
       const t = run.timing
       const meanCell = `${fmtMs(t.mean)} ± ${fmtMs(t.stddev)}`
       const rangeCell = `${fmtMs(t.min)}…${fmtMs(t.max)}`
       let line = `${label.padEnd(labelWidth)}   ${meanCell.padEnd(15)}  ${rangeCell.padEnd(18)}`
       if (showRelative) {
         const relative = t.median / referenceFor(row)
-        line += relative === 1 ? "  1.00×" : `  ${relative.toFixed(2)}× slower`
+        if (relative === 1) {
+          line += workload?.baseline ? "  1.00× (baseline)" : "  1.00×"
+        } else if (relative > 1) {
+          line += `  ${relative.toFixed(2)}× slower`
+        } else {
+          line += `  ${(1 / relative).toFixed(2)}× faster`
+        }
       }
       lines.push(line)
       for (const w of run.warnings) {

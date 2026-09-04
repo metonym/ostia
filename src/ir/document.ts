@@ -51,9 +51,16 @@ export function makeEntryWorkload(
   file: string,
   taskName: string,
   label?: string,
+  baseline?: boolean,
 ): Workload {
   const id = fp("wl", "inprocess-entry", file, taskName)
-  return { id, kind: "inprocess", entry: { file, task: taskName }, label }
+  return {
+    id,
+    kind: "inprocess",
+    entry: { file, task: taskName },
+    label,
+    baseline,
+  }
 }
 
 export interface TimingRunInput {

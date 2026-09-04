@@ -2,6 +2,13 @@ export interface RegisteredTask {
   groupName?: string
   name: string
   fn: () => unknown | Promise<unknown>
+  baseline?: boolean
+}
+
+export interface TaskOptions {
+  /** Marks this task as the Relative reference for its group in the table
+   * renderer, mirroring mitata's `baseline()`. At most one per group. */
+  baseline?: boolean
 }
 
 const tasks: RegisteredTask[] = []
@@ -17,8 +24,17 @@ export function group(name: string, fn: () => void): void {
   }
 }
 
-export function task(name: string, fn: () => unknown | Promise<unknown>): void {
-  tasks.push({ groupName: currentGroup, name, fn })
+export function task(
+  name: string,
+  fn: () => unknown | Promise<unknown>,
+  opts?: TaskOptions,
+): void {
+  tasks.push({
+    groupName: currentGroup,
+    name,
+    fn,
+    baseline: opts?.baseline,
+  })
 }
 
 export function getRegisteredTasks(): readonly RegisteredTask[] {

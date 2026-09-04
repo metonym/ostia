@@ -45,6 +45,16 @@ describe("bench/registry", () => {
     expect(tasks[1]!.groupName).toBeUndefined()
   })
 
+  test("task registers with baseline: true when passed in options", () => {
+    group("g1", () => {
+      task("old", () => 1, { baseline: true })
+      task("new", () => 2)
+    })
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.baseline).toBe(true)
+    expect(tasks[1]!.baseline).toBeUndefined()
+  })
+
   test("registered task function can be invoked and returns expected value", () => {
     task("t", () => 42)
     const tasks = getRegisteredTasks()

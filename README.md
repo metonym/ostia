@@ -368,6 +368,17 @@ group("parse", () => {
 })
 ```
 
+Mark one task per group as the `Relative` reference with `{ baseline: true }`
+(mirrors mitata's `baseline()`); otherwise `Relative` defaults to the fastest
+task in the group:
+
+```ts
+group("parse", () => {
+  task("current impl", () => parse(buf), { baseline: true })
+  task("candidate impl", () => parseFast(buf))
+})
+```
+
 ```ts
 // demo.ts
 import { bench } from "ostia"

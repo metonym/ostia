@@ -59,7 +59,7 @@ async function main(): Promise<number> {
   const runs = []
   for (const t of tasks) {
     const id = taskIdOf(t)
-    const workload = makeEntryWorkload(suiteFile, id, id)
+    const workload = makeEntryWorkload(suiteFile, id, id, t.baseline)
     workloads.push(workload)
     const result = await measureTask(t.fn, opts)
     runs.push(

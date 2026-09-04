@@ -70,22 +70,16 @@ describe("renderers - golden output on fixed fake data", () => {
       samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
 
     // Group "css": a ~41ms task and a ~20ms sibling (~2.05x apart).
-    const wSlow = makeEntryWorkload(
-      "suite.ts",
-      "css/optimizeCssWithReport",
-      "css/optimizeCssWithReport",
-    )
-    const wFast = makeEntryWorkload(
-      "suite.ts",
-      "css/optimizeCssFast",
-      "css/optimizeCssFast",
-    )
+    const wSlow = makeEntryWorkload("suite.ts", "css/optimizeCssWithReport", {
+      label: "css/optimizeCssWithReport",
+    })
+    const wFast = makeEntryWorkload("suite.ts", "css/optimizeCssFast", {
+      label: "css/optimizeCssFast",
+    })
     // Group "strings" (alone): a ~1µs task, unrelated to group "css".
-    const wTiny = makeEntryWorkload(
-      "suite.ts",
-      "strings/noSubstring",
-      "strings/noSubstring",
-    )
+    const wTiny = makeEntryWorkload("suite.ts", "strings/noSubstring", {
+      label: "strings/noSubstring",
+    })
 
     const samplesSlow = [
       41_000_000, 41_200_000, 40_800_000, 41_100_000, 40_900_000,
@@ -138,13 +132,13 @@ describe("renderers - golden output on fixed fake data", () => {
 
     // "old" is marked baseline even though "new" is faster: Relative should
     // read from "old", not from the group's fastest task.
-    const wOld = makeEntryWorkload(
-      "suite.ts",
-      "impl/old",
-      "impl/old",
-      /* baseline */ true,
-    )
-    const wNew = makeEntryWorkload("suite.ts", "impl/new", "impl/new")
+    const wOld = makeEntryWorkload("suite.ts", "impl/old", {
+      label: "impl/old",
+      baseline: true,
+    })
+    const wNew = makeEntryWorkload("suite.ts", "impl/new", {
+      label: "impl/new",
+    })
 
     const samplesOld = [
       20_000_000, 20_200_000, 19_800_000, 20_100_000, 19_900_000,
@@ -176,6 +170,46 @@ describe("renderers - golden output on fixed fake data", () => {
 
     expect(oldLine).toContain("1.00× (baseline)")
     expect(newLine).toContain("2.00× faster")
+  })
+
+  test("table renderer trusts entry.group over splitting the id, so task names may contain '/'", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    // Both tasks are in group "diffText()"; the second task's *name* contains a
+    // "/" that a lastIndexOf split would misread as a nested group.
+    const wA = makeEntryWorkload("suite.ts", "diffText()/append at end", {
+      label: "diffText()/append at end",
+      group: "diffText()",
+    })
+    const wB = makeEntryWorkload(
+      "suite.ts",
+      "diffText()/no shared prefix/suffix",
+      { label: "diffText()/no shared prefix/suffix", group: "diffText()" },
+    )
+    const samplesA = [20_000, 20_200, 19_800, 20_100, 19_900]
+    const samplesB = [10_000, 10_200, 9_800, 10_100, 9_900]
+    const doc = newDocument(
+      [wA, wB],
+      [
+        makeTimingRun({
+          workload: wA,
+          configFingerprint: "cfg",
+          trials: trials(samplesA),
+          timing: computeTimingStats(samplesA),
+          warnings: [],
+        }),
+        makeTimingRun({
+          workload: wB,
+          configFingerprint: "cfg",
+          trials: trials(samplesB),
+          timing: computeTimingStats(samplesB),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.table.render(doc, {})
+    const lineA = result.text!.split("\n").find((l) => l.includes("append"))
+    expect(lineA).toContain("2.00× slower")
   })
 
   test("json renderer round-trips schema-critical fields and is deterministic", async () => {

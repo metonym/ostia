@@ -63,6 +63,42 @@ describe("bench/registry", () => {
     expect(tasks[1]!.baseline).toBeUndefined()
   })
 
+  test("group and task descriptions are recorded; group description reaches every member", () => {
+    group(
+      "parse",
+      () => {
+        task("small", () => 1, { description: "fast path" })
+        task("large", () => 2)
+      },
+      { description: "parser throughput" },
+    )
+    task("solo", () => 3)
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.opts?.description).toBe("fast path")
+    expect(tasks[0]!.groupDescription).toBe("parser throughput")
+    expect(tasks[1]!.opts?.description).toBeUndefined()
+    expect(tasks[1]!.groupDescription).toBe("parser throughput")
+    expect(tasks[2]!.groupDescription).toBeUndefined()
+  })
+
+  test("nested groups restore the outer group's description", () => {
+    group(
+      "outer",
+      () => {
+        group("inner", () => {
+          task("i", () => 1)
+        })
+        task("o", () => 2)
+      },
+      { description: "outer desc" },
+    )
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.groupName).toBe("inner")
+    expect(tasks[0]!.groupDescription).toBeUndefined()
+    expect(tasks[1]!.groupName).toBe("outer")
+    expect(tasks[1]!.groupDescription).toBe("outer desc")
+  })
+
   test("registered task function can be invoked and returns expected value", () => {
     task("t", () => 42)
     const tasks = getRegisteredTasks()

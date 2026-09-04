@@ -53,7 +53,13 @@ async function main(): Promise<number> {
   const runs = []
   for (const t of tasks) {
     const id = taskIdOf(t)
-    const workload = makeEntryWorkload(suiteFile, id, id, t.baseline)
+    const workload = makeEntryWorkload(suiteFile, id, {
+      label: id,
+      baseline: t.baseline,
+      group: t.groupName,
+      description: t.opts?.description,
+      groupDescription: t.groupDescription,
+    })
     workloads.push(workload)
     // Per-task options win over the suite-wide ones. The fingerprint is per task
     // for the same reason: two runs of one task only compare like-for-like when

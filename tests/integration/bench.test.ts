@@ -30,7 +30,9 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     expect(smallWorkload.entry).toEqual({
       file: SUITE,
       task: "math/hotInner-small",
+      group: "math",
     })
+    expect(byLabel.get("noop")!.entry).toEqual({ file: SUITE, task: "noop" })
 
     const largeWorkload = byLabel.get("math/hotInner-large")!
     const smallRun = doc.runs.find((r) => r.workloadId === smallWorkload.id)!
@@ -123,6 +125,45 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     ).rejects.toThrow()
 
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-filter-empty`]).exited
+  }, 20_000)
+
+  test("group()/task() descriptions flow into the document as workload annotations", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-described.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-described`,
+    })
+    const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
+    const described = byLabel.get("dedupe/Set-based")!
+    expect(described.entry?.group).toBe("dedupe")
+    expect(described.description).toBe("O(n) via Set; the expected winner")
+    expect(described.groupDescription).toBe(
+      "dedupe strategies on a 2k-element array with 500 distinct values",
+    )
+    const plain = byLabel.get("dedupe/naive")!
+    expect(plain.description).toBeUndefined()
+    expect(plain.groupDescription).toBe(described.groupDescription)
+    const solo = byLabel.get("ungrouped")!
+    expect(solo.entry?.group).toBeUndefined()
+    expect(solo.groupDescription).toBeUndefined()
+    expect(solo.description).toBe("a task outside any group")
+
+    // Annotations never change the workload id, so existing baselines still match.
+    const bare = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-described-b`,
+    })
+    expect(bare.workloads.map((w) => w.id)).not.toContain(described.id)
+
+    await Bun.spawn([
+      "rm",
+      "-rf",
+      `${OUT_DIR}-described`,
+      `${OUT_DIR}-described-b`,
+    ]).exited
   }, 20_000)
 
   test("scratch IPC directory is cleaned up after a successful run", async () => {

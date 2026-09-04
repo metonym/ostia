@@ -399,6 +399,27 @@ group("parse", () => {
 })
 ```
 
+That is the whole registration surface: `group()` and `task()`. Presentation lives in
+the renderers (`--format`), not in the suite file.
+
+Both take an optional `description` that flows into the document
+(`Workload.description` / `Workload.groupDescription`) and into `--format minimal`, so
+what a number measures and why travels with the data instead of living only in a
+source comment a reader has to go find:
+
+```ts
+group(
+  "repaint",
+  () => {
+    task("1,000 chars", () => repaint(doc1k))
+    task("4,000 chars", () => repaint(doc4k), {
+      description: "worst case: full repaint every keystroke at the max document size",
+    })
+  },
+  { description: "editor repaint cost as document size grows" },
+)
+```
+
 Mark one task per group as the `Relative` reference with `{ baseline: true }`
 (mirrors mitata's `baseline()`); otherwise `Relative` defaults to the fastest
 task in the group:

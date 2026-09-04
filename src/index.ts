@@ -22,11 +22,16 @@ import { runTimingPhase } from "./measure/timing.ts"
 import { splitCommand } from "./spawn/index.ts"
 
 export { bench } from "./bench/index.ts"
-export type { TaskOptions } from "./bench/registry.ts"
+export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { compareDocuments } from "./compare/index.ts"
 export { loadDocument, saveDocument } from "./ir/document.ts"
-export type { ProfileDocument, Warning, WarningCode } from "./ir/types.ts"
+export type {
+  ProfileDocument,
+  Warning,
+  WarningCode,
+  Workload,
+} from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
 
 interface RunOptions {

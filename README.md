@@ -133,9 +133,25 @@ Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
 
 In-process microbenchmarks registered with `group()` / `task()`. Each task samples
 for `--time-budget` (default 500ms). `--min-samples` is a hard floor kept even when it
-overruns the budget; left unset, the floor is cost-aware (as many trials as fit in the
-budget, clamped to 3..20) so one slow task can't blow the suite's total. Fast calls are
-batched so a trial spans at least 1µs and a full budget yields about 10k trials at most.
+overruns the budget. Left unset, the floor is cost-aware in both directions: as many
+trials as fit in the budget (capped at 20) so one slow task can't blow the suite's total,
+but never below the floor a task's per-trial cost earns it - 3 at ≤1ms, two more per
+decade of cost, 10 from about 3s up. Cheap tasks are time-bound and collect thousands of
+trials either way; only the few expensive tasks in a suite pay for the extra rigor, and
+those are exactly where a 3-sample mean is shakiest. Fast calls are batched so a trial
+spans at least 1µs and a full budget yields about 10k trials at most.
+
+| per-trial cost | fits in 500ms | default floor |
+|---|---|---|
+| 30ns | thousands | 20 (time-bound; ends in the tens of thousands) |
+| 30ms | 16 | 16 |
+| 140ms | 3 | 7 |
+| 2.4s | 0 | 10 |
+
+A run that ends below its cost-class floor (only possible with an explicit
+`--min-samples` or per-task `minSamples`) carries a `low-sample-count` warning with
+`{ samples, target, trialCostNs }`, so a renderer or an agent can flag a thin number
+without re-deriving the policy from the raw sample array.
 
 ```sh
 ostia bench bench/*.ts

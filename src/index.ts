@@ -26,7 +26,7 @@ export type { TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { compareDocuments } from "./compare/index.ts"
 export { loadDocument, saveDocument } from "./ir/document.ts"
-export type { ProfileDocument } from "./ir/types.ts"
+export type { ProfileDocument, Warning, WarningCode } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
 
 interface RunOptions {

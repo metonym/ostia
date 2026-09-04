@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { measureTask } from "../../src/measure/inprocess"
+import {
+  defaultSampleFloor,
+  measureTask,
+  rigorFloor,
+} from "../../src/measure/inprocess"
 
 function spin(ms: number): number {
   const end = Bun.nanoseconds() + ms * 1e6
@@ -109,6 +113,71 @@ describe("measure/inprocess", () => {
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
     expect(result.trials.length).toBeLessThan(10)
     expect(totalMs).toBeLessThan(300)
+  })
+
+  test("rigor floor rises two samples per decade of per-trial cost, 3..10", () => {
+    const ms = 1e6
+    expect(rigorFloor(30)).toBe(3) // 30ns
+    expect(rigorFloor(50_000)).toBe(3) // 50µs
+    expect(rigorFloor(1 * ms)).toBe(3)
+    expect(rigorFloor(10 * ms)).toBe(5)
+    expect(rigorFloor(100 * ms)).toBe(7)
+    expect(rigorFloor(140 * ms)).toBe(7)
+    expect(rigorFloor(1_000 * ms)).toBe(9)
+    expect(rigorFloor(2_400 * ms)).toBe(10)
+    expect(rigorFloor(60_000 * ms)).toBe(10)
+  })
+
+  test("default floor: budget-fit (max 20) for cheap tasks, rigor floor for expensive ones", () => {
+    const ms = 1e6
+    const budget = 500 * ms
+    // 30ns/call, batched: thousands fit, floor caps at 20 (the loop is time-bound anyway).
+    expect(defaultSampleFloor(1_000, budget)).toBe(20)
+    // 30ms: 16 fit, above the 6 rigor floor.
+    expect(defaultSampleFloor(30 * ms, budget)).toBe(16)
+    // 140ms: only 3 fit, but the cost class earns 7 (was 3 under the old clamp).
+    expect(defaultSampleFloor(140 * ms, budget)).toBe(7)
+    // 2.4s: nothing fits; earns 10 (was 3).
+    expect(defaultSampleFloor(2_400 * ms, budget)).toBe(10)
+    // A tighter global budget does not lower the rigor floor.
+    expect(defaultSampleFloor(2_400 * ms, 50 * ms)).toBe(10)
+  })
+
+  test("an expensive task gets its rigor floor even when the budget fits fewer", async () => {
+    // ~15ms/call, 20ms budget: only 1 fits; the cost class (10..30ms) earns 5.
+    const result = await measureTask(() => spin(15), { timeBudgetMs: 20 })
+    expect(result.trials.length).toBeGreaterThanOrEqual(5)
+    expect(result.trials.length).toBeLessThanOrEqual(7)
+    expect(result.warnings.some((w) => w.code === "low-sample-count")).toBe(
+      false,
+    )
+  })
+
+  test("an explicit minSamples below the cost-class floor is honored but flagged low-sample-count", async () => {
+    // ~15ms/call, 20ms budget, hard floor 2: ends at 2 samples (fewer than the
+    // 5 the cost class earns). The policy is not overridden; it is reported.
+    const result = await measureTask(() => spin(15), {
+      timeBudgetMs: 20,
+      minSamples: 2,
+    })
+    expect(result.trials.length).toBeLessThan(5)
+    const warning = result.warnings.find((w) => w.code === "low-sample-count")
+    expect(warning).toBeDefined()
+    expect(warning!.data).toMatchObject({
+      samples: result.trials.length,
+      target: 5,
+    })
+    expect(typeof warning!.data!.trialCostNs).toBe("number")
+  })
+
+  test("a cheap task never carries low-sample-count, even with a tiny explicit floor", async () => {
+    const result = await measureTask(() => 1, {
+      timeBudgetMs: 10,
+      minSamples: 1,
+    })
+    expect(result.warnings.some((w) => w.code === "low-sample-count")).toBe(
+      false,
+    )
   })
 
   test("explicit minSamples is a hard floor even past the budget", async () => {

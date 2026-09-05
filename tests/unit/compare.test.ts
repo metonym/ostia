@@ -5,6 +5,7 @@ import {
   DEFAULT_THRESHOLDS,
 } from "../../src/compare/index.ts"
 import {
+  makeEntryWorkload,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
@@ -196,6 +197,41 @@ describe("compareDocuments - batch matching by workload id", () => {
     const comparisons = compareDocuments(base, cand)
     expect(comparisons).toHaveLength(1)
     expect(comparisons[0]!.verdict).toBe("pass")
+  })
+})
+
+describe("compareWorkload - a task.skip()'d candidate (item 10)", () => {
+  test("is unchanged with a skipped warning, not silently passed or dropped", () => {
+    const baseWorkload = makeEntryWorkload("suite.ts", "g/measured", {
+      label: "g/measured",
+    })
+    const baseRun = makeTimingMeasurement({
+      workload: baseWorkload,
+      configFingerprint: "cfg",
+      trials: [10_000_000, 10_100_000, 10_050_000].map((wallNs, i) => ({
+        i,
+        wallNs,
+      })),
+      timing: computeTimingStats([10_000_000, 10_100_000, 10_050_000]),
+      warnings: [],
+    })
+    const base = newDocument([baseWorkload], [baseRun])
+
+    // Candidate: same workload id (same suite file, task name, no params),
+    // but skipped this run - no measurement.
+    const candWorkload = makeEntryWorkload("suite.ts", "g/measured", {
+      label: "g/measured",
+      skipped: true,
+    })
+    const cand = newDocument([candWorkload], [])
+
+    const cmp = compareWorkload(base, cand, baseWorkload.id)
+    expect(cmp).toBeDefined()
+    expect(cmp!.timing!.verdict).toBe("unchanged")
+    expect(cmp!.verdict).toBe("pass")
+    expect(cmp!.candidateMeasurementId).toBe(candWorkload.id)
+    expect(cmp!.warnings).toBeDefined()
+    expect(cmp!.warnings!.some((w) => w.code === "skipped")).toBe(true)
   })
 })
 

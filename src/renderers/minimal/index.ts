@@ -1,4 +1,9 @@
-import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
+import type {
+  Comparison,
+  Measurement,
+  ProfileDocument,
+  Workload,
+} from "../../ir/types.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
@@ -14,14 +19,17 @@ export interface MinimalLine {
   groupDescription?: string
   /** From `task(name, fn, { params })` or a `sweep()` point. */
   params?: Record<string, string | number | boolean>
-  unit: "ns"
-  samples: number
-  mean: number
-  median: number
-  stddev: number
-  stddevPct: number
-  min: number
-  max: number
+  /** From `task.skip()` / `group.skip()`: no measurement was taken, so every
+   * stats field below is absent on this line. */
+  skipped?: true
+  unit?: "ns"
+  samples?: number
+  mean?: number
+  median?: number
+  stddev?: number
+  stddevPct?: number
+  min?: number
+  max?: number
   /** 75th/99th percentile and median absolute deviation, ns. Absent on
    * documents saved before these fields existed. */
   p75?: number
@@ -55,6 +63,32 @@ function taskLabel(w: Workload | undefined, run: Measurement): string {
   return w?.entry?.task ?? w?.label ?? w?.command?.join(" ") ?? run.workloadId
 }
 
+function skippedLine(
+  workload: Workload,
+  cmp: Comparison | undefined,
+): MinimalLine {
+  const line: MinimalLine = {
+    task: workload.entry?.task ?? workload.label ?? workload.id,
+    skipped: true,
+    warnings: [],
+  }
+  if (workload.entry?.group !== undefined) line.group = workload.entry.group
+  if (workload.description !== undefined)
+    line.description = workload.description
+  if (workload.groupDescription !== undefined)
+    line.groupDescription = workload.groupDescription
+  if (workload.params !== undefined) line.params = workload.params
+  if (cmp?.timing) {
+    line.delta = {
+      medianPct: sig(cmp.timing.medianDeltaPct),
+      meanPct: sig(cmp.timing.meanDeltaPct),
+      verdict: cmp.timing.verdict,
+      pass: cmp.verdict === "pass",
+    }
+  }
+  return line
+}
+
 function minimalLines(doc: ProfileDocument): MinimalLine[] {
   const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
   const rows = doc.measurements
@@ -67,8 +101,12 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
   const comparisonByRun = new Map(
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
+  const measuredWorkloadIds = new Set(rows.map((r) => r.run.workloadId))
+  const skippedLines = doc.workloads
+    .filter((w) => w.skipped && !measuredWorkloadIds.has(w.id))
+    .map((w) => skippedLine(w, comparisonByRun.get(w.id)))
 
-  return rows.map((row) => {
+  const measuredLines = rows.map((row) => {
     const { run, workload } = row
     const t = run.timing
     const line: MinimalLine = {
@@ -113,6 +151,8 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
     }
     return line
   })
+
+  return [...measuredLines, ...skippedLines]
 }
 
 export const minimalRenderer: Renderer<Record<string, never>> = {

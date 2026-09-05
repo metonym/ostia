@@ -59,6 +59,7 @@ export interface EntryWorkloadOptions {
   groupDescription?: string
   isolated?: boolean
   params?: Record<string, string | number | boolean>
+  skipped?: boolean
 }
 
 /** `taskName` is the registry's "group/name" id and, together with `params`
@@ -92,6 +93,7 @@ export function makeEntryWorkload(
     }),
     ...(opts.isolated !== undefined && { isolated: opts.isolated }),
     ...(opts.params !== undefined && { params: opts.params }),
+    ...(opts.skipped !== undefined && { skipped: opts.skipped }),
   }
 }
 

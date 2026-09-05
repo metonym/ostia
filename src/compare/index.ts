@@ -77,9 +77,15 @@ export function compareWorkload(
   const candCpu = measurementsFor(cand, workloadId, "cpu")
   const baseHeap = measurementsFor(base, workloadId, "heap")
   const candHeap = measurementsFor(cand, workloadId, "heap")
+  const candWorkload = cand.workloads.find((w) => w.id === workloadId)
 
   const baselineMeasurementId = baseTiming?.id ?? baseCpu?.id ?? baseHeap?.id
-  const candidateMeasurementId = candTiming?.id ?? candCpu?.id ?? candHeap?.id
+  // A task.skip()'d candidate has no measurement at all; fall back to its
+  // workload id so this comparison can still say "skipped" instead of
+  // either vanishing (compareDocuments would otherwise drop it) or being
+  // silently absent.
+  const candidateMeasurementId =
+    candTiming?.id ?? candCpu?.id ?? candHeap?.id ?? candWorkload?.id
   if (!baselineMeasurementId || !candidateMeasurementId) return undefined
 
   let failed = false
@@ -91,7 +97,20 @@ export function compareWorkload(
   )
 
   let timing: Comparison["timing"]
-  if (baseTiming?.timing && candTiming?.timing) {
+  if (baseTiming?.timing && candWorkload?.skipped && !candTiming?.timing) {
+    timing = {
+      medianDeltaPct: 0,
+      meanDeltaPct: 0,
+      effectPct: 0,
+      verdict: "unchanged",
+    }
+    warnings.push({
+      code: "skipped",
+      message:
+        "Candidate has no timing measurement for this workload (task.skip()); treated as unchanged.",
+      data: { workloadId },
+    })
+  } else if (baseTiming?.timing && candTiming?.timing) {
     const baseSamples = baseTiming.timing.samples
     const candSamples = candTiming.timing.samples
     const medianDeltaPct = pctDelta(

@@ -80,14 +80,25 @@ async function main(): Promise<number> {
     return 2
   }
 
-  let tasks = filterTasks(registered, opts.filter)
+  // A forgotten .only silently gates a whole suite down to a handful of
+  // tasks, so it gets a stderr notice the same way `--filter` reducing to
+  // zero gets a hard error: both are easy to miss otherwise.
+  const onlyTasks = registered.filter((t) => t.only)
+  const candidates = onlyTasks.length > 0 ? onlyTasks : registered
+  if (onlyTasks.length > 0) {
+    process.stderr.write(
+      `bench: ${onlyTasks.length} task(s) selected by .only\n`,
+    )
+  }
+
+  let tasks = filterTasks(candidates, opts.filter)
   if (opts.taskIds) {
     const wanted = new Set(opts.taskIds)
     tasks = tasks.filter((t) => wanted.has(taskIdOf(t)))
   }
   if (tasks.length === 0) {
     process.stderr.write(
-      `bench runner: --filter ${JSON.stringify(opts.filter)} matched zero of ${registered.length} registered tasks in ${suiteFile}.\n`,
+      `bench runner: --filter ${JSON.stringify(opts.filter)} matched zero of ${candidates.length} registered task(s) in ${suiteFile}.\n`,
     )
     return 2
   }
@@ -107,24 +118,28 @@ async function main(): Promise<number> {
     ? tasks
     : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false))
 
+  const willMeasure = toRun.some((t) => !t.skipped)
   const environment =
-    toRun.length > 0 && opts.noiseCheck !== false
-      ? captureEnvironment()
-      : undefined
+    willMeasure && opts.noiseCheck !== false ? captureEnvironment() : undefined
   const noiseWarning = environment
     ? noisyMachineWarning(environment)
     : undefined
 
+  // Group before/after wrap only the group's measured tasks (a task.skip()'d
+  // task needs no setup/teardown); first/last are found by scanning once so
+  // a group's tasks don't have to be contiguous in `toRun`.
+  const groupFirstIndex = new Map<string, number>()
+  const groupLastIndex = new Map<string, number>()
+  toRun.forEach((t, i) => {
+    if (t.groupName === undefined || t.skipped) return
+    if (!groupFirstIndex.has(t.groupName)) groupFirstIndex.set(t.groupName, i)
+    groupLastIndex.set(t.groupName, i)
+  })
+
   const workloads = []
   const measurements = []
-  let previousGroupName: string | undefined
   for (let idx = 0; idx < toRun.length; idx++) {
     const t = toRun[idx]!
-    if (t.groupName !== previousGroupName && t.groupBefore) {
-      await t.groupBefore()
-    }
-    if (t.opts?.before) await t.opts.before()
-
     const id = taskIdOf(t)
     const workload = makeEntryWorkload(suiteFile, id, {
       label: id,
@@ -134,8 +149,19 @@ async function main(): Promise<number> {
       groupDescription: t.groupDescription,
       isolated: opts.markIsolated,
       params: t.params,
+      skipped: t.skipped,
     })
     workloads.push(workload)
+
+    if (t.skipped) continue
+
+    const isGroupFirst =
+      t.groupName !== undefined && groupFirstIndex.get(t.groupName) === idx
+    const isGroupLast =
+      t.groupName !== undefined && groupLastIndex.get(t.groupName) === idx
+    if (isGroupFirst && t.groupBefore) await t.groupBefore()
+    if (t.opts?.before) await t.opts.before()
+
     // Per-task options win over the suite-wide ones. The fingerprint is per task
     // for the same reason: two runs of one task only compare like-for-like when
     // they were measured under the same effective settings.
@@ -168,9 +194,7 @@ async function main(): Promise<number> {
     )
 
     if (t.opts?.after) await t.opts.after()
-    const nextGroupName = toRun[idx + 1]?.groupName
-    if (t.groupName !== nextGroupName && t.groupAfter) await t.groupAfter()
-    previousGroupName = t.groupName
+    if (isGroupLast && t.groupAfter) await t.groupAfter()
   }
 
   await saveDocument(

@@ -4,7 +4,7 @@ import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
 import { baselinePath, loadConfig } from "../config/index.ts"
-import { time } from "../index.ts"
+import { type CommandSpec, time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
 import type { ProfileDocument } from "../ir/types.ts"
 import {
@@ -12,6 +12,7 @@ import {
   type RenderResult,
   renderers,
 } from "../renderers/index.ts"
+import type { TimeSource, TimeUnit } from "../spawn/index.ts"
 
 async function writeRenderResult(
   result: RenderResult,
@@ -54,6 +55,17 @@ Flags:
                        neighbor process) evenly across every command instead of favoring
                        whichever ran first or last. Meaningless (and ignored) with one
                        command. Interleaved measurements carry Measurement.interleaved: true.
+  --prepare CMD       run CMD before every trial (warmup and --cpu/--heap trials
+                       included), unmeasured, in the same cwd; it must exit 0. Whitespace-
+                       split like the commands themselves (no shell). Given once it applies
+                       to every command; given once per command it pairs up in order, so the
+                       same command can be timed warm and cold side by side.
+  --time-source REGEX take each trial's time from the first REGEX match in the command's
+                       own stdout (then stderr), capture group 1, instead of its wall clock -
+                       e.g. --time-source "built in (\\d+)ms" for a build tool whose own
+                       summary excludes runtime startup. Every trial must match or the run
+                       aborts. Trials keep wallNs alongside the reported value.
+  --time-unit UNIT    unit of the --time-source number: ns | us | ms | s (default: ms)
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
@@ -71,6 +83,8 @@ Examples:
   ostia time "bun ./fixtures/work.ts"
   ostia time --samples 25 --warmup 3 "bun a.ts" "bun b.ts"
   ostia time --no-interleave "bun a.ts" "bun b.ts"
+  ostia time --prepare "rm -rf dist" "bun build.ts"
+  ostia time --time-source "built in (\\d+)ms" "bun build.ts"
   ostia time --cpu --heap "bun src/server.ts"
   ostia time --format json "bun a.ts"
 `
@@ -274,6 +288,10 @@ Examples:
 
 interface TimeArgs {
   commands: string[]
+  /** One entry applies to every command; N entries pair with N commands. */
+  prepare: string[]
+  timeSource?: string
+  timeUnit?: TimeUnit
   samples?: number
   budgetMs?: number
   minSamples?: number
@@ -292,6 +310,9 @@ interface TimeArgs {
 
 function parseTimeArgs(argv: string[]): TimeArgs {
   const commands: string[] = []
+  const prepare: string[] = []
+  let timeSource: string | undefined
+  let timeUnit: TimeUnit | undefined
   let samples: number | undefined
   let budgetMs: number | undefined
   let minSamples: number | undefined
@@ -324,6 +345,15 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         break
       case "--no-interleave":
         interleave = false
+        break
+      case "--prepare":
+        prepare.push(argv[++i] ?? "")
+        break
+      case "--time-source":
+        timeSource = argv[++i]
+        break
+      case "--time-unit":
+        timeUnit = argv[++i] as TimeUnit
         break
       case "--cpu":
         cpu = true
@@ -360,6 +390,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
 
   return {
     commands,
+    prepare,
+    timeSource,
+    timeUnit,
     samples,
     budgetMs,
     minSamples,
@@ -377,6 +410,8 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   }
 }
 
+const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
+
 async function timeCommand(argv: string[]): Promise<number> {
   const parsed = parseTimeArgs(argv)
   if (parsed.help || parsed.commands.length === 0) {
@@ -391,10 +426,46 @@ async function timeCommand(argv: string[]): Promise<number> {
     return 2
   }
 
+  if (
+    parsed.prepare.length > 1 &&
+    parsed.prepare.length !== parsed.commands.length
+  ) {
+    process.stderr.write(
+      `--prepare given ${parsed.prepare.length} times for ${parsed.commands.length} command(s): give it once (applies to all) or once per command.\n`,
+    )
+    return 2
+  }
+  if (parsed.timeUnit !== undefined && !TIME_UNITS.includes(parsed.timeUnit)) {
+    process.stderr.write(
+      `Unknown --time-unit "${parsed.timeUnit}". Expected one of: ${TIME_UNITS.join(", ")}\n`,
+    )
+    return 2
+  }
+  if (parsed.timeSource !== undefined) {
+    try {
+      new RegExp(parsed.timeSource)
+    } catch (err) {
+      process.stderr.write(
+        `Invalid --time-source regex: ${err instanceof Error ? err.message : String(err)}\n`,
+      )
+      return 2
+    }
+  }
+  const timeSource: TimeSource | undefined =
+    parsed.timeSource !== undefined
+      ? { pattern: parsed.timeSource, unit: parsed.timeUnit }
+      : undefined
+  const commands: CommandSpec[] = parsed.commands.map((command, i) => ({
+    command,
+    prepare:
+      parsed.prepare.length === 1 ? parsed.prepare[0] : parsed.prepare[i],
+  }))
+
   let doc: ProfileDocument
   try {
     doc = await time({
-      commands: parsed.commands,
+      commands,
+      timeSource,
       samples: parsed.samples,
       budgetMs: parsed.budgetMs,
       minSamples: parsed.minSamples,

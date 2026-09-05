@@ -50,6 +50,22 @@ export interface Workload {
   label?: string
   command?: string[]
   shell?: string
+  /** Command form of the `prepare` hook that ran before every trial of this
+   * command (`ostia time --prepare`, `time({ prepare })`, config `prepare`).
+   * Part of the workload id: the same command with and without a prepare
+   * step measures different things. A function-form hook isn't
+   * serializable and is omitted here (its source text is still hashed into
+   * the id). */
+  prepare?: string[]
+  /** Where this command's timing samples came from when not the subprocess
+   * wall clock: a regex over the command's own output and the unit of the
+   * number it captures. Part of the workload id, so the same command timed
+   * by wall clock and by its own report are two workloads. */
+  timeSource?: {
+    pattern: string
+    group?: number
+    unit?: "ns" | "us" | "ms" | "s"
+  }
   /** `task` is the "group/name" id the bench registry assigns; `group` is the
    * enclosing `group()` name when there is one. Renderers prefer `group` over
    * splitting `task` on "/", so task names may contain slashes. */
@@ -113,6 +129,10 @@ export interface Measurement {
 export interface Trial {
   i: number
   wallNs: number
+  /** The command's self-reported time (ns) when the workload has a
+   * `timeSource`; `timing.samples` are these, not `wallNs`, in that case.
+   * `wallNs` stays alongside so a document keeps both. */
+  reportedNs?: number
   exitCode?: number
   userNs?: number
   systemNs?: number

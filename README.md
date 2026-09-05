@@ -151,6 +151,41 @@ or last. `--no-interleave` (`interleave: false`) goes back to running each comma
 loop to completion in turn. Interleaved measurements carry `Measurement.interleaved: true`.
 Meaningless (and ignored) with a single command.
 
+`--prepare CMD` runs `CMD` before *every* trial (warmup and `--cpu`/`--heap` trials
+included), unmeasured, in the same cwd - hyperfine's `--prepare`. It's whitespace-split
+like the commands themselves (no shell) and must exit 0. Given once it applies to every
+command; given once per command it pairs up in order, which is how the same command gets
+timed warm and cold side by side:
+
+```sh
+ostia time --prepare "true" --prepare "rm -rf dist" "bun build.ts" "bun build.ts"
+```
+
+The prepare command is part of the workload id (and lands on the document as
+`Workload.prepare`), so a command with and without one are two workloads, and `ostia ci`
+caches them separately. The library API also takes a function
+(`prepare: ({ phase, index }) => ...`, see [`time(opts)`](#timeopts--profiledocument)).
+
+`--time-source REGEX` takes each trial's time from the command's *own output* instead of
+its wall clock: the first `REGEX` match in stdout (then stderr), capture group 1, in
+`--time-unit` units (`ns` | `us` | `ms` | `s`, default `ms`). Meant for tools that report a
+more precise cost than wall time - a build tool whose `built in 342ms` line excludes the
+runtime's startup - so a Bun startup regression isn't misattributed to the tool, and vice
+versa:
+
+```sh
+ostia time --time-source "built in (\d+)ms" "bun build.ts"
+```
+
+The parsed value becomes `timing.samples`, so `compare`/`ci`/every renderer treat it
+exactly like wall time; each trial keeps `wallNs` alongside `reportedNs` so the document
+has both. A trial whose output doesn't match aborts the run with the output quoted (the
+workload asked for a number that isn't there). To gate wall time *and* the reported time
+independently, declare the command twice - once plain, once with `--time-source` - and
+they're two workloads with two verdicts. Note the reported number has whatever resolution
+the tool printed (usually whole ms), so its confidence interval is coarser than a
+nanosecond wall clock's.
+
 Timing table (two commands get a Relative column automatically):
 
 ```
@@ -312,6 +347,13 @@ Warnings:
 
 Tasks with a `group()` print the group name once, indented; ungrouped tasks and
 subprocess commands print flat.
+
+There's no built-in watch mode. For an edit/re-run loop while writing a suite, pair
+`ostia bench` with a file watcher and a small budget:
+
+```sh
+watchexec -e ts -- ostia bench bench/parse.ts --budget 100
+```
 
 ### `ostia compare`
 
@@ -503,6 +545,13 @@ export default defineConfig({
   workloads: [
     { label: "parse", command: ["bun", "bench/parse.ts"], inputs: ["src/**/*.ts"] },
     { label: "dogfood-suites", suites: ["bench/*.ts"] },
+    // Same command, three states: warm no-op, one edited input, cold. `prepare`
+    // runs before every trial; `timeSource` reads the tool's own "in Nms" line.
+    { label: "build:warm", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" } },
+    { label: "build:incremental", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" },
+      prepare: () => touchPost("fixture/posts/hello.md") },
+    { label: "build:cold", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" },
+      prepare: "rm -rf fixture/dist" },
   ],
 })
 ```
@@ -537,6 +586,13 @@ keys, without importing it first) - `inputs`-based cache skipping is `command`-o
 
 `inputs` is optional (and, for now, only consulted for `command` workloads). Workloads
 with no `inputs` always rerun (cache fails conservative).
+
+`prepare` and `timeSource` are `command`-only and mean the same as `ostia time`'s
+`--prepare` / `--time-source`: `prepare` is a command string or argv array in both config
+forms, or a function in `ostia.config.ts`; `timeSource` is `{ pattern, group?, unit? }`
+with `pattern` a regex source string (or a `RegExp` in `.ts`). Both are part of the workload
+id. A function-form `prepare` can't be fingerprinted, so that workload never comes from
+cache - it always executes, like a workload with no `inputs`.
 
 Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
 scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're
@@ -621,6 +677,9 @@ Subprocess timing, optional CPU/heap capture. Same behavior as `ostia time`.
 ```ts
 const doc = await time({
   commands: ["bun a.ts", "bun b.ts"],
+  prepare: "rm -rf dist", // before every trial of every command, unmeasured; or a
+  //   function: ({ phase, index }) => ..., phase is "warmup" | "timing" | "cpu" | "heap"
+  timeSource: { pattern: /in (\d+)ms/, unit: "ms" }, // samples from the command's own output
   samples: 10, // exact trial count
   // budgetMs: 3000,   // wall-clock budget instead of an exact count
   // minSamples: 10,   // hard floor when samples isn't given
@@ -631,6 +690,24 @@ const doc = await time({
   cpuIntervalUs: 200,
   outDir: "node_modules/.cache/ostia", // default; artifacts land under here
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
+})
+```
+
+A command can also be an object - `{ command, label?, prepare?, timeSource? }` - whose
+`prepare`/`timeSource` override the top-level ones for that command. That's how one
+command becomes several labeled workloads in the same document:
+
+```ts
+const build = ["bun", "cli.ts", "build", "fixture"]
+const inMs = { pattern: /in (\d+)ms/ }
+const doc = await time({
+  commands: [
+    { command: build, label: "warm", timeSource: inMs },
+    { command: build, label: "incremental", timeSource: inMs, prepare: () => touchPost() },
+    { command: build, label: "cold", timeSource: inMs, prepare: "rm -rf fixture/dist" },
+    { command: build, label: "wall clock" }, // same command, no timeSource: wall time
+  ],
+  samples: 5,
 })
 ```
 
@@ -862,6 +939,24 @@ const doc = await bench({
 })
 ```
 
+A command can also be an object - `{ command, label?, prepare?, timeSource? }` - whose
+`prepare`/`timeSource` override the top-level ones for that command. That's how one
+command becomes several labeled workloads in the same document:
+
+```ts
+const build = ["bun", "cli.ts", "build", "fixture"]
+const inMs = { pattern: /in (\d+)ms/ }
+const doc = await time({
+  commands: [
+    { command: build, label: "warm", timeSource: inMs },
+    { command: build, label: "incremental", timeSource: inMs, prepare: () => touchPost() },
+    { command: build, label: "cold", timeSource: inMs, prepare: "rm -rf fixture/dist" },
+    { command: build, label: "wall clock" }, // same command, no timeSource: wall time
+  ],
+  samples: 5,
+})
+```
+
 ### `compareDocuments(base, cand, thresholds?)` → `Comparison[]`
 
 Same matching and thresholds as `ostia compare` / `ostia ci`.
@@ -925,6 +1020,7 @@ Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).
 | `do_not_optimize(value)` | `keep(value)` |
 | `hyperfine -L var a,b,c cmd-{var}` | `sweep({ var: ["a", "b", "c"] }, ...)` or per-command `params` |
 | `hyperfine --runs N --warmup N` | `ostia time --samples N --warmup N` |
+| `hyperfine --prepare CMD` | `ostia time --prepare CMD` (also `time({ prepare })` / config `prepare`) |
 | `hyperfine --export-json` / `--export-markdown` | `ostia time --export-json PATH` / `--format markdown` |
 
 `sweep()`/`range()`/`params` are in-process (`ostia bench`); `hyperfine -L` substitutes into

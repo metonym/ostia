@@ -1,3 +1,4 @@
+import type { BenchConfig } from "../config/index.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { ProfileDocument, Run, Workload } from "../ir/types.ts"
@@ -42,6 +43,74 @@ const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 /** Logical CPUs available to this process, for `--jobs auto`. */
 export function availableJobs(): number {
   return Math.max(1, navigator.hardwareConcurrency || 1)
+}
+
+/** Expands suite file globs (e.g. from `ostia.config.json`'s `bench.suites`)
+ * against `cwd`, deduped and sorted for a deterministic run order. */
+export async function expandSuiteGlobs(
+  patterns: string[],
+  cwd: string,
+): Promise<string[]> {
+  const paths = new Set<string>()
+  for (const pattern of patterns) {
+    const glob = new Bun.Glob(pattern)
+    for await (const path of glob.scan({ cwd, absolute: false })) {
+      paths.add(path)
+    }
+  }
+  return [...paths].sort()
+}
+
+/** The subset of `ostia bench`'s CLI flags that have a config-file
+ * counterpart in `BenchConfig`. */
+export interface BenchCliOverrides {
+  suites: string[]
+  timeBudgetMs?: number
+  minSamples?: number
+  jobs?: number
+  gc: boolean
+  filter?: string
+  isolate: boolean
+  preload: string[]
+  outDir?: string
+}
+
+function resolveConfigJobs(
+  value: number | "auto" | undefined,
+): number | undefined {
+  if (value === undefined) return undefined
+  return value === "auto" ? availableJobs() : value
+}
+
+/** Merges CLI flags with `ostia.config.json`'s `bench` section: an explicit
+ * CLI value always wins per field, falling back to the config value, then to
+ * `bench()`'s own built-in defaults (left undefined here). `suites` and
+ * `preload` are whole-list overrides rather than merged - CLI args replace
+ * the config's list rather than appending to it. */
+export async function resolveBenchOptions(
+  cli: BenchCliOverrides,
+  config: BenchConfig | undefined,
+  cwd: string = process.cwd(),
+): Promise<BenchOptions> {
+  const suites =
+    cli.suites.length > 0
+      ? cli.suites
+      : config?.suites
+        ? await expandSuiteGlobs(config.suites, cwd)
+        : []
+
+  return {
+    suites,
+    timeBudgetMs: cli.timeBudgetMs ?? config?.timeBudgetMs,
+    minSamples: cli.minSamples ?? config?.minSamples,
+    jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
+    gc: cli.gc || (config?.gc ?? false),
+    filter: cli.filter ?? config?.filter,
+    isolate: cli.isolate || (config?.isolate ?? false),
+    preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
+    outDir: cli.outDir ?? config?.outDir,
+    cwd,
+  }
 }
 
 interface PlannedTask {

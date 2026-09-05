@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { availableJobs, bench } from "../bench/index.ts"
+import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
 import { loadConfig } from "../config/index.ts"
@@ -126,12 +126,21 @@ generation, default multiplier 8, always ending on the end value):
     }
   })
 
+Project defaults: with no suite files given on the command line, ostia falls back to
+ostia.config.json's "bench" section in the current directory - suites is a list of globs
+(expanded with Bun.Glob), the rest are the same defaults as their matching flag:
+  { "bench": { "suites": ["bench/**/*.bench.ts"], "preload": ["./bench/setup.ts"], "jobs": "auto" } }
+Any suite files given on the command line replace (not merge with) the config's "suites"
+list; every other flag/config field is overridden individually, so "ostia bench --jobs 1"
+still works as a one-off override without editing the config.
+
 Examples:
   ostia bench benches/parse.ts
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
   ostia bench benches/*.ts --filter parse
   ostia bench benches/*.ts --jobs auto --format minimal
   ostia bench --preload ./bench/jsdom-setup.ts benches/*.dom.bench.ts
+  ostia bench                 # picks up suites/preload/jobs from ostia.config.json
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -420,9 +429,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
 
 async function benchCommand(argv: string[]): Promise<number> {
   const parsed = parseBenchArgs(argv)
-  if (parsed.help || parsed.suites.length === 0) {
+  if (parsed.help) {
     process.stdout.write(BENCH_HELP)
-    return parsed.help ? 0 : 2
+    return 0
   }
 
   if (!(parsed.format in renderers)) {
@@ -431,24 +440,22 @@ async function benchCommand(argv: string[]): Promise<number> {
     )
     return 2
   }
-  if (parsed.jobs !== undefined && !(parsed.jobs >= 1)) {
+
+  const config = await loadConfig()
+  const resolved = await resolveBenchOptions(parsed, config?.bench)
+
+  if (resolved.suites.length === 0) {
+    process.stdout.write(BENCH_HELP)
+    return 2
+  }
+  if (resolved.jobs !== undefined && !(resolved.jobs >= 1)) {
     process.stderr.write(`--jobs expects a positive integer or "auto".\n`)
     return 2
   }
 
   let doc: ProfileDocument
   try {
-    doc = await bench({
-      suites: parsed.suites,
-      timeBudgetMs: parsed.timeBudgetMs,
-      minSamples: parsed.minSamples,
-      jobs: parsed.jobs,
-      gc: parsed.gc,
-      filter: parsed.filter,
-      isolate: parsed.isolate,
-      preload: parsed.preload,
-      outDir: parsed.outDir,
-    })
+    doc = await bench(resolved)
   } catch (err) {
     process.stderr.write(
       `Bench failed: ${err instanceof Error ? err.message : String(err)}\n`,

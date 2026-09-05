@@ -108,6 +108,8 @@ describe("loadConfig", () => {
         frameSelfPct: 20,
         heapTypePct: 25,
         minFrameSelfUs: 2000,
+        alpha: DEFAULT_CONFIG.thresholds.alpha,
+        bootstrapIterations: DEFAULT_CONFIG.thresholds.bootstrapIterations,
       })
     } finally {
       await Bun.$`rm -rf ${tmpDir}`

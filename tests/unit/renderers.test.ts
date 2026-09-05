@@ -455,6 +455,10 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
         timing: {
           medianDeltaPct: 12.5,
           meanDeltaPct: 11,
+          effectPct: 12.5,
+          ci95: [9.1, 15.8],
+          pValue: 0.0005,
+          seed: 42,
           verdict: "regressed",
         },
         thresholds: {
@@ -462,6 +466,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
           frameSelfPct: 10,
           heapTypePct: 10,
           minFrameSelfUs: 1000,
+          alpha: 0.01,
+          bootstrapIterations: 2000,
         },
         verdict: "fail",
       },
@@ -475,6 +481,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       meanPct: 11,
       verdict: "regressed",
       pass: false,
+      ci95: [9.1, 15.8],
+      pValue: 0.0005,
     })
     expect(lines[1]!.delta).toBeUndefined()
   })

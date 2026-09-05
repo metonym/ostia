@@ -1,11 +1,24 @@
 import { fp } from "../ir/fp.ts"
-import type { Comparison, Measurement, ProfileDocument } from "../ir/types.ts"
+import type {
+  Comparison,
+  Measurement,
+  ProfileDocument,
+  Warning,
+} from "../ir/types.ts"
+import { bootstrapMedianDiffCi } from "../stats/bootstrap.ts"
+import { mannWhitneyU } from "../stats/mannwhitney.ts"
 
 export interface Thresholds {
   timingPct: number
   frameSelfPct: number
   heapTypePct: number
   minFrameSelfUs: number
+  /** Significance level for the Mann-Whitney p-value: a `regressed` /
+   * `improved` verdict also requires `pValue < alpha`. */
+  alpha: number
+  /** Bootstrap resample rounds for the timing CI. Capped work regardless:
+   * see `bootstrapMedianDiffCi`. */
+  bootstrapIterations: number
 }
 
 export const DEFAULT_THRESHOLDS: Thresholds = {
@@ -13,7 +26,14 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   frameSelfPct: 10,
   heapTypePct: 10,
   minFrameSelfUs: 1000,
+  alpha: 0.01,
+  bootstrapIterations: 2000,
 }
+
+/** Below this many samples on either side, a bootstrap CI and Mann-Whitney
+ * p-value are too noisy to trust; fall back to the point-estimate rule and
+ * say so with a `thin-comparison` warning. */
+const MIN_SAMPLES_FOR_TEST = 5
 
 function pctDelta(base: number, cand: number): number {
   if (base === 0) return cand === 0 ? 0 : Infinity
@@ -63,9 +83,12 @@ export function compareWorkload(
   if (!baselineMeasurementId || !candidateMeasurementId) return undefined
 
   let failed = false
+  const warnings: Warning[] = []
 
   let timing: Comparison["timing"]
   if (baseTiming?.timing && candTiming?.timing) {
+    const baseSamples = baseTiming.timing.samples
+    const candSamples = candTiming.timing.samples
     const medianDeltaPct = pctDelta(
       baseTiming.timing.median,
       candTiming.timing.median,
@@ -74,14 +97,55 @@ export function compareWorkload(
       baseTiming.timing.mean,
       candTiming.timing.mean,
     )
-    const verdict =
-      medianDeltaPct > thresholds.timingPct
-        ? "regressed"
-        : medianDeltaPct < -thresholds.timingPct
-          ? "improved"
-          : "unchanged"
-    if (verdict === "regressed") failed = true
-    timing = { medianDeltaPct, meanDeltaPct, verdict }
+
+    if (
+      baseSamples.length < MIN_SAMPLES_FOR_TEST ||
+      candSamples.length < MIN_SAMPLES_FOR_TEST
+    ) {
+      const verdict =
+        medianDeltaPct > thresholds.timingPct
+          ? "regressed"
+          : medianDeltaPct < -thresholds.timingPct
+            ? "improved"
+            : "unchanged"
+      if (verdict === "regressed") failed = true
+      timing = {
+        medianDeltaPct,
+        meanDeltaPct,
+        effectPct: medianDeltaPct,
+        verdict,
+      }
+      warnings.push({
+        code: "thin-comparison",
+        message: `Only ${baseSamples.length} baseline / ${candSamples.length} candidate sample(s); falling back to a point-estimate threshold instead of a bootstrap CI and Mann-Whitney test (needs ${MIN_SAMPLES_FOR_TEST}+ per side).`,
+        data: {
+          baseSamples: baseSamples.length,
+          candSamples: candSamples.length,
+        },
+      })
+    } else {
+      const bootstrap = bootstrapMedianDiffCi(baseSamples, candSamples, {
+        iterations: thresholds.bootstrapIterations,
+      })
+      const mw = mannWhitneyU(baseSamples, candSamples)
+      const verdict =
+        bootstrap.ci95[0] > thresholds.timingPct && mw.pValue < thresholds.alpha
+          ? "regressed"
+          : bootstrap.ci95[1] < -thresholds.timingPct &&
+              mw.pValue < thresholds.alpha
+            ? "improved"
+            : "unchanged"
+      if (verdict === "regressed") failed = true
+      timing = {
+        medianDeltaPct,
+        meanDeltaPct,
+        effectPct: medianDeltaPct,
+        ci95: bootstrap.ci95,
+        pValue: mw.pValue,
+        seed: bootstrap.seed,
+        verdict,
+      }
+    }
   }
 
   let frames: Comparison["frames"]
@@ -153,6 +217,7 @@ export function compareWorkload(
     baselineMeasurementId,
     candidateMeasurementId,
     timing,
+    ...(warnings.length > 0 && { warnings }),
     frames,
     heapTypes,
     thresholds,

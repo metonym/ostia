@@ -57,6 +57,13 @@
   `minimal` lines gain `params`; the markdown renderer pivots a group into a
   table when every task in it shares the same two param keys, otherwise
   renders params as a `key=value` suffix on the task name.
+- `task(name, fn, { before, after })` / `group(name, fn, { before, after })`:
+  once-each, unmeasured setup/teardown around a task's sampling (or a
+  group's tasks), in the task's own process so both work with `isolate`. No
+  per-trial hook, by design: use `gc`/`isolate` for per-trial concerns.
+- `keep(value)` (exported from `src/index.ts`): the sink that already
+  protects a task's own return value from dead-code elimination, made
+  public for an intermediate value inside a task body.
 
 **Fixes**
 

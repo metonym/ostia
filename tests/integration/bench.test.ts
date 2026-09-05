@@ -496,3 +496,30 @@ describe("bench() - sweep() and structured params (item 8)", () => {
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-sweep`]).exited
   }, 20_000)
 })
+
+describe("bench() - before/after hooks (item 9)", () => {
+  test("group before/after wrap the group's tasks; task before/after nest inside", async () => {
+    const markerPath = `${import.meta.dir}/../../.ostia-test-bench-hooks-marker.json`
+    await Bun.spawn(["rm", "-f", markerPath]).exited
+
+    await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-hooks.ts`],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-hooks`,
+    })
+
+    const order = (await Bun.file(markerPath).json()) as string[]
+    expect(order).toEqual([
+      "group-before",
+      "task-a-before",
+      "task-a-after",
+      "task-b-before",
+      "task-b-after",
+      "group-after",
+    ])
+
+    await Bun.spawn(["rm", "-rf", markerPath, `${OUT_DIR}-hooks`]).exited
+  }, 20_000)
+})

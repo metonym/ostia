@@ -72,7 +72,12 @@ export function defaultSampleFloor(
 // elimination; nothing needs to read it back.
 // biome-ignore lint/correctness/noUnusedVariables: intentionally write-only, see above
 let sink = 0
-function consume(value: unknown): void {
+
+/** Pins `value` against dead-code elimination. `measureTask` already does this
+ * for a task's own return value; `keep()` (exported from `src/index.ts`) is the
+ * same sink made public, for an intermediate value inside a task body that
+ * would otherwise go unused and risk being optimized away. */
+export function keep(value: unknown): void {
   if (typeof value === "number") sink += value
   else if (value !== undefined && value !== null) sink += 1
 }
@@ -111,7 +116,7 @@ export async function measureTask(
     // same way so the cost estimate matches what the loop measures (an async
     // helper would reintroduce the promise per call).
     const result = fn()
-    consume(isPromiseLike(result) ? await result : result)
+    keep(isPromiseLike(result) ? await result : result)
     warmupCalls++
     warmupElapsed = Bun.nanoseconds() - warmupStart
   }
@@ -125,7 +130,7 @@ export async function measureTask(
   } else {
     const calibStart = Bun.nanoseconds()
     const result = fn()
-    consume(isPromiseLike(result) ? await result : result)
+    keep(isPromiseLike(result) ? await result : result)
     singleCallNs = Math.max(1, Bun.nanoseconds() - calibStart)
   }
 
@@ -138,7 +143,7 @@ export async function measureTask(
     const calibStart = Bun.nanoseconds()
     for (let b = 0; b < batchSize; b++) {
       const result = fn()
-      consume(isPromiseLike(result) ? await result : result)
+      keep(isPromiseLike(result) ? await result : result)
     }
     singleCallNs = Math.max(1, (Bun.nanoseconds() - calibStart) / batchSize)
     batchSize = sizeBatch(singleCallNs, timeBudgetNs)
@@ -155,7 +160,7 @@ export async function measureTask(
     const trialStart = Bun.nanoseconds()
     for (let b = 0; b < batchSize; b++) {
       const result = fn()
-      consume(isPromiseLike(result) ? await result : result)
+      keep(isPromiseLike(result) ? await result : result)
     }
     const trialEnd = Bun.nanoseconds()
     trials.push({ i, wallNs: (trialEnd - trialStart) / batchSize })

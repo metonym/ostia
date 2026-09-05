@@ -319,3 +319,43 @@ describe("bench/registry - taskGc", () => {
     expect(taskGc(t!, true)).toBe(false)
   })
 })
+
+describe("bench/registry - before/after hooks", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("task before/after are recorded on TaskOptions", () => {
+    const before = () => 1
+    const after = () => 2
+    task("t", () => 1, { before, after })
+    const [t] = getRegisteredTasks()
+    expect(t!.opts?.before).toBe(before)
+    expect(t!.opts?.after).toBe(after)
+  })
+
+  test("group before/after are recorded on every task in the group", () => {
+    const before = () => 1
+    const after = () => 2
+    group(
+      "g",
+      () => {
+        task("a", () => 1)
+        task("b", () => 1)
+      },
+      { before, after },
+    )
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.groupBefore).toBe(before)
+    expect(tasks[0]!.groupAfter).toBe(after)
+    expect(tasks[1]!.groupBefore).toBe(before)
+    expect(tasks[1]!.groupAfter).toBe(after)
+  })
+
+  test("a task outside any group has no groupBefore/groupAfter", () => {
+    task("solo", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(t!.groupBefore).toBeUndefined()
+    expect(t!.groupAfter).toBeUndefined()
+  })
+})

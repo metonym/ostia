@@ -1,3 +1,5 @@
+type Hook = () => unknown | Promise<unknown>
+
 export interface TaskOptions {
   /** Marks this task as the Relative reference for its group in the table
    * renderer, mirroring mitata's `baseline()`. At most one per group. */
@@ -24,6 +26,14 @@ export interface TaskOptions {
    * current point is inherited automatically; an explicit `params` here
    * merges over it (explicit keys win). */
   params?: Record<string, string | number | boolean>
+  /** Runs once, unmeasured, immediately before this task's warmup - in the
+   * task's own process, so it works with `isolate`. No per-trial hook: that
+   * would defeat batching. Use `gc` (Bun.gc between trials) or `isolate`
+   * (a fresh process per task) for per-trial concerns instead. */
+  before?: Hook
+  /** Runs once, unmeasured, immediately after this task's last trial. Same
+   * process/no-per-trial caveats as `before`. */
+  after?: Hook
 }
 
 export interface GroupOptions {
@@ -36,6 +46,12 @@ export interface GroupOptions {
   /** Default `gc` for every task in this group, unless a task overrides it
    * with its own `TaskOptions.gc`. */
   gc?: boolean
+  /** Runs once, unmeasured, before the group's first task's warmup (not
+   * before every task) - in whichever process runs that task, so it works
+   * with `isolate`. */
+  before?: Hook
+  /** Runs once, unmeasured, after the group's last task's last trial. */
+  after?: Hook
 }
 
 export interface RegisteredTask {
@@ -43,6 +59,8 @@ export interface RegisteredTask {
   groupDescription?: string
   groupIsolate?: boolean
   groupGc?: boolean
+  groupBefore?: Hook
+  groupAfter?: Hook
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
@@ -52,7 +70,14 @@ export interface RegisteredTask {
 
 const tasks: RegisteredTask[] = []
 let currentGroup:
-  | { name: string; description?: string; isolate?: boolean; gc?: boolean }
+  | {
+      name: string
+      description?: string
+      isolate?: boolean
+      gc?: boolean
+      before?: Hook
+      after?: Hook
+    }
   | undefined
 let currentParams: Record<string, string | number | boolean> | undefined
 
@@ -63,6 +88,8 @@ export function group(name: string, fn: () => void, opts?: GroupOptions): void {
     description: opts?.description,
     isolate: opts?.isolate,
     gc: opts?.gc,
+    before: opts?.before,
+    after: opts?.after,
   }
   try {
     fn()
@@ -85,6 +112,8 @@ export function task(
     groupDescription: currentGroup?.description,
     groupIsolate: currentGroup?.isolate,
     groupGc: currentGroup?.gc,
+    groupBefore: currentGroup?.before,
+    groupAfter: currentGroup?.after,
     name,
     fn,
     baseline: opts?.baseline,

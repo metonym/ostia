@@ -117,7 +117,14 @@ async function main(): Promise<number> {
 
   const workloads = []
   const measurements = []
-  for (const t of toRun) {
+  let previousGroupName: string | undefined
+  for (let idx = 0; idx < toRun.length; idx++) {
+    const t = toRun[idx]!
+    if (t.groupName !== previousGroupName && t.groupBefore) {
+      await t.groupBefore()
+    }
+    if (t.opts?.before) await t.opts.before()
+
     const id = taskIdOf(t)
     const workload = makeEntryWorkload(suiteFile, id, {
       label: id,
@@ -159,6 +166,11 @@ async function main(): Promise<number> {
             : result.warnings,
       }),
     )
+
+    if (t.opts?.after) await t.opts.after()
+    const nextGroupName = toRun[idx + 1]?.groupName
+    if (t.groupName !== nextGroupName && t.groupAfter) await t.groupAfter()
+    previousGroupName = t.groupName
   }
 
   await saveDocument(

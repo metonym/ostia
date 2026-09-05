@@ -1,4 +1,5 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
+import { formatDuration, pickDurationUnit } from "../format.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -32,15 +33,13 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
     )
     if (timingRuns.length > 0) {
       lines.push("## Timing", "")
-      lines.push(
-        "| Command | Mean ± SD (ms) | Min…Max (ms) | Median (ms) |",
-        "|---|---|---|---|",
-      )
+      lines.push("| Task | Median | Mean ± SD | Range |", "|---|---|---|---|")
       for (const run of timingRuns) {
         const label = commandLabel(byWorkload.get(run.workloadId))
         const t = run.timing
+        const unit = pickDurationUnit(t.median)
         lines.push(
-          `| ${label} | ${fmtMs(t.mean)} ± ${fmtMs(t.stddev)} | ${fmtMs(t.min)}…${fmtMs(t.max)} | ${fmtMs(t.median)} |`,
+          `| ${label} | ${formatDuration(t.median, unit)} | ${formatDuration(t.mean, unit)} ± ${formatDuration(t.stddev, unit)} | ${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)} |`,
         )
       }
       lines.push("")

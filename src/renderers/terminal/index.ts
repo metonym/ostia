@@ -1,4 +1,6 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
+import { computeQuartiles } from "../../stats/index.ts"
+import { formatDuration, pickDurationUnit } from "../format.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
@@ -8,6 +10,22 @@ function fmtMs(ns: number): string {
 
 function commandLabel(w: Workload): string {
   return w.label ?? w.command?.join(" ") ?? w.entry?.task ?? w.id
+}
+
+/** Prefers the explicit `entry.group` the bench runner records over
+ * splitting the "group/name" id, so task names may themselves contain "/". */
+function groupOf(workload: Workload | undefined): string | undefined {
+  if (!workload?.entry) return undefined
+  if (workload.entry.group !== undefined) return workload.entry.group
+  const id = workload.entry.task
+  const idx = id.lastIndexOf("/")
+  return idx === -1 ? undefined : id.slice(0, idx)
+}
+
+interface TimingRow {
+  run: Measurement & { timing: NonNullable<Measurement["timing"]> }
+  workload: Workload | undefined
+  label: string
 }
 
 export const terminalRenderer: Renderer<Record<string, never>> = {
@@ -28,7 +46,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
             : "(no timing runs)\n",
       }
     }
-    const rows = timingRuns.map((run) => {
+    const rows: TimingRow[] = timingRuns.map((run) => {
       const workload = byWorkload.get(run.workloadId)
       return {
         run,
@@ -42,33 +60,78 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     // ungrouped tasks fall back to the whole-run fastest.
     const references = relativeReferences(rows)
 
+    // Group rows visually: a row's group header prints once, right before
+    // its first row, and its rows indent under it. Ungrouped rows (and
+    // subprocess commands, which never carry entry.group) print flat.
+    const indents = new Map<TimingRow, string>()
+    const groupHeaderBefore = new Map<TimingRow, string>()
+    let lastGroup: string | undefined
+    for (const row of rows) {
+      const group = groupOf(row.workload)
+      if (group !== lastGroup) {
+        if (group !== undefined) groupHeaderBefore.set(row, group)
+        lastGroup = group
+      }
+      indents.set(row, group !== undefined ? "  " : "")
+    }
+
+    const labelWidth = Math.max(
+      4,
+      ...rows.map((r) => indents.get(r)!.length + r.label.length),
+    )
+    const medianWidth = 10
+    const spreadWidth = 18
+    const rangeWidth = 18
+
     const lines: string[] = []
-    const labelWidth = Math.max(7, ...rows.map((r) => r.label.length))
     const header = showRelative
-      ? `${"Command".padEnd(labelWidth)}   Mean [ms]        Min…Max [ms]        Relative`
-      : `${"Command".padEnd(labelWidth)}   Mean [ms]        Min…Max [ms]`
+      ? `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)} Relative`
+      : `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}`
     lines.push(header)
     lines.push("-".repeat(header.length))
+
+    const rowsWithWarnings: TimingRow[] = []
 
     for (const row of rows) {
       const { run, label, workload } = row
       const t = run.timing
-      const meanCell = `${fmtMs(t.mean)} ± ${fmtMs(t.stddev)}`
-      const rangeCell = `${fmtMs(t.min)}…${fmtMs(t.max)}`
-      let line = `${label.padEnd(labelWidth)}   ${meanCell.padEnd(15)}  ${rangeCell.padEnd(18)}`
+      const groupHeader = groupHeaderBefore.get(row)
+      if (groupHeader !== undefined) lines.push(`${groupHeader}:`)
+
+      const indent = indents.get(row)!
+      const unit = pickDurationUnit(t.median)
+      const { q1, q3 } = computeQuartiles(t.samples)
+      const medianCell = formatDuration(t.median, unit)
+      const spreadCell = `${formatDuration(q1, unit)}…${formatDuration(q3, unit)}`
+      const rangeCell = `${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)}`
+
+      let line = `${(indent + label).padEnd(labelWidth)}   ${medianCell.padEnd(medianWidth)} ${spreadCell.padEnd(spreadWidth)} ${rangeCell.padEnd(rangeWidth)}`
       if (showRelative) {
         const relative = t.median / (references.get(row) ?? t.median)
         if (relative === 1) {
-          line += workload?.baseline ? "  1.00× (baseline)" : "  1.00×"
+          line += workload?.baseline ? " 1.00× (baseline)" : " 1.00×"
         } else if (relative > 1) {
-          line += `  ${relative.toFixed(2)}× slower`
+          line += ` ${relative.toFixed(2)}× slower`
         } else {
-          line += `  ${(1 / relative).toFixed(2)}× faster`
+          line += ` ${(1 / relative).toFixed(2)}× faster`
         }
       }
       lines.push(line)
-      for (const w of run.warnings) {
-        lines.push(`  ! ${w.message}`)
+      if (run.warnings.length > 0) {
+        lines.push(
+          `${" ".repeat(indent.length)}  ! ${run.warnings.map((w) => w.code).join(", ")}`,
+        )
+        rowsWithWarnings.push(row)
+      }
+    }
+
+    if (rowsWithWarnings.length > 0) {
+      lines.push("")
+      lines.push("Warnings:")
+      for (const row of rowsWithWarnings) {
+        for (const w of row.run.warnings) {
+          lines.push(`  ${row.label}: ${w.message}`)
+        }
       }
     }
 
@@ -84,7 +147,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       lines.push(...comparisonLines)
     }
 
-    return { text: `${lines.join("\n")}\n` }
+    return { text: `${lines.map((l) => l.trimEnd()).join("\n")}\n` }
   },
 }
 

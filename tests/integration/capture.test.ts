@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { profile, time } from "../../src/index.ts"
+import { createDocument, profile, renderers, time } from "../../src/index.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 const OUT_DIR = `${import.meta.dir}/../../.ostia-test-capture`
@@ -100,16 +100,16 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
       return acc
     }
 
-    const { result, run: capturedRun } = await profile(hotLoop, {
+    const { result, measurement } = await profile(hotLoop, {
       intervalUs: 100,
     })
 
     expect(typeof result).toBe("number")
-    expect(capturedRun.phase).toBe("cpu")
-    expect(capturedRun.instrumented).toBe(true)
-    expect(capturedRun.cpu).toBeDefined()
-    expect(capturedRun.cpu!.origin).toBe("inspector")
-    expect(capturedRun.cpu!.frames.length).toBeGreaterThan(0)
+    expect(measurement.phase).toBe("cpu")
+    expect(measurement.instrumented).toBe(true)
+    expect(measurement.cpu).toBeDefined()
+    expect(measurement.cpu!.origin).toBe("inspector")
+    expect(measurement.cpu!.frames.length).toBeGreaterThan(0)
   }, 10_000)
 
   test("workload id is stable for the same function source across calls", async () => {
@@ -118,6 +118,46 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
     }
     const a = await profile(stableFn)
     const b = await profile(stableFn)
-    expect(a.run.workloadId).toBe(b.run.workloadId)
+    expect(a.measurement.workloadId).toBe(b.measurement.workloadId)
+  }, 10_000)
+
+  test("document is a full ProfileDocument with the one workload and measurement", async () => {
+    function tinyFn(): number {
+      return 1
+    }
+    const { measurement, document } = await profile(tinyFn)
+    expect(document.workloads).toHaveLength(1)
+    expect(document.measurements).toHaveLength(1)
+    expect(document.measurements[0]!.id).toBe(measurement.id)
+  }, 10_000)
+
+  test("document composes with other renderers without reaching into ir/document.ts", async () => {
+    function hotLoop(): number {
+      let acc = 0
+      for (let i = 0; i < 500_000; i++) acc = (acc + i) % 1000000007
+      return acc
+    }
+    const { document } = await profile(hotLoop, { intervalUs: 100 })
+    const { files } = await renderers.collapsed.render(document, {})
+    expect(files).toBeDefined()
+    expect(files!.length).toBeGreaterThan(0)
+    expect(files![0]!.content.length).toBeGreaterThan(0)
+  }, 10_000)
+
+  test("createDocument composes a document from several profile() calls", async () => {
+    function taskA(): number {
+      return 1
+    }
+    function taskB(): number {
+      return 2
+    }
+    const a = await profile(taskA)
+    const b = await profile(taskB)
+    const combined = createDocument(
+      [a.document.workloads[0]!, b.document.workloads[0]!],
+      [a.measurement, b.measurement],
+    )
+    expect(combined.workloads).toHaveLength(2)
+    expect(combined.measurements).toEqual([a.measurement, b.measurement])
   }, 10_000)
 })

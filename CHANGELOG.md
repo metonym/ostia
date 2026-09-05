@@ -8,6 +8,11 @@
   as an alias
 - `time(opts)` is the primary library export for what was `run(opts)`; `run`
   is kept as a `@deprecated` alias for one release
+- `profile(fn, opts)` returns `{ result, measurement, document }`; `document`
+  is a full `ProfileDocument` so it composes with `renderers.*` /
+  `saveDocument` without reaching into `src/ir/document.ts`
+- `createDocument(workloads, measurements)` composes a document from several
+  `profile()` calls
 
 **Breaking**
 

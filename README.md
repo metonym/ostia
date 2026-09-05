@@ -420,6 +420,7 @@ import {
   task,
   range,
   compareDocuments,
+  createDocument,
   renderers,
   saveDocument,
   loadDocument,
@@ -445,25 +446,42 @@ const doc = await time({
 
 `run` is exported too, as a `@deprecated` alias of `time` for one release.
 
-### `profile(fn, opts)` → `{ result, run }`
+### `profile(fn, opts)` → `{ result, measurement, document }`
 
 In-process capture. `origin: "jsc"` is the only path that reports JIT tiers
 (LLInt / Baseline / DFG / FTL). Default `origin: "inspector"` writes portable CDP-shaped
-evidence instead.
+evidence instead. `document` is a full `ProfileDocument` (the one workload and
+measurement), so it composes with `renderers.*` or `saveDocument` directly.
 
 ```ts
-const { result, run } = await profile(() => hashLoop(8_000_000), {
-  origin: "jsc",
-  intervalUs: 100,
-})
+const { result, measurement, document } = await profile(
+  () => hashLoop(8_000_000),
+  { origin: "jsc", intervalUs: 100 },
+)
 
-console.log(run.jit?.tiers)
+console.log(measurement.jit?.tiers)
 // {
 //   llint: 0,
 //   baseline: 9,
 //   dfg: 37,
 //   ftl: 2825,
 // }
+
+const { files } = await renderers.collapsed.render(document)
+```
+
+### `createDocument(workloads, measurements)` → `ProfileDocument`
+
+For composing a document from several `profile()` calls (each of which returns
+just one workload and measurement):
+
+```ts
+const a = await profile(() => taskA())
+const b = await profile(() => taskB())
+const document = createDocument(
+  [a.document.workloads[0]!, b.document.workloads[0]!],
+  [a.measurement, b.measurement],
+)
 ```
 
 ### `group` / `task` / `bench`

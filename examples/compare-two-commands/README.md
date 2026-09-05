@@ -4,7 +4,7 @@ The default `ostia time` is clean wall-clock timing: warmup, then N trials, no
 profiler, ever mixed in. Two commands get a relative column automatically.
 
 ```console
-ostia time --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
+ostia time --samples 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```

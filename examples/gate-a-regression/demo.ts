@@ -29,8 +29,8 @@ try {
   await Bun.spawn(["rm", "-rf", `${cwd}/.ostia`]).exited
 
   const baseline = await run([
-    "run",
-    "--runs",
+    "time",
+    "--samples",
     "8",
     "--warmup",
     "2",

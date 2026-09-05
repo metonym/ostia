@@ -176,14 +176,8 @@ async function main(): Promise<number> {
 
     // Per-task options win over the suite-wide ones. The fingerprint is per task
     // for the same reason: two runs of one task only compare like-for-like when
-    // they were measured under the same effective settings. Hashed under the
-    // canonical (new) names so an old-name and new-name call with the same
-    // effective settings produce the same fingerprint.
-    const effectiveBudgetMs =
-      t.opts?.budgetMs ??
-      t.opts?.timeBudgetMs ??
-      opts.budgetMs ??
-      opts.timeBudgetMs
+    // they were measured under the same effective settings.
+    const effectiveBudgetMs = t.opts?.budgetMs ?? opts.budgetMs
     const effectiveSamples = t.opts?.samples ?? opts.samples
     const effectiveMinSamples = t.opts?.minSamples ?? opts.minSamples
     const taskOpts: InprocessTimingOptions = {

@@ -1,6 +1,6 @@
 const cli = `${import.meta.dir}/../../src/cli/main.ts`
 
-const proc = Bun.spawn([cli, "run", "--heap", "bun fixtures/allocate.ts"], {
+const proc = Bun.spawn([cli, "time", "--heap", "bun fixtures/allocate.ts"], {
   cwd: import.meta.dir,
   stdout: "pipe",
   stderr: "pipe",
@@ -15,7 +15,7 @@ process.stdout.write(stdout)
 
 if (exitCode !== 0) {
   process.stderr.write(stderr)
-  process.stderr.write(`error: ostia run exited ${exitCode}\n`)
+  process.stderr.write(`error: ostia time exited ${exitCode}\n`)
   process.exit(1)
 }
 if (!stdout.includes("Heap snapshot")) {

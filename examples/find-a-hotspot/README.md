@@ -5,7 +5,7 @@ under the hood). It's a separate, labeled run - never mixed into the timing
 stats above it, so a profiled run can't quietly become "the benchmark."
 
 ```console
-ostia time --runs 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json "bun fixtures/work.ts"
+ostia time --samples 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json "bun fixtures/work.ts"
 ```
 
 ```
@@ -26,7 +26,7 @@ the same table is what you'd get pointed at real code.
 ## Viz is files, not a GUI
 
 `ostia report --format` renders the captured evidence into whatever shape is
-useful (`ostia viz` still works as a deprecated alias for one release):
+useful:
 
 ```console
 ostia report .ostia/doc.json --format collapsed

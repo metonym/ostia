@@ -45,7 +45,7 @@ describe("runCi", () => {
     const cfg = config()
     const baseline = await time({
       commands: [["bun", FIXTURE]],
-      runs: 3,
+      samples: 3,
       warmup: 1,
       noiseCheck: false,
     })
@@ -72,7 +72,7 @@ describe("runCi", () => {
     const cfg = config({ outDir: `${OUT_DIR}-full` })
     const baseline = await time({
       commands: [["bun", FIXTURE]],
-      runs: 3,
+      samples: 3,
       warmup: 1,
       noiseCheck: false,
     })
@@ -100,7 +100,7 @@ describe("runCi", () => {
     })
     const baseline = await time({
       commands: [["bun", FIXTURE]],
-      runs: 3,
+      samples: 3,
       warmup: 1,
       noiseCheck: false,
     })
@@ -124,7 +124,7 @@ describe("runCi", () => {
     const cfg = config({ outDir: `${OUT_DIR}-report` })
     const baseline = await time({
       commands: [["bun", FIXTURE]],
-      runs: 3,
+      samples: 3,
       warmup: 1,
       noiseCheck: false,
     })

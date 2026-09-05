@@ -16,7 +16,7 @@ function spin(ms: number): number {
 describe("measure/inprocess", () => {
   test("respects minSamples and produces trial wall times", async () => {
     const result = await measureTask(() => 1 + 1, {
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
     })
     expect(result.trials.length).toBeGreaterThanOrEqual(5)
@@ -36,7 +36,7 @@ describe("measure/inprocess", () => {
         await Promise.resolve()
         return 42
       },
-      { timeBudgetMs: 20, minSamples: 5 },
+      { budgetMs: 20, minSamples: 5 },
     )
     expect(result.trials.length).toBeGreaterThanOrEqual(5)
     expect(result.timing.samples.length).toBeGreaterThanOrEqual(5)
@@ -44,7 +44,7 @@ describe("measure/inprocess", () => {
 
   test("measures timing differences between fast and slow functions", async () => {
     const trivialResult = await measureTask(() => 1, {
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
     })
 
@@ -54,7 +54,7 @@ describe("measure/inprocess", () => {
         for (let i = 0; i < 200_000; i++) acc += i
         return acc
       },
-      { timeBudgetMs: 20, minSamples: 5 },
+      { budgetMs: 20, minSamples: 5 },
     )
 
     expect(slowResult.timing.median).toBeGreaterThan(
@@ -64,25 +64,25 @@ describe("measure/inprocess", () => {
 
   test("handles various return types without crashing", async () => {
     const undefinedResult = await measureTask(() => undefined, {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
     })
     expect(undefinedResult.trials.length).toBeGreaterThanOrEqual(3)
 
     const nullResult = await measureTask(() => null, {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
     })
     expect(nullResult.trials.length).toBeGreaterThanOrEqual(3)
 
     const objResult = await measureTask(() => ({ x: 1 }), {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
     })
     expect(objResult.trials.length).toBeGreaterThanOrEqual(3)
 
     const strResult = await measureTask(() => "hello", {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
     })
     expect(strResult.trials.length).toBeGreaterThanOrEqual(3)
@@ -90,7 +90,7 @@ describe("measure/inprocess", () => {
 
   test("gc option resolves without error", async () => {
     const result = await measureTask(() => 1, {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       gc: true,
     })
@@ -99,7 +99,7 @@ describe("measure/inprocess", () => {
   })
 
   test("a sub-microsecond task is batched so a budget yields bounded trials", async () => {
-    const result = await measureTask(() => 1, { timeBudgetMs: 100 })
+    const result = await measureTask(() => 1, { budgetMs: 100 })
     // Target is ~10k per full budget; allow JIT tier-up mid-run to overshoot it.
     expect(result.trials.length).toBeLessThan(100_000)
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
@@ -108,7 +108,7 @@ describe("measure/inprocess", () => {
   test("default sample floor is cost-aware: a slow task does not overrun the budget by 20x", async () => {
     const callMs = 20
     const start = Bun.nanoseconds()
-    const result = await measureTask(() => spin(callMs), { timeBudgetMs: 100 })
+    const result = await measureTask(() => spin(callMs), { budgetMs: 100 })
     const totalMs = (Bun.nanoseconds() - start) / 1e6
     // Budget fits 5 calls; the old rule forced 20 (400ms+).
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
@@ -146,7 +146,7 @@ describe("measure/inprocess", () => {
 
   test("an expensive task gets its rigor floor even when the budget fits fewer", async () => {
     // ~15ms/call, 20ms budget: only 1 fits; the cost class (10..30ms) earns 5.
-    const result = await measureTask(() => spin(15), { timeBudgetMs: 20 })
+    const result = await measureTask(() => spin(15), { budgetMs: 20 })
     expect(result.trials.length).toBeGreaterThanOrEqual(5)
     expect(result.trials.length).toBeLessThanOrEqual(7)
     expect(result.warnings.some((w) => w.code === "low-sample-count")).toBe(
@@ -158,7 +158,7 @@ describe("measure/inprocess", () => {
     // ~15ms/call, 20ms budget, hard floor 2: ends at 2 samples (fewer than the
     // 5 the cost class earns). The policy is not overridden; it is reported.
     const result = await measureTask(() => spin(15), {
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 2,
     })
     expect(result.trials.length).toBeLessThan(5)
@@ -173,7 +173,7 @@ describe("measure/inprocess", () => {
 
   test("a cheap task never carries low-sample-count, even with a tiny explicit floor", async () => {
     const result = await measureTask(() => 1, {
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 1,
     })
     expect(result.warnings.some((w) => w.code === "low-sample-count")).toBe(
@@ -183,23 +183,23 @@ describe("measure/inprocess", () => {
 
   test("explicit minSamples is a hard floor even past the budget", async () => {
     const result = await measureTask(() => spin(2), {
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 12,
     })
     expect(result.trials.length).toBeGreaterThanOrEqual(12)
   })
 
-  test("warmupFraction 0 still measures", async () => {
+  test("warmup 0 still measures", async () => {
     const result = await measureTask(() => 1, {
-      timeBudgetMs: 10,
-      warmupFraction: 0,
+      budgetMs: 10,
+      warmup: 0,
     })
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
   })
 
   test("warnings property exists and is an array", async () => {
     const result = await measureTask(() => 1, {
-      timeBudgetMs: 15,
+      budgetMs: 15,
       minSamples: 5,
     })
     expect(Array.isArray(result.warnings)).toBe(true)
@@ -216,17 +216,7 @@ describe("measure/inprocess", () => {
   })
 })
 
-describe("measure/inprocess - unified timing vocabulary (item 11)", () => {
-  test("budgetMs behaves like the deprecated timeBudgetMs", async () => {
-    const result = await measureTask(() => 1, { budgetMs: 20, minSamples: 5 })
-    expect(result.trials.length).toBeGreaterThanOrEqual(5)
-  })
-
-  test("warmup (a fraction, like the deprecated warmupFraction) accepts 0", async () => {
-    const result = await measureTask(() => 1, { budgetMs: 10, warmup: 0 })
-    expect(result.trials.length).toBeGreaterThanOrEqual(3)
-  })
-
+describe("measure/inprocess - timing vocabulary", () => {
   test("samples produces an exact trial count, ignoring the budget", async () => {
     const result = await measureTask(() => spin(2), {
       samples: 4,

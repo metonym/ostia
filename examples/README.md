@@ -8,12 +8,12 @@ references `../../src` directly by relative path (CLI examples spawn
 
 ## Recipes
 
-- [compare-two-commands](compare-two-commands/) - `ostia run` on two commands, hyperfine-style relative timing table
-- [find-a-hotspot](find-a-hotspot/) - `ostia run --cpu` + `ostia viz --format collapsed|mermaid` to name where time goes
-- [heap-usage](heap-usage/) - `ostia run --heap`, ranked object-type/retained-bytes breakdown
+- [compare-two-commands](compare-two-commands/) - `ostia time` on two commands, relative timing table
+- [find-a-hotspot](find-a-hotspot/) - `ostia time --cpu` + `ostia report --format collapsed|mermaid` to name where time goes
+- [heap-usage](heap-usage/) - `ostia time --heap`, ranked object-type/retained-bytes breakdown
 - [gate-a-regression](gate-a-regression/) - `ostia.config.json` + a local (gitignored) baseline + `ostia ci`; seed on known-good, then gate while you branch
 - [profile-in-process](profile-in-process/) - library `profile(fn, { origin: "jsc" })`, JIT tier breakdown (LLInt/Baseline/DFG/FTL) for a function
-- [benchmark-a-function](benchmark-a-function/) - library `bench()`/`group()`/`task()`, mitata-shaped in-process microbenchmarking
+- [benchmark-a-function](benchmark-a-function/) - library `bench()`/`group()`/`task()` in-process microbenchmarking
 
 ## Run them
 

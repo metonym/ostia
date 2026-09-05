@@ -25,7 +25,7 @@ async function run(
 
 const capture = await run([
   "time",
-  "--runs",
+  "--samples",
   "5",
   "--cpu",
   "--cpu-interval",

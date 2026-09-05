@@ -29,7 +29,7 @@ bun add ostia
 Compare two commands:
 
 ```sh
-ostia time --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
+ostia time --samples 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```
@@ -57,7 +57,7 @@ Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into 
 timing numbers above):
 
 ```sh
-ostia time --runs 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json "bun fixtures/work.ts"
+ostia time --samples 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json "bun fixtures/work.ts"
 ```
 
 ```
@@ -113,7 +113,7 @@ Profile CI: ✓
 ## CLI reference
 
 ```
-ostia time <command...>      time commands; optional --cpu / --heap capture (alias: run)
+ostia time <command...>      time commands; optional --cpu / --heap capture
 ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
 ostia compare <a> <b>        diff two ProfileDocuments
 ostia report <document.json> render a saved document (table/json/markdown/collapsed/...)
@@ -125,8 +125,6 @@ Every subcommand takes `--help` for its full flag list.
 
 ### `ostia time`
 
-`ostia run` is kept as an alias for anyone migrating from hyperfine.
-
 Clean wall-clock timing by default. `--cpu` / `--heap` schedule one extra instrumented
 trial each, labeled separately in the document.
 
@@ -136,12 +134,12 @@ ostia time --samples 25 --warmup 3 --cpu --heap "bun src/server.ts"
 ostia time --format json --export-json out.json "bun a.ts"
 ```
 
-`--samples N` is an exact trial count (`--runs` is a deprecated alias); `--budget MS`
+`--samples N` is an exact trial count; `--budget MS`
 is a wall-clock time budget instead (default: a hyperfine-style ~3s min-total-time
 loop when neither is given); `--min-samples N` is a hard floor when `--samples` isn't
 given. The same three names work on `ostia bench` (`--budget`/`--samples`/
-`--min-samples`), where `--budget` is a per-task sampling window (`--time-budget` is
-its deprecated alias) - `warmup` differs by surface, though: a trial count here, a
+`--min-samples`), where `--budget` is a per-task sampling window -
+`warmup` differs by surface, though: a trial count here, a
 *fraction* of the budget for `ostia bench`, since in-process warmup has no natural
 "N calls" unit before the JIT has even seen the function once.
 
@@ -189,7 +187,7 @@ Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
 ### `ostia bench`
 
 In-process microbenchmarks registered with `group()` / `task()`. Each task samples
-for `--time-budget` (default 500ms). `--min-samples` is a hard floor kept even when it
+for `--budget` (default 500ms). `--min-samples` is a hard floor kept even when it
 overruns the budget. Left unset, the floor is cost-aware in both directions: as many
 trials as fit in the budget (capped at 20) so one slow task can't blow the suite's total,
 but never below the floor a task's per-trial cost earns it - 3 at ≤1ms, two more per
@@ -381,8 +379,7 @@ already past 75% of available cores at measurement time.
 Render a saved `ProfileDocument` without re-running anything. `--format` covers
 both the data formats (`table`/`json`/`jsonl`/`markdown`/`minimal`) and the CPU
 visualization formats (`collapsed`/`mermaid`/`speedscope`/`cpuprofile`) - one
-command instead of two (`ostia viz` still works as a deprecated alias for one
-release).
+command instead of two.
 
 ```sh
 ostia report out.json                 # table (default)
@@ -624,7 +621,7 @@ Subprocess timing, optional CPU/heap capture. Same behavior as `ostia time`.
 ```ts
 const doc = await time({
   commands: ["bun a.ts", "bun b.ts"],
-  samples: 10, // exact trial count; `runs` is a deprecated alias
+  samples: 10, // exact trial count
   // budgetMs: 3000,   // wall-clock budget instead of an exact count
   // minSamples: 10,   // hard floor when samples isn't given
   warmup: 2,
@@ -636,8 +633,6 @@ const doc = await time({
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
 })
 ```
-
-`run` is exported too, as a `@deprecated` alias of `time` for one release.
 
 ### `profile(fn, opts)` → `{ result, measurement, document }`
 
@@ -689,7 +684,7 @@ group("parse", () => {
   task("small input", () => parse(smallBuf))
   task("large input", () => parse(largeBuf))
   // Per-task options override the suite-wide time budget / min samples.
-  task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
+  task("full pipeline", () => build(), { budgetMs: 2000, minSamples: 10 })
 })
 ```
 
@@ -859,7 +854,7 @@ import { bench } from "ostia"
 
 const doc = await bench({
   suites: ["suite.ts"],
-  budgetMs: 500, // `timeBudgetMs` is a deprecated alias
+  budgetMs: 500,
   // samples: 50,   // exact per-task trial count instead of a budget
   minSamples: 50,
   jobs: 1, // suite files at once; > 1 trades fidelity for wall time

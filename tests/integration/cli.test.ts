@@ -22,7 +22,7 @@ async function runCli(
   return { stdout, stderr, exitCode }
 }
 
-describe("ostia report --format (viz formats folded in, item 4)", () => {
+describe("ostia report --format", () => {
   afterAll(async () => {
     await Bun.spawn(["rm", "-f", DOC_PATH]).exited
   })
@@ -59,19 +59,18 @@ describe("ostia report --format (viz formats folded in, item 4)", () => {
     expect(stdout).toContain("graph TD")
   }, 10_000)
 
-  test("ostia viz is a hidden deprecated alias that delegates to report", async () => {
-    const { stdout, stderr, exitCode } = await runCli([
+  test("ostia viz is not a recognized subcommand", async () => {
+    const { stderr, exitCode } = await runCli([
       "viz",
       DOC_PATH,
       "--format",
       "collapsed",
     ])
-    expect(exitCode).toBe(0)
-    expect(stderr).toContain("deprecated")
-    expect(stdout.length).toBeGreaterThan(0)
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("Unknown subcommand")
   }, 10_000)
 
-  test("ostia --help no longer lists viz as a command", async () => {
+  test("ostia --help does not list viz as a command", async () => {
     const { stdout } = await runCli(["--help"])
     expect(stdout).not.toMatch(/\bviz\b/)
     expect(stdout).toContain("report")
@@ -90,7 +89,7 @@ describe("ostia bench - task.skip/.only (item 10)", () => {
     const { stdout, exitCode } = await runCli([
       "bench",
       `${import.meta.dir}/../fixtures/bench-suite-skip.ts`,
-      "--time-budget",
+      "--budget",
       "5",
       "--min-samples",
       "3",
@@ -126,7 +125,7 @@ describe("ostia bench - task.skip/.only (item 10)", () => {
     const { stderr, exitCode } = await runCli([
       "bench",
       `${import.meta.dir}/../fixtures/bench-suite-only.ts`,
-      "--time-budget",
+      "--budget",
       "5",
       "--min-samples",
       "3",
@@ -203,13 +202,13 @@ describe("ostia compare - git metadata line (item 17)", () => {
     try {
       const base = await time({
         commands: [["bun", "-e", "1"]],
-        runs: 3,
+        samples: 3,
         warmup: 0,
         noiseCheck: false,
       })
       const cand = await time({
         commands: [["bun", "-e", "1"]],
-        runs: 3,
+        samples: 3,
         warmup: 0,
         noiseCheck: false,
       })

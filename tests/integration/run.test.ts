@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { run, time } from "../../src/index.ts"
+import { time } from "../../src/index.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 
@@ -7,7 +7,7 @@ describe("time() - timing phase, real spawned trials", () => {
   test("produces a well-formed ProfileDocument for a single workload", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 5,
+      samples: 5,
       warmup: 1,
       noiseCheck: false,
     })
@@ -43,7 +43,7 @@ describe("time() - timing phase, real spawned trials", () => {
   test("runs multiple workloads independently with stable, distinct IDs", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`, `bun -e "1+1"`],
-      runs: 3,
+      samples: 3,
       warmup: 0,
       noiseCheck: false,
     })
@@ -58,7 +58,7 @@ describe("time() - timing phase, real spawned trials", () => {
 
     const docAgain = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 1,
+      samples: 1,
       warmup: 0,
       noiseCheck: false,
     })
@@ -68,22 +68,12 @@ describe("time() - timing phase, real spawned trials", () => {
   test("records a non-zero exit code without throwing", async () => {
     const doc = await time({
       commands: [["bun", "-e", "process.exit(1)"]],
-      runs: 2,
+      samples: 2,
       warmup: 0,
       noiseCheck: false,
     })
     const run0 = doc.measurements[0]!
     expect(run0.trials.every((t) => t.exitCode === 1)).toBe(true)
-  }, 20_000)
-
-  test("the deprecated run() alias still works", async () => {
-    const doc = await run({
-      commands: [`bun ${FIXTURE}`],
-      runs: 1,
-      warmup: 0,
-      noiseCheck: false,
-    })
-    expect(doc.measurements).toHaveLength(1)
   }, 20_000)
 })
 
@@ -91,7 +81,7 @@ describe("time() - noise floor (item 7)", () => {
   test("stamps environment.noise by default", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 2,
+      samples: 2,
       warmup: 0,
     })
     expect(doc.environment).toBeDefined()
@@ -102,7 +92,7 @@ describe("time() - noise floor (item 7)", () => {
   test("noiseCheck: false skips the reference measurement", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 2,
+      samples: 2,
       warmup: 0,
       noiseCheck: false,
     })
@@ -110,8 +100,8 @@ describe("time() - noise floor (item 7)", () => {
   }, 20_000)
 })
 
-describe("time() - unified timing vocabulary (item 11)", () => {
-  test("samples produces the same trial count as the deprecated runs", async () => {
+describe("time() - timing vocabulary", () => {
+  test("samples produces an exact trial count", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
       samples: 4,
@@ -119,24 +109,6 @@ describe("time() - unified timing vocabulary (item 11)", () => {
       noiseCheck: false,
     })
     expect(doc.measurements[0]!.trials).toHaveLength(4)
-  }, 20_000)
-
-  test("configFingerprint is identical for an old-name (runs) and new-name (samples) call with the same effective settings", async () => {
-    const withOldName = await time({
-      commands: [`bun ${FIXTURE}`],
-      runs: 3,
-      warmup: 0,
-      noiseCheck: false,
-    })
-    const withNewName = await time({
-      commands: [`bun ${FIXTURE}`],
-      samples: 3,
-      warmup: 0,
-      noiseCheck: false,
-    })
-    expect(withNewName.measurements[0]!.configFingerprint).toBe(
-      withOldName.measurements[0]!.configFingerprint,
-    )
   }, 20_000)
 
   test("budgetMs runs a min-total-time loop like the default, for at least the given budget", async () => {
@@ -166,7 +138,7 @@ describe("time() - interleaved trials for multi-command runs (item 14)", () => {
         ["bun", MARKER, "a", logPath],
         ["bun", MARKER, "b", logPath],
       ],
-      runs: 3,
+      samples: 3,
       warmup: 0,
       noiseCheck: false,
     })
@@ -187,7 +159,7 @@ describe("time() - interleaved trials for multi-command runs (item 14)", () => {
         ["bun", MARKER, "a", logPath],
         ["bun", MARKER, "b", logPath],
       ],
-      runs: 3,
+      samples: 3,
       warmup: 0,
       interleave: false,
       noiseCheck: false,
@@ -205,7 +177,7 @@ describe("time() - interleaved trials for multi-command runs (item 14)", () => {
   test("a single command is never interleaved even by default", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 3,
+      samples: 3,
       warmup: 0,
       noiseCheck: false,
     })

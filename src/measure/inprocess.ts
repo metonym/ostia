@@ -2,15 +2,12 @@ import type { TimingStats, Trial, Warning } from "../ir/types.ts"
 import { computeTimingStats, timingWarnings } from "../stats/index.ts"
 
 export interface InprocessTimingOptions {
-  /** @deprecated Use `budgetMs`. */
-  timeBudgetMs?: number
   /** Wall-clock budget for the sampling loop, per task (default: 500). The loop
-   * always runs for at least this long, unless `samples` is set. Same concept
-   * as the deprecated `timeBudgetMs`. */
+   * always runs for at least this long, unless `samples` is set. */
   budgetMs?: number
   /** Exact trial count. When set, the budget is ignored and the loop runs
    * exactly this many trials, however slow each one is - the in-process
-   * equivalent of `time()`'s `samples`/`runs`. */
+   * equivalent of `time()`'s `samples`. */
   samples?: number
   /** Hard floor on the number of trials when no exact `samples` count is
    * given. When set, the loop keeps sampling past the time budget until this
@@ -19,15 +16,12 @@ export interface InprocessTimingOptions {
    * budget, capped at 20, but never below the rigor floor the task's per-trial cost
    * earns it (3 at ≤1ms, rising to 10 for multi-second calls). */
   minSamples?: number
-  /** @deprecated Use `warmup`. */
-  warmupFraction?: number
   /** Warmup budget as a fraction of `budgetMs` (default: 0.1) - a fraction,
-   * not a call count. Same concept as the deprecated `warmupFraction`, named
-   * `warmup` for cross-surface consistency with `time()`'s trial-count
-   * `warmup`; the two are genuinely different units (a fraction here, a
-   * count there), not papered over. Warmup always runs at least one call;
-   * for a task slower than the warmup budget that single call is the whole
-   * warmup. */
+   * not a call count, named `warmup` for cross-surface consistency with
+   * `time()`'s trial-count `warmup`; the two are genuinely different units (a
+   * fraction here, a count there), not papered over. Warmup always runs at
+   * least one call; for a task slower than the warmup budget that single call
+   * is the whole warmup. */
   warmup?: number
   gc?: boolean
 }
@@ -116,11 +110,8 @@ export async function measureTask(
   fn: () => unknown | Promise<unknown>,
   opts: InprocessTimingOptions = {},
 ): Promise<InprocessTimingResult> {
-  const timeBudgetNs =
-    (opts.budgetMs ?? opts.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6
-  const warmupBudgetNs =
-    timeBudgetNs *
-    (opts.warmup ?? opts.warmupFraction ?? DEFAULT_WARMUP_FRACTION)
+  const timeBudgetNs = (opts.budgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6
+  const warmupBudgetNs = timeBudgetNs * (opts.warmup ?? DEFAULT_WARMUP_FRACTION)
 
   const warmupStart = Bun.nanoseconds()
   let warmupCalls = 0
@@ -170,7 +161,7 @@ export async function measureTask(
     opts.minSamples ??
     defaultSampleFloor(trialCostNs, timeBudgetNs)
   // An exact sample count ignores the budget entirely, same as subprocess
-  // timing's `runs`/`samples`.
+  // timing's `samples`.
   const effectiveBudgetNs = opts.samples !== undefined ? 0 : timeBudgetNs
 
   const trials: Trial[] = []

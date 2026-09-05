@@ -16,7 +16,7 @@ baseline, and exits nonzero on a real regression.
 Write a local baseline once (gitignored under `.ostia/`):
 
 ```console
-ostia run --export-json .ostia/baselines/main.json bun fixtures/work.ts
+ostia time --export-json .ostia/baselines/main.json bun fixtures/work.ts
 ```
 
 Same idea when you branch to optimize: seed on known-good, switch branches, then

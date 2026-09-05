@@ -142,7 +142,7 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
   test("document composes with other renderers without reaching into ir/document.ts", async () => {
     function hotLoop(): number {
       let acc = 0
-      for (let i = 0; i < 500_000; i++) acc = (acc + i) % 1000000007
+      for (let i = 0; i < 2_000_000; i++) acc = (acc + i) % 1000000007
       return acc
     }
     const { document } = await profile(hotLoop, { intervalUs: 100 })

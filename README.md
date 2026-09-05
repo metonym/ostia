@@ -464,12 +464,26 @@ Exit codes: `0` pass, `1` regression, `2` harness error (missing config/baseline
       "label": "parse",
       "command": ["bun", "bench/parse.ts"],
       "inputs": ["src/**/*.ts"]
+    },
+    {
+      "label": "dogfood-suites",
+      "suites": ["bench/*.ts"]
     }
   ]
 }
 ```
 
-`inputs` is optional. Workloads with no `inputs` always rerun (cache fails conservative).
+Each workload is exactly one of `command` (a subprocess timed with `runs`/`warmup`) or
+`suites` (glob patterns, same resolution as `bench`'s own `suites` config, run via
+`bench()`). A `suites` workload gates every task in those files individually - one
+candidate-vs-baseline comparison per task, matched by workload id the same way a `command`
+workload already is, so `ostia ci`'s regression detection covers in-process microbenchmarks,
+not only subprocess commands. Unlike `command` workloads, a `suites` workload always
+executes (there's no cheap way to know a suite file's task ids, and so its per-task cache
+keys, without importing it first) - `inputs`-based cache skipping is `command`-only for now.
+
+`inputs` is optional (and, for now, only consulted for `command` workloads). Workloads
+with no `inputs` always rerun (cache fails conservative).
 
 Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
 scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're

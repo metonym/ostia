@@ -1,3 +1,4 @@
+import { bench, expandSuiteGlobs } from "../src/bench/index.ts"
 import { baselinePath, loadConfig } from "../src/config/index.ts"
 import {
   configFingerprint,
@@ -29,9 +30,21 @@ const workloads: Workload[] = []
 const measurements: Measurement[] = []
 
 for (const wc of config.workloads) {
-  const workload = makeSubprocessWorkload(wc.command, wc.label)
+  if (wc.suites) {
+    const suiteFiles = await expandSuiteGlobs(wc.suites, process.cwd())
+    const doc = await bench({
+      suites: suiteFiles,
+      outDir: config.outDir,
+      noiseCheck: false,
+    })
+    workloads.push(...doc.workloads)
+    measurements.push(...doc.measurements)
+    continue
+  }
+
+  const workload = makeSubprocessWorkload(wc.command!, wc.label)
   const phaseResult = await runTimingPhase({
-    argv: wc.command,
+    argv: wc.command!,
     runs: config.runs ?? undefined,
     warmup: config.warmup,
   })

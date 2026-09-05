@@ -17,6 +17,10 @@
     {
       "label": "spawn-overhead",
       "command": ["bun", "-e", "1"]
+    },
+    {
+      "label": "dogfood-suites",
+      "suites": ["bench/*.ts"]
     }
   ]
 }

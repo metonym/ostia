@@ -1,8 +1,14 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from "../compare/index.ts"
 
+/** Exactly one of `command` (a subprocess to time) / `suites` (in-process
+ * `group()`/`task()` suite file globs, run via `bench()`) must be given. A
+ * `suites` entry gates every task in those files individually - one
+ * candidate-vs-baseline comparison per task, matched by workload id the same
+ * way `command` workloads already are. */
 interface WorkloadConfig {
   label?: string
-  command: string[]
+  command?: string[]
+  suites?: string[]
   inputs?: string[]
 }
 

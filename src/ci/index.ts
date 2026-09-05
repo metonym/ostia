@@ -1,3 +1,4 @@
+import { bench, expandSuiteGlobs } from "../bench/index.ts"
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts"
 import { readCachedRun, writeCachedRun } from "../cache/store.ts"
 import { compareWorkload } from "../compare/index.ts"
@@ -69,7 +70,34 @@ export async function runCi(
   let executed = 0
 
   for (const wc of config.workloads) {
-    const workload = makeSubprocessWorkload(wc.command, wc.label)
+    if (wc.suites) {
+      // In-process suites gate at task granularity: every task in the
+      // matched files gets compared individually, the same way a `command`
+      // workload does. There's no cheap way to know a suite file's task ids
+      // (and so its per-task cache keys) without importing it, so unlike
+      // `command` workloads, a `suites` entry always executes - caching
+      // here is future work, not a regression from what `command` already does.
+      const suiteFiles = await expandSuiteGlobs(wc.suites, process.cwd())
+      const doc = await bench({
+        suites: suiteFiles,
+        outDir: config.outDir,
+        noiseCheck: false,
+      })
+      for (const workload of doc.workloads) {
+        const run = doc.measurements.find(
+          (m) => m.workloadId === workload.id && m.phase === "timing",
+        )
+        // A task.skip()'d task has a workload but no timing measurement:
+        // nothing to gate, so it's neither affected nor executed.
+        if (!run) continue
+        affected++
+        executed++
+        results.push({ workload, status: "executed", run })
+      }
+      continue
+    }
+
+    const workload = makeSubprocessWorkload(wc.command!, wc.label)
     const inputsDigest = await computeInputsDigest(wc.inputs ?? [])
     const cfgFp = configFingerprint({
       runs: config.runs,
@@ -98,7 +126,7 @@ export async function runCi(
     } else {
       affected++
       const phaseResult = await runTimingPhase({
-        argv: wc.command,
+        argv: wc.command!,
         runs: config.runs ?? undefined,
         warmup: config.warmup,
       })
@@ -149,7 +177,7 @@ export async function runCi(
   return {
     document: candidateDoc,
     summary: {
-      total: config.workloads.length,
+      total: results.length,
       affected,
       cached,
       executed,

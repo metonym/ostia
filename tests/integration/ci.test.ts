@@ -9,7 +9,7 @@ import {
   DEFAULT_CONFIG,
   type OstiaConfig,
 } from "../../src/config/index.ts"
-import { time } from "../../src/index.ts"
+import { bench, time } from "../../src/index.ts"
 import { saveDocument } from "../../src/ir/document.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
@@ -138,4 +138,81 @@ describe("runCi", () => {
 
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-report`]).exited
   }, 20_000)
+})
+
+describe("runCi - suites workloads gate at task granularity (item 15)", () => {
+  // A relative glob pattern, not an absolute path: `wc.suites` goes through
+  // `expandSuiteGlobs` (same as `BenchConfig.suites`/the CLI), which resolves
+  // patterns against `cwd`. An absolute path doesn't round-trip through that
+  // resolution identically, which would make the baseline and candidate
+  // workload ids (hashed over the resolved file path) mismatch.
+  const GATE_FIXTURE = "tests/fixtures/bench-suite-ci-gate.ts"
+
+  test("each task in a suites workload gets its own comparison, matched by workload id", async () => {
+    const outDir = `${OUT_DIR}-suites`
+    const cfg = config({
+      outDir,
+      // Generous threshold: this proves the per-task suites plumbing works,
+      // not that the two nearly-identical loop sizes are statistically
+      // indistinguishable run to run.
+      thresholds: { ...DEFAULT_CONFIG.thresholds, timingPct: 40 },
+      workloads: [{ label: "dogfood", suites: [GATE_FIXTURE] }],
+    })
+
+    const baseline = await bench({
+      suites: [GATE_FIXTURE],
+      noiseCheck: false,
+      outDir,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    const outcome = await runCi({ config: cfg, full: false })
+    expect(outcome.summary.total).toBe(2)
+    const byLabel = new Map(
+      outcome.summary.results.map((r) => [r.workload.label, r]),
+    )
+    expect(byLabel.has("stable")).toBe(true)
+    expect(byLabel.has("variable")).toBe(true)
+    for (const r of outcome.summary.results) {
+      expect(r.comparison).toBeDefined()
+      expect(r.comparison!.verdict).toBe("pass")
+    }
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 30_000)
+
+  test("a real slowdown in one task regresses only that task, the sibling still passes", async () => {
+    const outDir = `${OUT_DIR}-suites-regress`
+    const cfg = config({
+      outDir,
+      thresholds: { ...DEFAULT_CONFIG.thresholds, timingPct: 40 },
+      workloads: [{ label: "dogfood", suites: [GATE_FIXTURE] }],
+    })
+
+    const originalSource = await Bun.file(GATE_FIXTURE).text()
+    try {
+      const baseline = await bench({
+        suites: [GATE_FIXTURE],
+        noiseCheck: false,
+        outDir,
+      })
+      await saveDocument(baseline, baselinePath(cfg))
+
+      // Slow down only "variable"'s workload (hotInner(50_111) -> a ~6x
+      // bigger loop), leaving "stable" untouched.
+      const slowedSource = originalSource.replace("50_111", "300_000")
+      expect(slowedSource).not.toBe(originalSource)
+      await Bun.write(GATE_FIXTURE, slowedSource)
+
+      const outcome = await runCi({ config: cfg, full: false })
+      const byLabel = new Map(
+        outcome.summary.results.map((r) => [r.workload.label, r]),
+      )
+      expect(byLabel.get("variable")!.comparison!.verdict).toBe("fail")
+      expect(byLabel.get("stable")!.comparison!.verdict).toBe("pass")
+    } finally {
+      await Bun.write(GATE_FIXTURE, originalSource)
+      await Bun.spawn(["rm", "-rf", outDir]).exited
+    }
+  }, 30_000)
 })

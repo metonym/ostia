@@ -9,6 +9,7 @@ import {
   taskId,
   taskIsolate,
 } from "../../src/bench/registry"
+import { sweep } from "../../src/bench/sweep"
 
 describe("bench/registry", () => {
   beforeEach(() => {
@@ -135,6 +136,69 @@ describe("bench/registry", () => {
     expect(tasks[0]!.name).toBe("x")
     expect(tasks[1]!.groupName).toBe("g2")
     expect(tasks[1]!.name).toBe("y")
+  })
+})
+
+describe("bench/registry - params and sweep()", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("task(name, fn, { params }) records params on the registered task", () => {
+    task("t", () => 1, { params: { size: 100 } })
+    const [t] = getRegisteredTasks()
+    expect(t!.params).toEqual({ size: 100 })
+  })
+
+  test("a task with no params and none inherited from a sweep has undefined params", () => {
+    task("t", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(t!.params).toBeUndefined()
+  })
+
+  test("sweep() calls fn once per cartesian point, in dimension order", () => {
+    const points: unknown[] = []
+    sweep({ size: [1, 2], impl: ["a", "b"] }, (point) => {
+      points.push({ ...point })
+    })
+    expect(points).toEqual([
+      { size: 1, impl: "a" },
+      { size: 1, impl: "b" },
+      { size: 2, impl: "a" },
+      { size: 2, impl: "b" },
+    ])
+  })
+
+  test("task() calls inside sweep() inherit the current point as params", () => {
+    sweep({ size: [100, 200], impl: ["current", "fast"] }, ({ impl }) => {
+      task(impl, () => 1)
+    })
+    const tasks = getRegisteredTasks()
+    expect(tasks).toHaveLength(4)
+    expect(tasks.map((t) => t.params)).toEqual([
+      { size: 100, impl: "current" },
+      { size: 100, impl: "fast" },
+      { size: 200, impl: "current" },
+      { size: 200, impl: "fast" },
+    ])
+  })
+
+  test("an explicit params on task() merges over (and wins against) the sweep point", () => {
+    sweep({ size: [100] }, ({ size }) => {
+      task("t", () => 1, { params: { size, variant: "override" } })
+    })
+    const [t] = getRegisteredTasks()
+    expect(t!.params).toEqual({ size: 100, variant: "override" })
+  })
+
+  test("sweep() state does not leak into task() calls after it returns", () => {
+    sweep({ size: [1] }, () => {
+      task("inside", () => 1)
+    })
+    task("outside", () => 1)
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.params).toEqual({ size: 1 })
+    expect(tasks[1]!.params).toBeUndefined()
   })
 })
 

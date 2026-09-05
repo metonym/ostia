@@ -57,6 +57,12 @@ export interface Workload {
    * on the task, its group, or the suite), vs. sharing its suite file's
    * subprocess with other tasks. */
   isolated?: boolean
+  /** Structured parameters this task point represents (e.g. `{ size: 800,
+   * impl: "fast" }`), from `task(name, fn, { params })` or a `sweep()` point.
+   * Lets renderers pivot and `compare` match on them instead of only on the
+   * task name. Part of the workload id when present, so two points that
+   * share a task name (a `sweep()`'s whole point) don't collide. */
+  params?: Record<string, string | number | boolean>
 }
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"

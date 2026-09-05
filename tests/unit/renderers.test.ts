@@ -520,4 +520,97 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     expect(minimal.length).toBeLessThan(full.length / 100)
     expect(JSON.parse(minimal.trim().split("\n")[0]!).samples).toBe(20_000)
   })
+
+  test("exposes params from task(name, fn, { params }) / a sweep() point", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const w = makeEntryWorkload("suite.ts", "current", {
+      label: "current",
+      group: "parse",
+      params: { size: 800, impl: "current" },
+    })
+    const samples = [1_000, 1_100, 900]
+    const doc = newDocument(
+      [w],
+      [
+        makeTimingMeasurement({
+          workload: w,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const line = JSON.parse((await renderers.minimal.render(doc, {})).text!)
+    expect(line.params).toEqual({ size: 800, impl: "current" })
+  })
+})
+
+describe("markdown renderer - params: pivot table or key=value suffix", () => {
+  function sweepDoc(points: { size: number; impl: string }[]) {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const workloads = points.map((p) =>
+      makeEntryWorkload("suite.ts", p.impl, {
+        label: p.impl,
+        group: "parse",
+        params: { size: p.size, impl: p.impl },
+      }),
+    )
+    const measurements = workloads.map((w, i) =>
+      makeTimingMeasurement({
+        workload: w,
+        configFingerprint: "cfg",
+        trials: trials([1_000 + i * 100, 1_050 + i * 100, 950 + i * 100]),
+        timing: computeTimingStats([
+          1_000 + i * 100,
+          1_050 + i * 100,
+          950 + i * 100,
+        ]),
+        warnings: [],
+      }),
+    )
+    return newDocument(workloads, measurements)
+  }
+
+  test("a group where every task shares the same two param keys renders as a pivot table", async () => {
+    const doc = sweepDoc([
+      { size: 100, impl: "current" },
+      { size: 100, impl: "fast" },
+      { size: 800, impl: "current" },
+      { size: 800, impl: "fast" },
+    ])
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain("### parse (size × impl)")
+    expect(result.text).toMatch(
+      /\|\s*size \\ impl\s*\|\s*current\s*\|\s*fast\s*\|/,
+    )
+    // Every task went into the pivot, so no separate flat "| Task | Median | ..." table.
+    expect(result.text).not.toContain("| Task | Median |")
+  })
+
+  test("params on an otherwise-flat task render as a key=value suffix instead of a pivot", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const w = makeEntryWorkload("suite.ts", "solo", {
+      label: "solo",
+      params: { size: 100 },
+    })
+    const samples = [1_000, 1_100, 900]
+    const doc = newDocument(
+      [w],
+      [
+        makeTimingMeasurement({
+          workload: w,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain("solo (size=100)")
+  })
 })

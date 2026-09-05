@@ -58,17 +58,24 @@ export interface EntryWorkloadOptions {
   description?: string
   groupDescription?: string
   isolated?: boolean
+  params?: Record<string, string | number | boolean>
 }
 
-/** `taskName` is the registry's "group/name" id and is all the workload id
- * hashes over: descriptions, the explicit group field and the baseline flag are
- * annotations, so adding or editing them never orphans a saved baseline. */
+/** `taskName` is the registry's "group/name" id and, together with `params`
+ * when present, is all the workload id hashes over: descriptions, the
+ * explicit group field and the baseline flag are annotations, so adding or
+ * editing them never orphans a saved baseline. `params` must be part of the
+ * id (only when given, so tasks without it keep their pre-existing id) since
+ * a `sweep()` point reuses one task name across every point in the sweep. */
 export function makeEntryWorkload(
   file: string,
   taskName: string,
   opts: EntryWorkloadOptions = {},
 ): Workload {
-  const id = fp("wl", "inprocess-entry", file, taskName)
+  const id =
+    opts.params !== undefined
+      ? fp("wl", "inprocess-entry", file, taskName, opts.params)
+      : fp("wl", "inprocess-entry", file, taskName)
   return {
     id,
     kind: "inprocess",
@@ -84,6 +91,7 @@ export function makeEntryWorkload(
       groupDescription: opts.groupDescription,
     }),
     ...(opts.isolated !== undefined && { isolated: opts.isolated }),
+    ...(opts.params !== undefined && { params: opts.params }),
   }
 }
 

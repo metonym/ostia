@@ -12,6 +12,8 @@ export interface MinimalLine {
   group?: string
   description?: string
   groupDescription?: string
+  /** From `task(name, fn, { params })` or a `sweep()` point. */
+  params?: Record<string, string | number | boolean>
   unit: "ns"
   samples: number
   mean: number
@@ -91,6 +93,7 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
       line.description = workload.description
     if (workload?.groupDescription !== undefined)
       line.groupDescription = workload.groupDescription
+    if (workload?.params !== undefined) line.params = workload.params
     if (refs) line.relative = sig(t.median / (refs.get(row) ?? t.median))
     if (workload?.baseline) line.baseline = true
     const cmp = comparisonByRun.get(run.id)

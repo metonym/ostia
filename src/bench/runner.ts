@@ -126,6 +126,7 @@ async function main(): Promise<number> {
       description: t.opts?.description,
       groupDescription: t.groupDescription,
       isolated: opts.markIsolated,
+      params: t.params,
     })
     workloads.push(workload)
     // Per-task options win over the suite-wide ones. The fingerprint is per task

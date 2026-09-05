@@ -333,6 +333,38 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result.text).toContain("Close to timer resolution.")
   })
 
+  test("table renderer prints a task.skip()'d workload as '- skipped', still under its group header", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const wMeasured = makeEntryWorkload("suite.ts", "g/measured", {
+      label: "g/measured",
+      group: "g",
+    })
+    const wSkipped = makeEntryWorkload("suite.ts", "g/skipped", {
+      label: "g/skipped",
+      group: "g",
+      skipped: true,
+    })
+    const samples = [1_000_000, 1_100_000, 900_000]
+    const doc = newDocument(
+      [wMeasured, wSkipped],
+      [
+        makeTimingMeasurement({
+          workload: wMeasured,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.table.render(doc, {})
+    const lines = result.text!.split("\n")
+    expect(lines.some((l) => l.trim() === "g:")).toBe(true)
+    const skippedLine = lines.find((l) => l.includes("g/skipped"))
+    expect(skippedLine).toContain("- skipped")
+  })
+
   test("json renderer round-trips schema-critical fields and is deterministic", async () => {
     const doc = fixedDoc()
     const result1 = await renderers.json.render(doc, {})
@@ -545,6 +577,41 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     const line = JSON.parse((await renderers.minimal.render(doc, {})).text!)
     expect(line.params).toEqual({ size: 800, impl: "current" })
   })
+
+  test("emits a skipped: true line for a task.skip()'d workload, with no stats fields", async () => {
+    const wMeasured = makeEntryWorkload("suite.ts", "g/measured", {
+      label: "g/measured",
+      group: "g",
+    })
+    const wSkipped = makeEntryWorkload("suite.ts", "g/skipped", {
+      label: "g/skipped",
+      group: "g",
+      skipped: true,
+    })
+    const samples = [1_000_000, 1_100_000, 900_000]
+    const doc = newDocument(
+      [wMeasured, wSkipped],
+      [
+        makeTimingMeasurement({
+          workload: wMeasured,
+          configFingerprint: "cfg",
+          trials: samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const lines = (await renderers.minimal.render(doc, {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    const skipped = lines.find((l) => l.task === "g/skipped")
+    expect(skipped).toBeDefined()
+    expect(skipped.skipped).toBe(true)
+    expect(skipped.group).toBe("g")
+    expect(skipped.median).toBeUndefined()
+    expect(skipped.samples).toBeUndefined()
+  })
 })
 
 describe("markdown renderer - params: pivot table or key=value suffix", () => {
@@ -612,5 +679,18 @@ describe("markdown renderer - params: pivot table or key=value suffix", () => {
     )
     const result = await renderers.markdown.render(doc, {})
     expect(result.text).toContain("solo (size=100)")
+  })
+})
+
+describe("markdown renderer - task.skip() (item 10)", () => {
+  test("a skipped workload renders as a '- skipped' row in the Timing table", async () => {
+    const w = makeEntryWorkload("suite.ts", "solo", {
+      label: "solo",
+      skipped: true,
+    })
+    const doc = newDocument([w], [])
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain("## Timing")
+    expect(result.text).toContain("| solo | - skipped | - | - | - | - |")
   })
 })

@@ -75,3 +75,72 @@ describe("ostia report --format (viz formats folded in, item 4)", () => {
     expect(stdout).toContain("report")
   }, 10_000)
 })
+
+describe("ostia bench - task.skip/.only (item 10)", () => {
+  const OUT_DIR = `${import.meta.dir}/../../.ostia-test-cli-bench`
+
+  afterAll(async () => {
+    await Bun.spawn(["rm", "-rf", OUT_DIR]).exited
+  })
+
+  test("task.skip() carries the workload with no measurement; table prints '- skipped'", async () => {
+    const docPath = `${OUT_DIR}-skip-doc.json`
+    const { stdout, exitCode } = await runCli([
+      "bench",
+      `${import.meta.dir}/../fixtures/bench-suite-skip.ts`,
+      "--time-budget",
+      "5",
+      "--min-samples",
+      "3",
+      "--no-noise-check",
+      "--out-dir",
+      OUT_DIR,
+      "--export-json",
+      docPath,
+    ])
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain("- skipped")
+
+    const doc = JSON.parse(await Bun.file(docPath).text())
+    const labels = doc.workloads.map((w: { label: string }) => w.label)
+    expect(labels).toEqual(
+      expect.arrayContaining(["skip/measured", "skip/skipped"]),
+    )
+    const skippedWorkload = doc.workloads.find(
+      (w: { label: string }) => w.label === "skip/skipped",
+    )
+    expect(skippedWorkload.skipped).toBe(true)
+    expect(
+      doc.measurements.some(
+        (m: { workloadId: string }) => m.workloadId === skippedWorkload.id,
+      ),
+    ).toBe(false)
+
+    await Bun.spawn(["rm", "-f", docPath]).exited
+  }, 20_000)
+
+  test(".only restricts the suite to selected tasks and prints a stderr notice", async () => {
+    const docPath = `${OUT_DIR}-only-doc.json`
+    const { stderr, exitCode } = await runCli([
+      "bench",
+      `${import.meta.dir}/../fixtures/bench-suite-only.ts`,
+      "--time-budget",
+      "5",
+      "--min-samples",
+      "3",
+      "--no-noise-check",
+      "--out-dir",
+      OUT_DIR,
+      "--export-json",
+      docPath,
+    ])
+    expect(exitCode).toBe(0)
+    expect(stderr).toContain("1 task(s) selected by .only")
+
+    const doc = JSON.parse(await Bun.file(docPath).text())
+    expect(doc.workloads).toHaveLength(1)
+    expect(doc.workloads[0].label).toBe("only/selected")
+
+    await Bun.spawn(["rm", "-f", docPath]).exited
+  }, 20_000)
+})

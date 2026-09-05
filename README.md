@@ -661,6 +661,23 @@ group("parse", () => {
 })
 ```
 
+`task.skip(...)` / `group.skip(...)` register without measuring: the runner never
+samples them, but the document still carries the workload (marked
+`Workload.skipped`), so a renderer prints `- skipped` instead of the task just
+being absent, and `compare` reports it as `unchanged` (with a `skipped` warning)
+rather than silently passing or failing to match a baseline. `task.only(...)` /
+`group.only(...)` restrict a suite file to only the `.only`-marked tasks - `--filter`
+still applies on top - and print a one-line notice (`bench: 2 task(s) selected by
+.only`) to stderr, so a forgotten `.only` doesn't quietly narrow a run in CI:
+
+```ts
+group("parse", () => {
+  task.only("fast path", () => parse(buf)) // only this task runs this time
+  task("slow path", () => parseSlow(buf))
+  task.skip("flaky on CI", () => parseFlaky(buf))
+})
+```
+
 ### `sweep(dims, fn)` → `void`
 
 Cartesian product over one or more named dimensions, calling `fn` once per point.

@@ -65,6 +65,14 @@ export interface RegisteredTask {
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
   params?: Record<string, string | number | boolean>
+  /** From `task.skip()` or a `group.skip()` this task is inside. The runner
+   * never measures it; the document still carries its workload (marked
+   * `Workload.skipped`) so a renderer or `compare` can say so explicitly. */
+  skipped?: boolean
+  /** From `task.only()` or a `group.only()` this task is inside. When any
+   * registered task has this set, the runner restricts the whole suite file
+   * to only those tasks (before `--filter` narrows further). */
+  only?: boolean
   opts?: TaskOptions
 }
 
@@ -77,11 +85,18 @@ let currentGroup:
       gc?: boolean
       before?: Hook
       after?: Hook
+      skip?: boolean
+      only?: boolean
     }
   | undefined
 let currentParams: Record<string, string | number | boolean> | undefined
 
-export function group(name: string, fn: () => void, opts?: GroupOptions): void {
+function registerGroup(
+  name: string,
+  fn: () => void,
+  opts: GroupOptions | undefined,
+  flags: { skip?: boolean; only?: boolean },
+): void {
   const previous = currentGroup
   currentGroup = {
     name,
@@ -90,6 +105,8 @@ export function group(name: string, fn: () => void, opts?: GroupOptions): void {
     gc: opts?.gc,
     before: opts?.before,
     after: opts?.after,
+    skip: flags.skip,
+    only: flags.only,
   }
   try {
     fn()
@@ -98,10 +115,34 @@ export function group(name: string, fn: () => void, opts?: GroupOptions): void {
   }
 }
 
-export function task(
+interface GroupFn {
+  (name: string, fn: () => void, opts?: GroupOptions): void
+  /** Registers every task inside as skipped: the runner never measures
+   * them, but the document still carries their workloads (marked
+   * `Workload.skipped`). */
+  skip: (name: string, fn: () => void, opts?: GroupOptions) => void
+  /** When any task or group in the suite uses `.only`, the runner restricts
+   * the whole suite file to only those tasks (before `--filter` narrows
+   * further) and prints a one-line notice to stderr. */
+  only: (name: string, fn: () => void, opts?: GroupOptions) => void
+}
+
+export const group: GroupFn = Object.assign(
+  (name: string, fn: () => void, opts?: GroupOptions): void =>
+    registerGroup(name, fn, opts, {}),
+  {
+    skip: (name: string, fn: () => void, opts?: GroupOptions): void =>
+      registerGroup(name, fn, opts, { skip: true }),
+    only: (name: string, fn: () => void, opts?: GroupOptions): void =>
+      registerGroup(name, fn, opts, { only: true }),
+  },
+)
+
+function registerTask(
   name: string,
   fn: () => unknown | Promise<unknown>,
-  opts?: TaskOptions,
+  opts: TaskOptions | undefined,
+  flags: { skip?: boolean; only?: boolean },
 ): void {
   const params =
     currentParams !== undefined || opts?.params !== undefined
@@ -118,9 +159,52 @@ export function task(
     fn,
     baseline: opts?.baseline,
     params,
+    skipped: flags.skip || currentGroup?.skip,
+    only: flags.only || currentGroup?.only,
     opts,
   })
 }
+
+interface TaskFn {
+  (name: string, fn: () => unknown | Promise<unknown>, opts?: TaskOptions): void
+  /** Registers the task as skipped: the runner never measures it, but the
+   * document still carries its workload (marked `Workload.skipped`) so a
+   * renderer or `compare` can say so explicitly instead of the task simply
+   * being absent. */
+  skip: (
+    name: string,
+    fn: () => unknown | Promise<unknown>,
+    opts?: TaskOptions,
+  ) => void
+  /** When any task or group in the suite uses `.only`, the runner restricts
+   * the whole suite file to only those tasks (before `--filter` narrows
+   * further) and prints a one-line notice to stderr. */
+  only: (
+    name: string,
+    fn: () => unknown | Promise<unknown>,
+    opts?: TaskOptions,
+  ) => void
+}
+
+export const task: TaskFn = Object.assign(
+  (
+    name: string,
+    fn: () => unknown | Promise<unknown>,
+    opts?: TaskOptions,
+  ): void => registerTask(name, fn, opts, {}),
+  {
+    skip: (
+      name: string,
+      fn: () => unknown | Promise<unknown>,
+      opts?: TaskOptions,
+    ): void => registerTask(name, fn, opts, { skip: true }),
+    only: (
+      name: string,
+      fn: () => unknown | Promise<unknown>,
+      opts?: TaskOptions,
+    ): void => registerTask(name, fn, opts, { only: true }),
+  },
+)
 
 export function getRegisteredTasks(): readonly RegisteredTask[] {
   return tasks

@@ -64,6 +64,13 @@
 - `keep(value)` (exported from `src/index.ts`): the sink that already
   protects a task's own return value from dead-code elimination, made
   public for an intermediate value inside a task body.
+- `task.skip(...)` / `group.skip(...)`: register without measuring. The
+  document still carries the workload (`Workload.skipped`), so a renderer
+  prints `- skipped` instead of the task being absent, and `compare` reports
+  it as `unchanged` with a `skipped` warning instead of silently passing.
+  `task.only(...)` / `group.only(...)` restrict a suite file to only the
+  selected tasks (`--filter` still applies on top) and print a one-line
+  `bench: N task(s) selected by .only` notice to stderr.
 
 **Fixes**
 

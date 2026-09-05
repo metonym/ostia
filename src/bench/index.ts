@@ -278,10 +278,16 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     // order, filtered) regardless of which item a task landed in, then
     // concatenate suites in command-line order - the same ordering guarantee
     // bench() has always made, now independent of isolate/spawn granularity.
+    // Measurements are looked up by workloadId, not position: a task.skip()'d
+    // task still gets a workload but no measurement, so the two arrays a
+    // runner produces aren't always the same length.
     const workloads: Workload[] = []
     const measurements: Measurement[] = []
     for (let s = 0; s < plans.length; s++) {
       const sharedDoc = primaryDocs[s]!
+      const sharedMeasurementByWorkloadId = new Map(
+        sharedDoc.measurements.map((m) => [m.workloadId, m]),
+      )
       let sharedPtr = 0
       const isolatedDocById = new Map<string, ProfileDocument>()
       items.forEach((it, i) => {
@@ -293,12 +299,18 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       for (const t of plans[s]!) {
         if (t.isolate) {
           const doc = isolatedDocById.get(t.id)!
-          workloads.push(doc.workloads[0]!)
-          measurements.push(doc.measurements[0]!)
+          const workload = doc.workloads[0]!
+          workloads.push(workload)
+          const measurement = doc.measurements.find(
+            (m) => m.workloadId === workload.id,
+          )
+          if (measurement) measurements.push(measurement)
         } else {
-          workloads.push(sharedDoc.workloads[sharedPtr]!)
-          measurements.push(sharedDoc.measurements[sharedPtr]!)
+          const workload = sharedDoc.workloads[sharedPtr]!
+          workloads.push(workload)
           sharedPtr++
+          const measurement = sharedMeasurementByWorkloadId.get(workload.id)
+          if (measurement) measurements.push(measurement)
         }
       }
     }

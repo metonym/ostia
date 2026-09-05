@@ -359,3 +359,62 @@ describe("bench/registry - before/after hooks", () => {
     expect(t!.groupAfter).toBeUndefined()
   })
 })
+
+describe("bench/registry - task.skip / task.only / group.skip / group.only", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("task.skip() registers with skipped: true", () => {
+    task.skip("t", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(t!.skipped).toBe(true)
+    expect(t!.only).toBeUndefined()
+  })
+
+  test("task.only() registers with only: true", () => {
+    task.only("t", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(t!.only).toBe(true)
+    expect(t!.skipped).toBeUndefined()
+  })
+
+  test("a plain task() has neither skipped nor only set", () => {
+    task("t", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(t!.skipped).toBeUndefined()
+    expect(t!.only).toBeUndefined()
+  })
+
+  test("group.skip() marks every task inside as skipped", () => {
+    group.skip("g", () => {
+      task("a", () => 1)
+      task("b", () => 1)
+    })
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.skipped).toBe(true)
+    expect(tasks[1]!.skipped).toBe(true)
+  })
+
+  test("group.only() marks every task inside as only", () => {
+    group.only("g", () => {
+      task("a", () => 1)
+      task("b", () => 1)
+    })
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.only).toBe(true)
+    expect(tasks[1]!.only).toBe(true)
+  })
+
+  test("group.skip() does not leak into a sibling group", () => {
+    group.skip("skipped-group", () => {
+      task("a", () => 1)
+    })
+    group("normal-group", () => {
+      task("b", () => 1)
+    })
+    const tasks = getRegisteredTasks()
+    expect(tasks[0]!.skipped).toBe(true)
+    expect(tasks[1]!.skipped).toBeUndefined()
+  })
+})

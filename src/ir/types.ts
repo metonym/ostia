@@ -63,6 +63,12 @@ export interface Workload {
    * task name. Part of the workload id when present, so two points that
    * share a task name (a `sweep()`'s whole point) don't collide. */
   params?: Record<string, string | number | boolean>
+  /** From `task.skip()` or a `group.skip()` this task was inside. The runner
+   * never measures it, so this workload has no matching `Measurement`; a
+   * renderer prints it as a "- skipped" row instead of omitting it, and
+   * `compare` treats it as `unchanged` (with a `skipped` warning) rather
+   * than silently passing or failing to match it. */
+  skipped?: boolean
 }
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"
@@ -179,6 +185,7 @@ export type WarningCode =
   | "low-sample-count"
   | "thin-comparison"
   | "noisy-machine"
+  | "skipped"
 
 export interface Warning {
   code: WarningCode

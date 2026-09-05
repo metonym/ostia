@@ -31,6 +31,15 @@ interface TimingRow {
   label: string
 }
 
+interface SkippedRow {
+  workload: Workload
+  label: string
+}
+
+type TableRow =
+  | ({ kind: "measured" } & TimingRow)
+  | ({ kind: "skipped" } & SkippedRow)
+
 export const terminalRenderer: Renderer<Record<string, never>> = {
   name: "table",
   async render(doc: ProfileDocument): Promise<RenderResult> {
@@ -44,7 +53,10 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       ? [formatEnvironmentLine(doc.environment), ""]
       : []
 
-    if (timingRuns.length === 0) {
+    const skippedWorkloads = doc.workloads.filter(
+      (w) => w.skipped && !timingRuns.some((r) => r.workloadId === w.id),
+    )
+    if (timingRuns.length === 0 && skippedWorkloads.length === 0) {
       const comparisonLines = renderComparisons(doc, byWorkload)
       return {
         text:
@@ -53,25 +65,41 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
             : "(no timing runs)\n",
       }
     }
-    const rows: TimingRow[] = timingRuns.map((run) => {
-      const workload = byWorkload.get(run.workloadId)
-      return {
-        run,
-        workload,
-        label: workload ? commandLabel(workload) : run.workloadId,
-      }
-    })
 
-    const showRelative = rows.length > 1
+    // Ordered by doc.workloads (registration order), a measured row where a
+    // timing measurement exists, else a skipped row for a task.skip()'d
+    // workload, so a skipped task prints in its natural place in its group.
+    const measurementByWorkloadId = new Map(
+      timingRuns.map((r) => [r.workloadId, r]),
+    )
+    const rows: TableRow[] = []
+    for (const workload of doc.workloads) {
+      const run = measurementByWorkloadId.get(workload.id)
+      if (run) {
+        rows.push({
+          kind: "measured",
+          run,
+          workload,
+          label: commandLabel(workload),
+        })
+      } else if (workload.skipped) {
+        rows.push({ kind: "skipped", workload, label: commandLabel(workload) })
+      }
+    }
+    const measuredRows = rows.filter(
+      (r): r is { kind: "measured" } & TimingRow => r.kind === "measured",
+    )
+
+    const showRelative = measuredRows.length > 1
     // Grouped tasks get their own Relative baseline (see relative.ts);
     // ungrouped tasks fall back to the whole-run fastest.
-    const references = relativeReferences(rows)
+    const references = relativeReferences(measuredRows)
 
     // Group rows visually: a row's group header prints once, right before
     // its first row, and its rows indent under it. Ungrouped rows (and
     // subprocess commands, which never carry entry.group) print flat.
-    const indents = new Map<TimingRow, string>()
-    const groupHeaderBefore = new Map<TimingRow, string>()
+    const indents = new Map<TableRow, string>()
+    const groupHeaderBefore = new Map<TableRow, string>()
     let lastGroup: string | undefined
     for (const row of rows) {
       const group = groupOf(row.workload)
@@ -97,15 +125,20 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     lines.push(header)
     lines.push("-".repeat(header.length))
 
-    const rowsWithWarnings: TimingRow[] = []
+    const rowsWithWarnings: ({ kind: "measured" } & TimingRow)[] = []
 
     for (const row of rows) {
-      const { run, label, workload } = row
-      const t = run.timing
       const groupHeader = groupHeaderBefore.get(row)
       if (groupHeader !== undefined) lines.push(`${groupHeader}:`)
-
       const indent = indents.get(row)!
+
+      if (row.kind === "skipped") {
+        lines.push(`${(indent + row.label).padEnd(labelWidth)}   - skipped`)
+        continue
+      }
+
+      const { run, label, workload } = row
+      const t = run.timing
       const unit = pickDurationUnit(t.median)
       // p75/p99 are absent only on documents saved before this field existed;
       // fall back to the range so an old baseline still renders sensibly.
@@ -167,7 +200,11 @@ function runLabelFor(
   measurementId: string,
 ): string {
   const run = doc.measurements.find((r) => r.id === measurementId)
-  const workload = run ? byWorkload.get(run.workloadId) : undefined
+  // A skipped candidate has no measurement, so `compareWorkload` falls back
+  // to the workload's own id for `candidateMeasurementId` - resolve that too.
+  const workload = run
+    ? byWorkload.get(run.workloadId)
+    : byWorkload.get(measurementId)
   return workload ? commandLabel(workload) : measurementId
 }
 

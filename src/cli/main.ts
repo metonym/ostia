@@ -136,6 +136,13 @@ point as Workload.params (an explicit { params } on a task merges over it):
 range(start, end, multiplier?) is the geometric point generator that feeds sweep()
 (mitata's .range(), default multiplier 8, always ending on the end value).
 
+task.skip(...) / group.skip(...) register without measuring: the document still
+carries the workload (marked skipped) instead of it being absent, so a renderer
+prints "- skipped" and compare reports it as unchanged with a warning rather than
+silently passing. task.only(...) / group.only(...) restrict the suite file to only
+the selected tasks (--filter still applies on top) and print a one-line notice to
+stderr, so a forgotten .only is visible.
+
 Project defaults: with no suite files given on the command line, ostia falls back to
 ostia.config.json's "bench" section in the current directory - suites is a list of globs
 (expanded with Bun.Glob), the rest are the same defaults as their matching flag:

@@ -37,6 +37,11 @@ export interface MinimalLine {
     meanPct: number
     verdict: "improved" | "regressed" | "unchanged"
     pass: boolean
+    /** 95% bootstrap CI on the difference of medians and the Mann-Whitney
+     * p-value behind the verdict. Absent on a thin (<5 samples/side)
+     * comparison, which falls back to a point-estimate threshold. */
+    ci95?: [number, number]
+    pValue?: number
   }
 }
 
@@ -95,6 +100,12 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
         meanPct: sig(cmp.timing.meanDeltaPct),
         verdict: cmp.timing.verdict,
         pass: cmp.verdict === "pass",
+      }
+      if (cmp.timing.ci95) {
+        line.delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])]
+      }
+      if (cmp.timing.pValue !== undefined) {
+        line.delta.pValue = sig(cmp.timing.pValue)
       }
     }
     return line

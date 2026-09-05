@@ -250,12 +250,39 @@ ostia compare after.json --baseline .ostia/baselines/main.json
 ```
 
 ```
-✓ bun fixtures/fast.ts
-  timing: -2.9% median (unchanged)
-
-✗ work
-  timing: +1249.2% median (regressed)
+✗ bun fixtures/work.ts
+  timing: +50.2% median, 95% CI [+45.9%, +54.4%], p<0.001 (regressed)
 ```
+
+The verdict needs both a confidence interval clear of `timingPct` and a
+significant Mann-Whitney p-value (`thresholds.alpha`, default `0.01`), not
+just a point estimate past the threshold - see
+[Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)
+below. Comparisons with fewer than 5 samples on either side fall back to the
+old point-estimate rule and carry a `thin-comparison` warning instead.
+
+#### Statistics: a real significance test, not a percentage threshold
+
+A point estimate past `timingPct` is not enough to call something a
+regression - both documents already carry full sample arrays, so `compare`
+runs two tests instead:
+
+- A **bootstrap confidence interval** on the difference of medians:
+  resample both sides with replacement `thresholds.bootstrapIterations`
+  times (default 2000; each side is randomly subsampled to at most 2000
+  samples first, so a many-thousand-sample task doesn't turn a compare into
+  a multi-second operation), and report the 2.5th/97.5th percentiles as
+  `ci95` (percent of the baseline median). Reproducible: the PRNG seed is
+  stored in `Comparison.timing.seed`.
+- A **Mann-Whitney U test** (tie-corrected, normal approximation), reported
+  as `pValue` - whether the two sample distributions differ at all, without
+  assuming normality the way a t-test would.
+
+`regressed` requires `ci95[0] > thresholds.timingPct` (the *whole interval*
+clears the threshold) **and** `pValue < thresholds.alpha`; `improved` is the
+mirror. Otherwise `unchanged`. This is why the earlier example (`+50.2%
+median, 95% CI [+45.9%, +54.4%]`) is a clean regression: even the low end of
+the interval is well past `timingPct`.
 
 ### `ostia report`
 
@@ -605,6 +632,8 @@ const diffs = compareDocuments(baselineDoc, candidateDoc, {
   frameSelfPct: 10,
   heapTypePct: 10,
   minFrameSelfUs: 1000,
+  alpha: 0.01, // Mann-Whitney significance level
+  bootstrapIterations: 2000,
 })
 ```
 

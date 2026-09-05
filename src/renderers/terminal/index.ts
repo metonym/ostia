@@ -176,10 +176,20 @@ function renderComparisons(
     lines.push(`${verdictMark} ${label}`)
 
     if (cmp.timing) {
-      const sign = cmp.timing.medianDeltaPct > 0 ? "+" : ""
-      lines.push(
-        `  timing: ${sign}${cmp.timing.medianDeltaPct.toFixed(1)}% median (${cmp.timing.verdict})`,
-      )
+      const withSign = (n: number) => `${n >= 0 ? "+" : ""}${n.toFixed(1)}%`
+      if (cmp.timing.ci95 && cmp.timing.pValue !== undefined) {
+        const p =
+          cmp.timing.pValue < 0.001
+            ? "p<0.001"
+            : `p=${cmp.timing.pValue.toFixed(3)}`
+        lines.push(
+          `  timing: ${withSign(cmp.timing.medianDeltaPct)} median, 95% CI [${withSign(cmp.timing.ci95[0])}, ${withSign(cmp.timing.ci95[1])}], ${p} (${cmp.timing.verdict})`,
+        )
+      } else {
+        lines.push(
+          `  timing: ${withSign(cmp.timing.medianDeltaPct)} median (${cmp.timing.verdict})`,
+        )
+      }
     }
     if (cmp.frames) {
       for (const f of cmp.frames.slice(0, TOP_FRAMES)) {

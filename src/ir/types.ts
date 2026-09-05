@@ -150,6 +150,7 @@ export type WarningCode =
   | "below-timer-resolution"
   | "cache-fallback-rerun"
   | "low-sample-count"
+  | "thin-comparison"
 
 export interface Warning {
   code: WarningCode
@@ -180,8 +181,23 @@ export interface Comparison {
   timing?: {
     medianDeltaPct: number
     meanDeltaPct: number
+    /** Same value as `medianDeltaPct`, named for what it is used for: the
+     * effect size the verdict rule tests against `thresholds.timingPct`. */
+    effectPct: number
+    /** 95% bootstrap confidence interval on the difference of medians,
+     * percent of the baseline median. Absent when either side had fewer
+     * than 5 samples (see the `thin-comparison` warning). */
+    ci95?: [number, number]
+    /** Two-sided Mann-Whitney U p-value, tie-corrected normal approximation.
+     * Same absence condition as `ci95`. */
+    pValue?: number
+    /** Seed for the bootstrap's PRNG, so `ci95` is reproducible. */
+    seed?: number
     verdict: "improved" | "regressed" | "unchanged"
   }
+  /** Attached when timing fell back to the point-estimate rule (thin
+   * samples) or otherwise carries a caveat about this comparison. */
+  warnings?: Warning[]
   frames?: {
     frameKey: string
     name: string
@@ -202,6 +218,8 @@ export interface Comparison {
     frameSelfPct: number
     heapTypePct: number
     minFrameSelfUs: number
+    alpha: number
+    bootstrapIterations: number
   }
   verdict: "pass" | "fail"
 }

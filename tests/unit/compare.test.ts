@@ -94,6 +94,61 @@ describe("compareWorkload - timing", () => {
   })
 })
 
+describe("compareWorkload - bootstrap CI + Mann-Whitney significance test", () => {
+  test("two identical distributions yield unchanged with a CI straddling 0", () => {
+    const samples = Array.from(
+      { length: 50 },
+      (_, i) => 10_000_000 + (i % 7) * 1000,
+    )
+    const base = timingDoc(["bun", "a.ts"], samples)
+    const cand = timingDoc(["bun", "a.ts"], [...samples])
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)
+    expect(cmp!.timing!.verdict).toBe("unchanged")
+    expect(cmp!.timing!.ci95).toBeDefined()
+    expect(cmp!.timing!.ci95![0]).toBeLessThanOrEqual(0)
+    expect(cmp!.timing!.ci95![1]).toBeGreaterThanOrEqual(0)
+    expect(cmp!.timing!.pValue).toBeGreaterThan(DEFAULT_THRESHOLDS.alpha)
+    expect(cmp!.timing!.seed).toBeDefined()
+    expect(cmp!.verdict).toBe("pass")
+  })
+
+  test("a clearly shifted distribution (30% slower, low noise) yields regressed", () => {
+    const base = timingDoc(
+      ["bun", "a.ts"],
+      Array.from({ length: 30 }, (_, i) => 10_000_000 + (i % 5) * 10_000),
+    )
+    const cand = timingDoc(
+      ["bun", "a.ts"],
+      Array.from({ length: 30 }, (_, i) => 13_000_000 + (i % 5) * 10_000),
+    )
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)
+    expect(cmp!.timing!.verdict).toBe("regressed")
+    expect(cmp!.timing!.ci95![0]).toBeGreaterThan(DEFAULT_THRESHOLDS.timingPct)
+    expect(cmp!.timing!.pValue).toBeLessThan(DEFAULT_THRESHOLDS.alpha)
+    expect(cmp!.verdict).toBe("fail")
+  })
+
+  test("a thin (3-sample) comparison falls back to the point-estimate rule with a thin-comparison warning", () => {
+    const base = timingDoc(
+      ["bun", "a.ts"],
+      [10_000_000, 10_100_000, 10_050_000],
+    )
+    const cand = timingDoc(
+      ["bun", "a.ts"],
+      [12_000_000, 12_100_000, 12_050_000],
+    )
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)
+    expect(cmp!.timing!.ci95).toBeUndefined()
+    expect(cmp!.timing!.pValue).toBeUndefined()
+    expect(cmp!.timing!.verdict).toBe("regressed")
+    expect(cmp!.warnings).toBeDefined()
+    expect(cmp!.warnings!.some((w) => w.code === "thin-comparison")).toBe(true)
+  })
+})
+
 describe("compareDocuments - batch matching by workload id", () => {
   test("only compares workloads present in both documents", () => {
     const a1 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])

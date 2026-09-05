@@ -30,6 +30,15 @@
   ns, additive with no schema bump. Exposed in `minimal` lines and the
   markdown renderer's Timing table. The terminal table's Spread column now
   reads `p75…p99` instead of the IQR item 3 shipped as a placeholder.
+- `compareWorkload`/`compareDocuments` verdicts now come from a bootstrap
+  95% CI on the difference of medians (`Comparison.timing.ci95`) and a
+  tie-corrected Mann-Whitney U p-value (`Comparison.timing.pValue`), not a
+  bare point estimate against `timingPct`. `regressed`/`improved` require
+  both the CI clearing `timingPct` and `pValue < thresholds.alpha` (default
+  `0.01`). New `Thresholds` fields: `alpha`, `bootstrapIterations` (default
+  2000, capped and subsampled for large sample counts). Comparisons with
+  fewer than 5 samples per side fall back to the old point-estimate rule
+  and carry a `thin-comparison` warning.
 
 **Fixes**
 

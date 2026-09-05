@@ -26,7 +26,11 @@ export { range } from "./bench/range.ts"
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { compareDocuments } from "./compare/index.ts"
-export { loadDocument, saveDocument } from "./ir/document.ts"
+export {
+  loadDocument,
+  newDocument as createDocument,
+  saveDocument,
+} from "./ir/document.ts"
 export type {
   ProfileDocument,
   Warning,
@@ -192,7 +196,8 @@ interface ProfileOptions {
 
 interface ProfileResult<T> {
   result: T
-  run: Measurement
+  measurement: Measurement
+  document: ProfileDocument
 }
 
 export async function profile<T>(
@@ -219,7 +224,7 @@ export async function profile<T>(
       fn,
       opts,
     )
-    const run = makeInstrumentedMeasurement({
+    const measurement = makeInstrumentedMeasurement({
       workload,
       phase: "cpu",
       configFingerprint: cfgFp,
@@ -229,14 +234,18 @@ export async function profile<T>(
       warnings: emptyProfileWarning(cpu),
       artifacts: [],
     })
-    return { result, run }
+    return {
+      result,
+      measurement,
+      document: newDocument([workload], [measurement]),
+    }
   }
 
   const { result, cpu, diagnosticWallNs } = await captureInspectorProfile(
     fn,
     opts,
   )
-  const run = makeInstrumentedMeasurement({
+  const measurement = makeInstrumentedMeasurement({
     workload,
     phase: "cpu",
     configFingerprint: cfgFp,
@@ -245,5 +254,9 @@ export async function profile<T>(
     warnings: emptyProfileWarning(cpu),
     artifacts: [],
   })
-  return { result, run }
+  return {
+    result,
+    measurement,
+    document: newDocument([workload], [measurement]),
+  }
 }

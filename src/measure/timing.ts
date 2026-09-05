@@ -32,14 +32,24 @@ export interface TimingPhaseResult {
   warnings: Warning[]
 }
 
-export async function runTimingPhase(
-  opts: TimingPhaseOptions,
-): Promise<TimingPhaseResult> {
-  const warmup = opts.warmup ?? DEFAULT_WARMUP
-  for (let i = 0; i < warmup; i++) {
-    await runTrial(opts)
-  }
+/** One command's trial loop, exposed one trial at a time so `time()` can
+ * round-robin several commands' loops against each other (`--interleave`)
+ * instead of running one command's loop to completion before the next
+ * starts. `warmup()` first, then `step()` until it returns false. */
+export interface TimingPhaseIterator {
+  warmup(): Promise<void>
+  /** Runs one more trial if the phase hasn't reached its stopping criterion
+   * (exact `samples`, or `minSamples` and `budgetMs` both satisfied) yet;
+   * returns whether a trial ran. */
+  step(): Promise<boolean>
+  done(): boolean
+  result(): TimingPhaseResult
+}
 
+export function createTimingPhase(
+  opts: TimingPhaseOptions,
+): TimingPhaseIterator {
+  const warmupCount = opts.warmup ?? DEFAULT_WARMUP
   const samples = opts.samples ?? opts.runs
   const minSamples = opts.minSamples ?? opts.minRuns ?? DEFAULT_MIN_SAMPLES
   const minSamplesFloor = samples ?? minSamples
@@ -55,27 +65,51 @@ export async function runTimingPhase(
   const trials: Trial[] = []
   let totalNs = 0
   let i = 0
-  while (i < minSamplesFloor || totalNs < budgetNs) {
-    const result = await runTrial(opts)
-    trials.push({
-      i,
-      wallNs: result.wallNs,
-      exitCode: result.exitCode,
-      userNs: result.userNs,
-      systemNs: result.systemNs,
-      maxRssBytes: result.maxRssBytes,
-    })
-    totalNs += result.wallNs
-    i++
-    if (samples !== undefined && i >= samples) break
+
+  function done(): boolean {
+    if (samples !== undefined) return i >= samples
+    return i >= minSamplesFloor && totalNs >= budgetNs
   }
 
-  const timingSamples = trials.map((t) => t.wallNs)
-  const timing = computeTimingStats(timingSamples)
-  const warnings = timingWarnings(
-    timing,
-    trials.map((t) => t.exitCode),
-  )
+  return {
+    async warmup() {
+      for (let w = 0; w < warmupCount; w++) await runTrial(opts)
+    },
+    async step() {
+      if (done()) return false
+      const result = await runTrial(opts)
+      trials.push({
+        i,
+        wallNs: result.wallNs,
+        exitCode: result.exitCode,
+        userNs: result.userNs,
+        systemNs: result.systemNs,
+        maxRssBytes: result.maxRssBytes,
+      })
+      totalNs += result.wallNs
+      i++
+      return true
+    },
+    done,
+    result(): TimingPhaseResult {
+      const timingSamples = trials.map((t) => t.wallNs)
+      const timing = computeTimingStats(timingSamples)
+      const warnings = timingWarnings(
+        timing,
+        trials.map((t) => t.exitCode),
+      )
+      return { trials, timing, warnings }
+    },
+  }
+}
 
-  return { trials, timing, warnings }
+export async function runTimingPhase(
+  opts: TimingPhaseOptions,
+): Promise<TimingPhaseResult> {
+  const phase = createTimingPhase(opts)
+  await phase.warmup()
+  while (await phase.step()) {
+    /* drain the phase's own stopping criterion */
+  }
+  return phase.result()
 }

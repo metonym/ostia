@@ -100,6 +100,16 @@
   task up in the 200ms capture window, so its CPU (and by extension timing)
   numbers may not reflect steady state. Printed alongside the CPU capture in
   the terminal table and folded into the task's line in `--format minimal`.
+- `ostia time` with 2+ commands round-robins their trials by default
+  (`--interleave`, one trial per command, repeated) instead of running each
+  command's whole trial loop to completion before the next starts, so drift
+  over the run's wall-clock span (thermal throttling, a noisy neighbor
+  process) lands on every command equally instead of favoring whichever ran
+  first or last. `--no-interleave` (`interleave: false`) restores the old
+  per-command-to-completion order. Interleaved timing measurements carry
+  `Measurement.interleaved: true`. `runTimingPhase` is now built on top of a
+  `createTimingPhase` per-trial iterator (`warmup()`/`step()`/`done()`/
+  `result()`), which `time()` drives round-robin across commands.
 
 **Fixes**
 

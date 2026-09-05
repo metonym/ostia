@@ -129,6 +129,14 @@ its deprecated alias) - `warmup` differs by surface, though: a trial count here,
 *fraction* of the budget for `ostia bench`, since in-process warmup has no natural
 "N calls" unit before the JIT has even seen the function once.
 
+With 2+ commands, trials round-robin across them by default (one trial per command,
+repeated) rather than running one command's whole loop to completion before the next
+starts - drift over the run's wall-clock span (thermal throttling, a noisy neighbor
+process) then lands on every command equally instead of favoring whichever ran first
+or last. `--no-interleave` (`interleave: false`) goes back to running each command's
+loop to completion in turn. Interleaved measurements carry `Measurement.interleaved: true`.
+Meaningless (and ignored) with a single command.
+
 Timing table (two commands get a Relative column automatically):
 
 ```
@@ -532,6 +540,7 @@ const doc = await time({
   // budgetMs: 3000,   // wall-clock budget instead of an exact count
   // minSamples: 10,   // hard floor when samples isn't given
   warmup: 2,
+  interleave: true, // default when 2+ commands: round-robins trials across them
   cpu: true,
   heap: false,
   cpuIntervalUs: 200,

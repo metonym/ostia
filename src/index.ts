@@ -23,7 +23,7 @@ import {
   noisyMachineWarning,
 } from "./measure/environment.ts"
 import { keep } from "./measure/inprocess.ts"
-import { runTimingPhase } from "./measure/timing.ts"
+import { createTimingPhase, runTimingPhase } from "./measure/timing.ts"
 import { splitCommand } from "./spawn/index.ts"
 
 export { bench } from "./bench/index.ts"
@@ -61,6 +61,14 @@ interface TimeOptions {
   /** Hard floor on trials when no exact `samples` count is given. */
   minSamples?: number
   warmup?: number
+  /** Round-robin trials across commands (one trial per command, repeated)
+   * instead of running each command's whole trial loop to completion before
+   * the next command starts. Default: true when 2+ commands are given (a
+   * single command has nothing to interleave against). Spreads any drift
+   * over the run's wall-clock span (thermal throttling, a noisy neighbor
+   * process) evenly across every command instead of favoring whichever ran
+   * first or last. */
+  interleave?: boolean
   cwd?: string
   env?: Record<string, string>
   cpu?: boolean
@@ -97,23 +105,76 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const workloads: Workload[] = []
   const measurements: Measurement[] = []
 
-  for (const command of opts.commands) {
+  const entries = opts.commands.map((command) => {
     const argv = Array.isArray(command) ? command : splitCommand(command)
     const workload = makeSubprocessWorkload(
       argv,
       Array.isArray(command) ? undefined : command,
     )
+    return { argv, workload }
+  })
+
+  const interleave = (opts.interleave ?? true) && entries.length > 1
+
+  const timingPhaseOpts = (argv: string[]) => ({
+    argv,
+    cwd: opts.cwd,
+    env: opts.env,
+    samples: opts.samples ?? opts.runs,
+    budgetMs: opts.budgetMs,
+    minSamples: opts.minSamples,
+    warmup: opts.warmup,
+  })
+
+  if (interleave) {
+    const phases = entries.map(({ argv }) =>
+      createTimingPhase(timingPhaseOpts(argv)),
+    )
+    for (const phase of phases) await phase.warmup()
+
+    let stepped = true
+    while (stepped) {
+      stepped = false
+      for (const phase of phases) {
+        if (await phase.step()) stepped = true
+      }
+    }
+
+    for (let i = 0; i < entries.length; i++) {
+      const { argv, workload } = entries[i]!
+      workloads.push(workload)
+      const phaseResult = phases[i]!.result()
+      const timingMeasurement = makeTimingMeasurement({
+        workload,
+        configFingerprint: cfgFp,
+        trials: phaseResult.trials,
+        timing: phaseResult.timing,
+        warnings:
+          noiseWarning && measurements.length === 0
+            ? [...phaseResult.warnings, noiseWarning]
+            : phaseResult.warnings,
+        interleaved: true,
+      })
+      measurements.push(timingMeasurement)
+      measurements.push(
+        ...(await captureInstrumentedPhases(
+          workload,
+          argv,
+          timingMeasurement.id,
+          cfgFp,
+          opts,
+          artifactDir,
+        )),
+      )
+    }
+
+    return newDocument(workloads, measurements, environment)
+  }
+
+  for (const { argv, workload } of entries) {
     workloads.push(workload)
 
-    const phaseResult = await runTimingPhase({
-      argv,
-      cwd: opts.cwd,
-      env: opts.env,
-      samples: opts.samples ?? opts.runs,
-      budgetMs: opts.budgetMs,
-      minSamples: opts.minSamples,
-      warmup: opts.warmup,
-    })
+    const phaseResult = await runTimingPhase(timingPhaseOpts(argv))
 
     const timingMeasurement = makeTimingMeasurement({
       workload,
@@ -126,58 +187,81 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
           : phaseResult.warnings,
     })
     measurements.push(timingMeasurement)
-
-    if (opts.cpu) {
-      const fileName = `${timingMeasurement.id}-cpu.cpuprofile`
-      const capture = await runCpuCapture({
+    measurements.push(
+      ...(await captureInstrumentedPhases(
+        workload,
         argv,
-        cwd: opts.cwd,
-        env: opts.env,
+        timingMeasurement.id,
+        cfgFp,
+        opts,
         artifactDir,
-        fileName,
-        intervalUs: opts.cpuIntervalUs ?? DEFAULT_CPU_INTERVAL_US,
-      })
-      measurements.push(
-        await instrumentedMeasurementFromCapture({
-          workload,
-          phase: "cpu",
-          configFingerprint: cfgFp,
-          diagnosticWallNs: capture.diagnosticWallNs,
-          exitCode: capture.exitCode,
-          cpu: capture.cpu,
-          artifactPath: capture.artifactPath,
-          artifactKind: "cpuprofile",
-          warnings: capture.warnings,
-        }),
-      )
-    }
-
-    if (opts.heap) {
-      const fileName = `${timingMeasurement.id}-heap.heapsnapshot`
-      const capture = await runHeapCapture({
-        argv,
-        cwd: opts.cwd,
-        env: opts.env,
-        artifactDir,
-        fileName,
-      })
-      measurements.push(
-        await instrumentedMeasurementFromCapture({
-          workload,
-          phase: "heap",
-          configFingerprint: cfgFp,
-          diagnosticWallNs: capture.diagnosticWallNs,
-          exitCode: capture.exitCode,
-          heap: capture.heap,
-          artifactPath: capture.artifactPath,
-          artifactKind: "heapsnapshot",
-          warnings: capture.warnings,
-        }),
-      )
-    }
+      )),
+    )
   }
 
   return newDocument(workloads, measurements, environment)
+}
+
+async function captureInstrumentedPhases(
+  workload: Workload,
+  argv: string[],
+  timingMeasurementId: string,
+  cfgFp: string,
+  opts: TimeOptions,
+  artifactDir: string,
+): Promise<Measurement[]> {
+  const extra: Measurement[] = []
+
+  if (opts.cpu) {
+    const fileName = `${timingMeasurementId}-cpu.cpuprofile`
+    const capture = await runCpuCapture({
+      argv,
+      cwd: opts.cwd,
+      env: opts.env,
+      artifactDir,
+      fileName,
+      intervalUs: opts.cpuIntervalUs ?? DEFAULT_CPU_INTERVAL_US,
+    })
+    extra.push(
+      await instrumentedMeasurementFromCapture({
+        workload,
+        phase: "cpu",
+        configFingerprint: cfgFp,
+        diagnosticWallNs: capture.diagnosticWallNs,
+        exitCode: capture.exitCode,
+        cpu: capture.cpu,
+        artifactPath: capture.artifactPath,
+        artifactKind: "cpuprofile",
+        warnings: capture.warnings,
+      }),
+    )
+  }
+
+  if (opts.heap) {
+    const fileName = `${timingMeasurementId}-heap.heapsnapshot`
+    const capture = await runHeapCapture({
+      argv,
+      cwd: opts.cwd,
+      env: opts.env,
+      artifactDir,
+      fileName,
+    })
+    extra.push(
+      await instrumentedMeasurementFromCapture({
+        workload,
+        phase: "heap",
+        configFingerprint: cfgFp,
+        diagnosticWallNs: capture.diagnosticWallNs,
+        exitCode: capture.exitCode,
+        heap: capture.heap,
+        artifactPath: capture.artifactPath,
+        artifactKind: "heapsnapshot",
+        warnings: capture.warnings,
+      }),
+    )
+  }
+
+  return extra
 }
 
 /** @deprecated Use `time()`. Kept as an alias for one release so mitata/hyperfine

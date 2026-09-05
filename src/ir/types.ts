@@ -89,6 +89,13 @@ export interface Measurement {
   warnings: Warning[]
   artifacts: ArtifactRef[]
   baselineMeasurementId?: string
+  /** True when this timing measurement's trials were run round-robin against
+   * the other commands in the same `time()` call (`--interleave`, default on
+   * for 2+ commands) rather than run to completion before the next command
+   * started, so drift over the run's wall-clock span (thermal throttling, a
+   * noisy neighbor process) lands on every command equally instead of
+   * favoring whichever ran first or last. */
+  interleaved?: boolean
 }
 
 export interface Trial {

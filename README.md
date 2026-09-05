@@ -462,9 +462,29 @@ Profile CI: ✗
 
 Exit codes: `0` pass, `1` regression, `2` harness error (missing config/baseline, spawn failure).
 
-#### `ostia.config.json`
+#### `ostia.config.ts` / `ostia.config.json`
+
+`loadConfig` looks for `ostia.config.ts` first (Bun imports TypeScript natively), falling
+back to `ostia.config.json`. Both forms are fully supported; pick `.ts` for autocomplete
+and type-checking on every field, via `defineConfig` (an identity function purely for
+typing, the same pattern as Vite/Vitest/ESLint):
+
+```ts
+// ostia.config.ts
+import { defineConfig } from "ostia"
+
+export default defineConfig({
+  baseline: "main",
+  thresholds: { timingPct: 5 },
+  workloads: [
+    { label: "parse", command: ["bun", "bench/parse.ts"], inputs: ["src/**/*.ts"] },
+    { label: "dogfood-suites", suites: ["bench/*.ts"] },
+  ],
+})
+```
 
 ```json
+// ostia.config.json - equivalent, no defineConfig wrapper needed
 {
   "baseline": "main",
   "thresholds": { "timingPct": 5 },
@@ -562,6 +582,7 @@ import {
   keep,
   compareDocuments,
   createDocument,
+  defineConfig,
   renderers,
   saveDocument,
   loadDocument,
@@ -845,6 +866,11 @@ const diffs = compareDocuments(baselineDoc, candidateDoc, {
 await saveDocument(doc, "doc.json")
 const loaded: ProfileDocument = await loadDocument("doc.json")
 ```
+
+### `defineConfig(config)` → `Partial<OstiaConfig>`
+
+Identity function purely for typing `ostia.config.ts` - see
+[`ostia.config.ts` / `ostia.config.json`](#ostiaconfigts--ostiaconfigjson) above.
 
 ### `renderers`
 

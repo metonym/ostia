@@ -66,17 +66,42 @@ export const DEFAULT_CONFIG: OstiaConfig = {
   workloads: [],
 }
 
-export async function loadConfig(
-  path = "ostia.config.json",
-): Promise<OstiaConfig | undefined> {
-  const file = Bun.file(path)
-  if (!(await file.exists())) return undefined
-  const raw = (await file.json()) as Partial<OstiaConfig>
+function resolveConfig(raw: Partial<OstiaConfig>): OstiaConfig {
   return {
     ...DEFAULT_CONFIG,
     ...raw,
     thresholds: { ...DEFAULT_THRESHOLDS, ...(raw.thresholds ?? {}) },
   }
+}
+
+async function loadJsonConfig(path: string): Promise<OstiaConfig | undefined> {
+  const file = Bun.file(path)
+  if (!(await file.exists())) return undefined
+  return resolveConfig((await file.json()) as Partial<OstiaConfig>)
+}
+
+async function loadTsConfig(path: string): Promise<OstiaConfig | undefined> {
+  const absPath = path.startsWith("/") ? path : `${process.cwd()}/${path}`
+  if (!(await Bun.file(absPath).exists())) return undefined
+  const mod = (await import(absPath)) as { default?: Partial<OstiaConfig> }
+  return resolveConfig(mod.default ?? {})
+}
+
+/** With no `path`, looks for `ostia.config.ts` (Bun imports TypeScript
+ * natively - the default export is the config, typically built with
+ * `defineConfig`), then `ostia.config.json`, in the current directory. An
+ * explicit `path` loads exactly that file instead, as `.ts` or JSON going by
+ * its extension. */
+export async function loadConfig(
+  path?: string,
+): Promise<OstiaConfig | undefined> {
+  if (path !== undefined) {
+    return path.endsWith(".ts") ? loadTsConfig(path) : loadJsonConfig(path)
+  }
+  return (
+    (await loadTsConfig("ostia.config.ts")) ??
+    loadJsonConfig("ostia.config.json")
+  )
 }
 
 export function baselinePath(config: OstiaConfig, name?: string): string {

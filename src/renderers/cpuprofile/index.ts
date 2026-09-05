@@ -8,7 +8,7 @@ export const cpuprofileRenderer: Renderer<VizOptions> = {
     doc: ProfileDocument,
     options: VizOptions = {},
   ): Promise<RenderResult> {
-    const runs = selectCpuRuns(doc, options.runId)
+    const runs = selectCpuRuns(doc, options.measurementId)
     const files: { path?: string; content: string }[] = []
     const skipped: string[] = []
 

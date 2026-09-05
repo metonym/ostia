@@ -1,7 +1,7 @@
-import type { Run, Workload } from "../ir/types.ts"
+import type { Measurement, Workload } from "../ir/types.ts"
 
 export interface TimingRow {
-  run: Run & { timing: NonNullable<Run["timing"]> }
+  run: Measurement & { timing: NonNullable<Measurement["timing"]> }
   workload: Workload | undefined
 }
 

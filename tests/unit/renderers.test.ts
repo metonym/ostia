@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   makeEntryWorkload,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
 } from "../../src/ir/document.ts"
 import type { Trial } from "../../src/ir/types.ts"
@@ -26,14 +26,14 @@ function fixedDoc() {
     exitCode: 0,
   }))
 
-  const runA = makeTimingRun({
+  const runA = makeTimingMeasurement({
     workload: wa,
     configFingerprint: "cfg_fixed",
     trials: trialsA,
     timing: computeTimingStats(samplesA),
     warnings: [],
   })
-  const runB = makeTimingRun({
+  const runB = makeTimingMeasurement({
     workload: wb,
     configFingerprint: "cfg_fixed",
     trials: trialsB,
@@ -60,7 +60,7 @@ describe("renderers - golden output on fixed fake data", () => {
   test("table renderer omits Relative column for a single workload", async () => {
     const doc = fixedDoc()
     doc.workloads = [doc.workloads[0]!]
-    doc.runs = [doc.runs[0]!]
+    doc.measurements = [doc.measurements[0]!]
     const result = await renderers.table.render(doc, {})
     expect(result.text).not.toContain("Relative")
   })
@@ -89,21 +89,21 @@ describe("renderers - golden output on fixed fake data", () => {
     ]
     const samplesTiny = [1_000, 1_200, 800, 1_100, 900]
 
-    const runSlow = makeTimingRun({
+    const runSlow = makeTimingMeasurement({
       workload: wSlow,
       configFingerprint: "cfg",
       trials: trials(samplesSlow),
       timing: computeTimingStats(samplesSlow),
       warnings: [],
     })
-    const runFast = makeTimingRun({
+    const runFast = makeTimingMeasurement({
       workload: wFast,
       configFingerprint: "cfg",
       trials: trials(samplesFast),
       timing: computeTimingStats(samplesFast),
       warnings: [],
     })
-    const runTiny = makeTimingRun({
+    const runTiny = makeTimingMeasurement({
       workload: wTiny,
       configFingerprint: "cfg",
       trials: trials(samplesTiny),
@@ -147,14 +147,14 @@ describe("renderers - golden output on fixed fake data", () => {
       10_000_000, 10_200_000, 9_800_000, 10_100_000, 9_900_000,
     ]
 
-    const runOld = makeTimingRun({
+    const runOld = makeTimingMeasurement({
       workload: wOld,
       configFingerprint: "cfg",
       trials: trials(samplesOld),
       timing: computeTimingStats(samplesOld),
       warnings: [],
     })
-    const runNew = makeTimingRun({
+    const runNew = makeTimingMeasurement({
       workload: wNew,
       configFingerprint: "cfg",
       trials: trials(samplesNew),
@@ -191,14 +191,14 @@ describe("renderers - golden output on fixed fake data", () => {
     const doc = newDocument(
       [wA, wB],
       [
-        makeTimingRun({
+        makeTimingMeasurement({
           workload: wA,
           configFingerprint: "cfg",
           trials: trials(samplesA),
           timing: computeTimingStats(samplesA),
           warnings: [],
         }),
-        makeTimingRun({
+        makeTimingMeasurement({
           workload: wB,
           configFingerprint: "cfg",
           trials: trials(samplesB),
@@ -219,11 +219,11 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result1.text).toBe(result2.text)
 
     const parsed = JSON.parse(result1.text!)
-    expect(parsed.schemaVersion).toBe(1)
+    expect(parsed.schemaVersion).toBe(2)
     expect(parsed.workloads).toHaveLength(2)
-    expect(parsed.runs).toHaveLength(2)
-    expect(parsed.runs[0].instrumented).toBe(false)
-    expect(parsed.runs[0].phase).toBe("timing")
+    expect(parsed.measurements).toHaveLength(2)
+    expect(parsed.measurements[0].instrumented).toBe(false)
+    expect(parsed.measurements[0].phase).toBe("timing")
   })
 
   test("markdown renderer includes a timing table with both commands", async () => {
@@ -247,16 +247,16 @@ describe("renderers - golden output on fixed fake data", () => {
     const doc = fixedDoc()
     const result = await renderers.jsonl.render(doc, {})
     const lines = result.text!.trim().split("\n")
-    expect(lines).toHaveLength(1 + doc.runs.length)
+    expect(lines).toHaveLength(1 + doc.measurements.length)
 
     const header = JSON.parse(lines[0]!)
-    expect(header.schemaVersion).toBe(1)
+    expect(header.schemaVersion).toBe(2)
     expect(header.workloads).toHaveLength(2)
-    expect(header.runs).toBeUndefined()
+    expect(header.measurements).toBeUndefined()
 
-    for (let i = 0; i < doc.runs.length; i++) {
+    for (let i = 0; i < doc.measurements.length; i++) {
       const run = JSON.parse(lines[i + 1]!)
-      expect(run.id).toBe(doc.runs[i]!.id)
+      expect(run.id).toBe(doc.measurements[i]!.id)
       expect(run.phase).toBe("timing")
     }
   })
@@ -265,7 +265,7 @@ describe("renderers - golden output on fixed fake data", () => {
 describe("minimal renderer - one compact JSON object per timing run", () => {
   test("emits one line per task with stats, no raw sample array, and warning codes with data", async () => {
     const doc = fixedDoc()
-    doc.runs[1]!.warnings.push({
+    doc.measurements[1]!.warnings.push({
       code: "low-sample-count",
       message: "thin",
       data: { samples: 3, target: 7 },
@@ -306,7 +306,7 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     const doc = newDocument(
       [w],
       [
-        makeTimingRun({
+        makeTimingMeasurement({
           workload: w,
           configFingerprint: "cfg",
           trials: trials(samples),
@@ -330,8 +330,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     doc.comparisons = [
       {
         id: "cmp_x",
-        baselineRunId: "run_base",
-        candidateRunId: doc.runs[0]!.id,
+        baselineMeasurementId: "run_base",
+        candidateMeasurementId: doc.measurements[0]!.id,
         timing: {
           medianDeltaPct: 12.5,
           meanDeltaPct: 11,
@@ -362,8 +362,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
   test("is far smaller than the full document for a many-sample run", async () => {
     const doc = fixedDoc()
     const big = Array.from({ length: 20_000 }, (_, i) => 10_000 + (i % 7))
-    doc.runs[0]!.timing = computeTimingStats(big)
-    doc.runs[0]!.trials = big.map((wallNs, i) => ({ i, wallNs }))
+    doc.measurements[0]!.timing = computeTimingStats(big)
+    doc.measurements[0]!.trials = big.map((wallNs, i) => ({ i, wallNs }))
     const full = (await renderers.json.render(doc, {})).text!
     const minimal = (await renderers.minimal.render(doc, {})).text!
     expect(minimal.length).toBeLessThan(full.length / 100)

@@ -12,7 +12,7 @@ export type FormatName =
   | "cpuprofile"
 
 export interface VizOptions {
-  runId?: string
+  measurementId?: string
 }
 
 export interface RenderResult {

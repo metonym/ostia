@@ -5,9 +5,9 @@ import {
   DEFAULT_THRESHOLDS,
 } from "../../src/compare/index.ts"
 import {
-  makeInstrumentedRun,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
 } from "../../src/ir/document.ts"
 import type { CpuEvidence, Trial } from "../../src/ir/types.ts"
@@ -23,7 +23,7 @@ function timingDoc(workloadCommand: string[], samples: number[]) {
     wallNs,
     exitCode: 0,
   }))
-  const run = makeTimingRun({
+  const run = makeTimingMeasurement({
     workload,
     configFingerprint: "cfg_fixed",
     trials,
@@ -100,7 +100,7 @@ describe("compareDocuments - batch matching by workload id", () => {
     const b1 = timingDoc(["bun", "b.ts"], [5_000_000, 5_100_000, 5_050_000])
     const base = newDocument(
       [...a1.doc.workloads, ...b1.doc.workloads],
-      [...a1.doc.runs, ...b1.doc.runs],
+      [...a1.doc.measurements, ...b1.doc.measurements],
     )
 
     const a2 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
@@ -132,7 +132,7 @@ describe("compareWorkload - CPU frame deltas", () => {
       nodes: [],
       totals,
     }
-    const run = makeInstrumentedRun({
+    const run = makeInstrumentedMeasurement({
       workload,
       phase: "cpu",
       configFingerprint: "cfg_fixed",

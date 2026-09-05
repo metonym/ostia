@@ -1,4 +1,4 @@
-import type { ProfileDocument, Run, Workload } from "../../ir/types.ts"
+import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
@@ -13,8 +13,8 @@ function commandLabel(w: Workload): string {
 export const terminalRenderer: Renderer<Record<string, never>> = {
   name: "table",
   async render(doc: ProfileDocument): Promise<RenderResult> {
-    const timingRuns = doc.runs.filter(
-      (r): r is Run & { timing: NonNullable<Run["timing"]> } =>
+    const timingRuns = doc.measurements.filter(
+      (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>
         r.phase === "timing" && r.timing !== undefined,
     )
     const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
@@ -91,11 +91,11 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
 function runLabelFor(
   doc: ProfileDocument,
   byWorkload: Map<string, Workload>,
-  runId: string,
+  measurementId: string,
 ): string {
-  const run = doc.runs.find((r) => r.id === runId)
+  const run = doc.measurements.find((r) => r.id === measurementId)
   const workload = run ? byWorkload.get(run.workloadId) : undefined
-  return workload ? commandLabel(workload) : runId
+  return workload ? commandLabel(workload) : measurementId
 }
 
 function renderComparisons(
@@ -106,7 +106,7 @@ function renderComparisons(
   const lines: string[] = []
 
   for (const cmp of doc.comparisons) {
-    const label = runLabelFor(doc, byWorkload, cmp.candidateRunId)
+    const label = runLabelFor(doc, byWorkload, cmp.candidateMeasurementId)
     const verdictMark = cmp.verdict === "pass" ? "✓" : "✗"
     lines.push(`${verdictMark} ${label}`)
 
@@ -148,7 +148,7 @@ function renderInstrumentedRuns(
 ): string[] {
   const lines: string[] = []
 
-  for (const run of doc.runs) {
+  for (const run of doc.measurements) {
     if (run.phase !== "cpu" && run.phase !== "heap") continue
     const workload = byWorkload.get(run.workloadId)
     const label = workload ? commandLabel(workload) : run.workloadId

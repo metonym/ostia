@@ -6,9 +6,9 @@ import type {
   RawStackTraces,
 } from "../../src/capture/jsc/parse.ts"
 import {
-  makeInstrumentedRun,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
 } from "../../src/ir/document.ts"
 import type { CpuEvidence, ProfileDocument, Trial } from "../../src/ir/types.ts"
@@ -198,17 +198,17 @@ export function syntheticDocument(
     wallNs,
     exitCode: 0,
   }))
-  const timingRun = makeTimingRun({
+  const timingRun = makeTimingMeasurement({
     workload,
     configFingerprint: "cfg_dogfood",
     trials,
     timing: computeTimingStats(trials.map((t) => t.wallNs)),
     warnings: [],
   })
-  const runs = [timingRun]
+  const measurements = [timingRun]
   if (cpu) {
-    runs.push(
-      makeInstrumentedRun({
+    measurements.push(
+      makeInstrumentedMeasurement({
         workload,
         phase: "cpu",
         configFingerprint: "cfg_dogfood",
@@ -219,7 +219,7 @@ export function syntheticDocument(
       }),
     )
   }
-  return newDocument([workload], runs)
+  return newDocument([workload], measurements)
 }
 
 export const SMALL_TREE = buildTree(4, 4)

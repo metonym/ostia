@@ -2,11 +2,11 @@ import { baselinePath, loadConfig } from "../src/config/index.ts"
 import {
   configFingerprint,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
   saveDocument,
 } from "../src/ir/document.ts"
-import type { Run, Workload } from "../src/ir/types.ts"
+import type { Measurement, Workload } from "../src/ir/types.ts"
 import { runTimingPhase } from "../src/measure/timing.ts"
 
 const name = process.argv[2]
@@ -26,7 +26,7 @@ const cfgFp = configFingerprint({
 })
 
 const workloads: Workload[] = []
-const runs: Run[] = []
+const measurements: Measurement[] = []
 
 for (const wc of config.workloads) {
   const workload = makeSubprocessWorkload(wc.command, wc.label)
@@ -36,8 +36,8 @@ for (const wc of config.workloads) {
     warmup: config.warmup,
   })
   workloads.push(workload)
-  runs.push(
-    makeTimingRun({
+  measurements.push(
+    makeTimingMeasurement({
       workload,
       configFingerprint: cfgFp,
       trials: phaseResult.trials,
@@ -48,5 +48,5 @@ for (const wc of config.workloads) {
 }
 
 const path = baselinePath(config, name)
-await saveDocument(newDocument(workloads, runs), path)
+await saveDocument(newDocument(workloads, measurements), path)
 process.stdout.write(`Wrote ${path}\n`)

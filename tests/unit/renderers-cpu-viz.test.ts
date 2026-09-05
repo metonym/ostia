@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   makeArtifactRef,
-  makeInstrumentedRun,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   newDocument,
 } from "../../src/ir/document.ts"
@@ -51,7 +51,7 @@ function fixedCpu(): CpuEvidence {
 
 function fixedDocWithCpu() {
   const workload = makeSubprocessWorkload(["bun", "a.ts"], "bun a.ts")
-  const run = makeInstrumentedRun({
+  const run = makeInstrumentedMeasurement({
     workload,
     phase: "cpu",
     configFingerprint: "cfg_fixed",

@@ -1,7 +1,7 @@
 import type { BenchConfig } from "../config/index.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
-import type { ProfileDocument, Run, Workload } from "../ir/types.ts"
+import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
 import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
@@ -272,7 +272,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     // concatenate suites in command-line order - the same ordering guarantee
     // bench() has always made, now independent of isolate/spawn granularity.
     const workloads: Workload[] = []
-    const runs: Run[] = []
+    const measurements: Measurement[] = []
     for (let s = 0; s < plans.length; s++) {
       const sharedDoc = primaryDocs[s]!
       let sharedPtr = 0
@@ -287,16 +287,16 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         if (t.isolate) {
           const doc = isolatedDocById.get(t.id)!
           workloads.push(doc.workloads[0]!)
-          runs.push(doc.runs[0]!)
+          measurements.push(doc.measurements[0]!)
         } else {
           workloads.push(sharedDoc.workloads[sharedPtr]!)
-          runs.push(sharedDoc.runs[sharedPtr]!)
+          measurements.push(sharedDoc.measurements[sharedPtr]!)
           sharedPtr++
         }
       }
     }
 
-    return newDocument(workloads, runs)
+    return newDocument(workloads, measurements)
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited
   }

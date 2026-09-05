@@ -18,7 +18,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     })
 
     expect(doc.workloads).toHaveLength(3)
-    expect(doc.runs).toHaveLength(3)
+    expect(doc.measurements).toHaveLength(3)
 
     const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
     expect(byLabel.has("math/hotInner-small")).toBe(true)
@@ -35,8 +35,12 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     expect(byLabel.get("noop")!.entry).toEqual({ file: SUITE, task: "noop" })
 
     const largeWorkload = byLabel.get("math/hotInner-large")!
-    const smallRun = doc.runs.find((r) => r.workloadId === smallWorkload.id)!
-    const largeRun = doc.runs.find((r) => r.workloadId === largeWorkload.id)!
+    const smallRun = doc.measurements.find(
+      (r) => r.workloadId === smallWorkload.id,
+    )!
+    const largeRun = doc.measurements.find(
+      (r) => r.workloadId === largeWorkload.id,
+    )!
     expect(smallRun.instrumented).toBe(false)
     expect(smallRun.phase).toBe("timing")
     expect(smallRun.trials.length).toBeGreaterThanOrEqual(5)
@@ -73,7 +77,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     })
     const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
     const runOf = (label: string) =>
-      doc.runs.find((r) => r.workloadId === byLabel.get(label)!.id)!
+      doc.measurements.find((r) => r.workloadId === byLabel.get(label)!.id)!
     const global = runOf("overrides/global")
     const pinned = runOf("overrides/pinned")
     // ~1ms per call, 5ms budget: the global task takes ~5 trials, the pinned one
@@ -188,8 +192,8 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     expect(concurrent.workloads.map((w) => w.label)).toEqual(
       sequential.workloads.map((w) => w.label),
     )
-    expect(concurrent.runs.map((r) => r.workloadId)).toEqual(
-      sequential.runs.map((r) => r.workloadId),
+    expect(concurrent.measurements.map((r) => r.workloadId)).toEqual(
+      sequential.measurements.map((r) => r.workloadId),
     )
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-jobs-1`, `${OUT_DIR}-jobs-3`])
       .exited
@@ -294,8 +298,10 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
       outDir: `${OUT_DIR}-isolate-jobs`,
     })
     expect(doc.workloads).toHaveLength(3)
-    expect(doc.runs).toHaveLength(3)
-    const runByWorkload = new Map(doc.runs.map((r) => [r.workloadId, r]))
+    expect(doc.measurements).toHaveLength(3)
+    const runByWorkload = new Map(
+      doc.measurements.map((r) => [r.workloadId, r]),
+    )
     for (const w of doc.workloads) {
       expect(runByWorkload.get(w.id)).toBeDefined()
     }
@@ -313,7 +319,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
     const byLabel = new Map(doc.workloads.map((w) => [w.label, w]))
     const fingerprintFor = (label: string) =>
-      doc.runs.find((r) => r.workloadId === byLabel.get(label)!.id)!
+      doc.measurements.find((r) => r.workloadId === byLabel.get(label)!.id)!
         .configFingerprint
 
     // "plain" (gc: false, resolved) and "g-gc/a" (gc: true via its group) must

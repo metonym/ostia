@@ -48,7 +48,7 @@ export const mermaidRenderer: Renderer<MermaidOptions> = {
     options: MermaidOptions = {},
   ): Promise<RenderResult> {
     const topN = options.topN ?? DEFAULT_TOP_N
-    const runs = selectCpuRuns(doc, options.runId)
+    const runs = selectCpuRuns(doc, options.measurementId)
 
     const files = runs.map((run) => {
       const cpu = run.cpu!

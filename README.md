@@ -83,7 +83,7 @@ Profile CI: ✓
 ## CLI reference
 
 ```
-ostia run <command...>       time commands; optional --cpu / --heap capture
+ostia time <command...>      time commands; optional --cpu / --heap capture (alias: run)
 ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
 ostia compare <a> <b>        diff two ProfileDocuments
 ostia report <document.json> render a saved document
@@ -93,15 +93,17 @@ ostia ci                     run configured workloads vs a baseline, gate regres
 
 Every subcommand takes `--help` for its full flag list.
 
-### `ostia run`
+### `ostia time`
+
+`ostia run` is kept as an alias for anyone migrating from hyperfine.
 
 Clean wall-clock timing by default. `--cpu` / `--heap` schedule one extra instrumented
 trial each, labeled separately in the document.
 
 ```sh
-ostia run "bun a.ts" "bun b.ts"
-ostia run --runs 25 --warmup 3 --cpu --heap "bun src/server.ts"
-ostia run --format json --export-json out.json "bun a.ts"
+ostia time "bun a.ts" "bun b.ts"
+ostia time --runs 25 --warmup 3 --cpu --heap "bun src/server.ts"
+ostia time --format json --export-json out.json "bun a.ts"
 ```
 
 Timing table (two commands get a Relative column automatically):
@@ -397,7 +399,7 @@ branch to itself.
 One-off outside this repo's config:
 
 ```sh
-ostia run --export-json .ostia/baselines/main.json "bun bench.ts"
+ostia time --export-json .ostia/baselines/main.json "bun bench.ts"
 ostia ci
 ```
 
@@ -411,7 +413,7 @@ The CLI is a thin wrapper around the library. Same `ProfileDocument` either way.
 
 ```ts
 import {
-  run,
+  time,
   profile,
   bench,
   group,
@@ -425,12 +427,12 @@ import {
 import type { ProfileDocument } from "ostia"
 ```
 
-### `run(opts)` → `ProfileDocument`
+### `time(opts)` → `ProfileDocument`
 
-Subprocess timing, optional CPU/heap capture. Same behavior as `ostia run`.
+Subprocess timing, optional CPU/heap capture. Same behavior as `ostia time`.
 
 ```ts
-const doc = await run({
+const doc = await time({
   commands: ["bun a.ts", "bun b.ts"],
   runs: 10,
   warmup: 2,
@@ -440,6 +442,8 @@ const doc = await run({
   outDir: "node_modules/.cache/ostia", // default; artifacts land under here
 })
 ```
+
+`run` is exported too, as a `@deprecated` alias of `time` for one release.
 
 ### `profile(fn, opts)` → `{ result, run }`
 
@@ -596,7 +600,9 @@ Pure functions of a `ProfileDocument`. Each returns `{ text? }` and/or `{ files?
 
 ```ts
 const { text } = await renderers.markdown.render(doc)
-const { files } = await renderers.collapsed.render(doc, { runId: someCpuRunId })
+const { files } = await renderers.collapsed.render(doc, {
+  measurementId: someCpuMeasurementId,
+})
 ```
 
 Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).

@@ -1,13 +1,14 @@
 import { fp, sortKeysDeep } from "./fp.ts"
 import type {
   ArtifactRef,
+  Comparison,
   CpuEvidence,
   HeapEvidence,
   JitTierBreakdown,
+  Measurement,
   MemoryEvidence,
   Phase,
   ProfileDocument,
-  Run,
   TimingStats,
   Trial,
   Warning,
@@ -18,16 +19,16 @@ export const TOOL_VERSION = "0.1.0"
 
 export function newDocument(
   workloads: Workload[],
-  runs: Run[],
+  measurements: Measurement[],
 ): ProfileDocument {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     toolVersion: TOOL_VERSION,
     bunVersion: Bun.version,
     platform: { os: process.platform, arch: process.arch },
     createdAt: new Date().toISOString(),
     workloads,
-    runs,
+    measurements,
   }
 }
 
@@ -83,7 +84,7 @@ export function makeEntryWorkload(
   }
 }
 
-export interface TimingRunInput {
+export interface TimingMeasurementInput {
   workload: Workload
   configFingerprint: string
   trials: Trial[]
@@ -91,7 +92,9 @@ export interface TimingRunInput {
   warnings: Warning[]
 }
 
-export function makeTimingRun(input: TimingRunInput): Run {
+export function makeTimingMeasurement(
+  input: TimingMeasurementInput,
+): Measurement {
   const id = fp(
     "run",
     input.workload.id,
@@ -126,7 +129,7 @@ function memoryFromTrials(trials: Trial[]): MemoryEvidence | undefined {
   }
 }
 
-export interface InstrumentedRunInput {
+export interface InstrumentedMeasurementInput {
   workload: Workload
   phase: Extract<Phase, "cpu" | "heap">
   configFingerprint: string
@@ -139,7 +142,9 @@ export interface InstrumentedRunInput {
   artifacts: ArtifactRef[]
 }
 
-export function makeInstrumentedRun(input: InstrumentedRunInput): Run {
+export function makeInstrumentedMeasurement(
+  input: InstrumentedMeasurementInput,
+): Measurement {
   const id = fp(
     "run",
     input.workload.id,
@@ -167,7 +172,7 @@ export function makeInstrumentedRun(input: InstrumentedRunInput): Run {
 }
 
 export async function makeArtifactRef(
-  runId: string,
+  measurementId: string,
   kind: ArtifactRef["kind"],
   path: string,
 ): Promise<ArtifactRef> {
@@ -176,7 +181,7 @@ export async function makeArtifactRef(
   const hasher = new Bun.CryptoHasher("sha256")
   hasher.update(buf)
   return {
-    id: fp("art", runId, kind, path),
+    id: fp("art", measurementId, kind, path),
     kind,
     path,
     sha256: hasher.digest("hex"),
@@ -199,7 +204,56 @@ export async function saveDocument(
   await Bun.write(path, serializeDocument(doc))
 }
 
+interface ProfileDocumentV1 {
+  schemaVersion: 1
+  toolVersion: string
+  bunVersion: string
+  platform: { os: string; arch: string }
+  createdAt: string
+  workloads: Workload[]
+  runs: (Omit<Measurement, "baselineMeasurementId"> & {
+    baselineRunId?: string
+  })[]
+  comparisons?: (Omit<
+    Comparison,
+    "baselineMeasurementId" | "candidateMeasurementId"
+  > & {
+    baselineRunId: string
+    candidateRunId: string
+  })[]
+}
+
+/** Upgrades a v1 document (schemaVersion 1: `runs`, `Comparison.baselineRunId`
+ * / `candidateRunId`) to the current v2 shape in memory, so a baseline saved
+ * before the `Run` -> `Measurement` rename still loads. */
+function upgradeDocument(
+  raw: ProfileDocumentV1 | ProfileDocument,
+): ProfileDocument {
+  if (raw.schemaVersion === 2) return raw
+  const { runs, comparisons, ...rest } = raw
+  return {
+    ...rest,
+    schemaVersion: 2,
+    measurements: runs.map(({ baselineRunId, ...m }) => ({
+      ...m,
+      ...(baselineRunId !== undefined && {
+        baselineMeasurementId: baselineRunId,
+      }),
+    })),
+    ...(comparisons !== undefined && {
+      comparisons: comparisons.map(
+        ({ baselineRunId, candidateRunId, ...c }) => ({
+          ...c,
+          baselineMeasurementId: baselineRunId,
+          candidateMeasurementId: candidateRunId,
+        }),
+      ),
+    }),
+  }
+}
+
 export async function loadDocument(path: string): Promise<ProfileDocument> {
   const text = await Bun.file(path).text()
-  return JSON.parse(text) as ProfileDocument
+  const raw = JSON.parse(text) as ProfileDocumentV1 | ProfileDocument
+  return upgradeDocument(raw)
 }

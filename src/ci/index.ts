@@ -6,11 +6,16 @@ import {
   configFingerprint,
   loadDocument,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
   TOOL_VERSION,
 } from "../ir/document.ts"
-import type { Comparison, ProfileDocument, Run, Workload } from "../ir/types.ts"
+import type {
+  Comparison,
+  Measurement,
+  ProfileDocument,
+  Workload,
+} from "../ir/types.ts"
 import { runTimingPhase } from "../measure/timing.ts"
 
 export interface CiOptions {
@@ -24,7 +29,7 @@ type WorkloadStatus = "cached" | "executed"
 interface CiWorkloadResult {
   workload: Workload
   status: WorkloadStatus
-  run: Run
+  run: Measurement
   comparison?: Comparison
 }
 
@@ -83,7 +88,7 @@ export async function runCi(
     const cachedRun = opts.full
       ? undefined
       : await readCachedRun(config.outDir, cacheKey)
-    let run: Run
+    let run: Measurement
     let status: WorkloadStatus
 
     if (cachedRun) {
@@ -97,7 +102,7 @@ export async function runCi(
         runs: config.runs ?? undefined,
         warmup: config.warmup,
       })
-      run = makeTimingRun({
+      run = makeTimingMeasurement({
         workload,
         configFingerprint: cfgFp,
         trials: phaseResult.trials,

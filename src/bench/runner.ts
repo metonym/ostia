@@ -3,7 +3,7 @@
 import {
   configFingerprint,
   makeEntryWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
   saveDocument,
 } from "../ir/document.ts"
@@ -100,7 +100,7 @@ async function main(): Promise<number> {
     : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false))
 
   const workloads = []
-  const runs = []
+  const measurements = []
   for (const t of toRun) {
     const id = taskIdOf(t)
     const workload = makeEntryWorkload(suiteFile, id, {
@@ -126,8 +126,8 @@ async function main(): Promise<number> {
       gc: taskGc(t, opts.gc ?? false),
     }
     const result = await measureTask(t.fn, taskOpts)
-    runs.push(
-      makeTimingRun({
+    measurements.push(
+      makeTimingMeasurement({
         workload,
         configFingerprint: configFingerprint({
           timeBudgetMs: taskOpts.timeBudgetMs ?? null,
@@ -141,7 +141,7 @@ async function main(): Promise<number> {
     )
   }
 
-  await saveDocument(newDocument(workloads, runs), outputPath)
+  await saveDocument(newDocument(workloads, measurements), outputPath)
   return 0
 }
 

@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { profile, run } from "../../src/index.ts"
+import { profile, time } from "../../src/index.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 const OUT_DIR = `${import.meta.dir}/../../.ostia-test-capture`
@@ -10,7 +10,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   })
 
   test("--cpu produces a labeled, instrumented CpuEvidence run with an artifact on disk", async () => {
-    const doc = await run({
+    const doc = await time({
       commands: [`bun ${FIXTURE}`],
       runs: 3,
       warmup: 1,
@@ -19,8 +19,8 @@ describe("capture - real subprocess CPU/heap trials", () => {
       outDir: OUT_DIR,
     })
 
-    const timingRun = doc.runs.find((r) => r.phase === "timing")!
-    const cpuRun = doc.runs.find((r) => r.phase === "cpu")!
+    const timingRun = doc.measurements.find((r) => r.phase === "timing")!
+    const cpuRun = doc.measurements.find((r) => r.phase === "cpu")!
     expect(timingRun).toBeDefined()
     expect(cpuRun).toBeDefined()
     expect(cpuRun.instrumented).toBe(true)
@@ -47,7 +47,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   }, 20_000)
 
   test("--heap produces a HeapEvidence summary with a snapshot artifact on disk", async () => {
-    const doc = await run({
+    const doc = await time({
       commands: [`bun ${FIXTURE}`],
       runs: 1,
       warmup: 0,
@@ -55,7 +55,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
       outDir: OUT_DIR,
     })
 
-    const heapRun = doc.runs.find((r) => r.phase === "heap")!
+    const heapRun = doc.measurements.find((r) => r.phase === "heap")!
     expect(heapRun).toBeDefined()
     expect(heapRun.instrumented).toBe(true)
     expect(heapRun.heap).toBeDefined()
@@ -69,22 +69,22 @@ describe("capture - real subprocess CPU/heap trials", () => {
   }, 20_000)
 
   test("timing run carries free per-trial memory evidence from resourceUsage()", async () => {
-    const doc = await run({ commands: [`bun ${FIXTURE}`], runs: 3, warmup: 0 })
-    const timingRun = doc.runs.find((r) => r.phase === "timing")!
+    const doc = await time({ commands: [`bun ${FIXTURE}`], runs: 3, warmup: 0 })
+    const timingRun = doc.measurements.find((r) => r.phase === "timing")!
     expect(timingRun.memory).toBeDefined()
     expect(timingRun.memory!.origin).toBe("resourceUsage")
     expect(timingRun.memory!.maxRssBytes).toBeGreaterThan(0)
   }, 20_000)
 
   test("a non-bun workload warns artifact-missing instead of throwing", async () => {
-    const doc = await run({
+    const doc = await time({
       commands: [["sleep", "0.05"]],
       runs: 1,
       warmup: 0,
       cpu: true,
       outDir: OUT_DIR,
     })
-    const cpuRun = doc.runs.find((r) => r.phase === "cpu")!
+    const cpuRun = doc.measurements.find((r) => r.phase === "cpu")!
     expect(cpuRun.cpu).toBeUndefined()
     expect(cpuRun.warnings.some((w) => w.code === "artifact-missing")).toBe(
       true,

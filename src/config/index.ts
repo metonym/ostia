@@ -6,6 +6,22 @@ interface WorkloadConfig {
   inputs?: string[]
 }
 
+export interface BenchConfig {
+  /** Suite file globs, resolved with Bun.Glob against the config's directory
+   * (e.g. "bench/**\/*.bench.ts"). Ignored when suite files are also given
+   * on the command line - CLI args replace this list rather than merging
+   * with it. */
+  suites?: string[]
+  preload?: string[]
+  jobs?: number | "auto"
+  timeBudgetMs?: number
+  minSamples?: number
+  gc?: boolean
+  filter?: string
+  isolate?: boolean
+  outDir?: string
+}
+
 export interface OstiaConfig {
   runs: number | null
   warmup: number
@@ -15,6 +31,7 @@ export interface OstiaConfig {
   cpuIntervalUs: number
   thresholds: Thresholds
   workloads: WorkloadConfig[]
+  bench?: BenchConfig
 }
 
 // Scratch/artifact output: node_modules is already gitignored everywhere,

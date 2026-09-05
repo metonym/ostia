@@ -6,15 +6,15 @@ import {
   configFingerprint,
   makeArtifactRef,
   makeInprocessWorkload,
-  makeInstrumentedRun,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
 } from "./ir/document.ts"
 import type {
   ArtifactRef,
+  Measurement,
   ProfileDocument,
-  Run,
   Warning,
   Workload,
 } from "./ir/types.ts"
@@ -36,7 +36,7 @@ export type {
 export { renderers } from "./renderers/index.ts"
 export type { MinimalLine } from "./renderers/minimal/index.ts"
 
-interface RunOptions {
+interface TimeOptions {
   commands: (string | string[])[]
   runs?: number
   warmup?: number
@@ -51,7 +51,7 @@ interface RunOptions {
 const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 const DEFAULT_CPU_INTERVAL_US = 1000
 
-export async function run(opts: RunOptions): Promise<ProfileDocument> {
+export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const cfgFp = configFingerprint({
     runs: opts.runs ?? null,
     warmup: opts.warmup ?? null,
@@ -63,7 +63,7 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
   const artifactDir = `${outDir}/artifacts`
 
   const workloads: Workload[] = []
-  const runs: Run[] = []
+  const measurements: Measurement[] = []
 
   for (const command of opts.commands) {
     const argv = Array.isArray(command) ? command : splitCommand(command)
@@ -81,17 +81,17 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
       warmup: opts.warmup,
     })
 
-    const timingRun = makeTimingRun({
+    const timingMeasurement = makeTimingMeasurement({
       workload,
       configFingerprint: cfgFp,
       trials: phaseResult.trials,
       timing: phaseResult.timing,
       warnings: phaseResult.warnings,
     })
-    runs.push(timingRun)
+    measurements.push(timingMeasurement)
 
     if (opts.cpu) {
-      const fileName = `${timingRun.id}-cpu.cpuprofile`
+      const fileName = `${timingMeasurement.id}-cpu.cpuprofile`
       const capture = await runCpuCapture({
         argv,
         cwd: opts.cwd,
@@ -100,8 +100,8 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
         fileName,
         intervalUs: opts.cpuIntervalUs ?? DEFAULT_CPU_INTERVAL_US,
       })
-      runs.push(
-        await instrumentedRunFromCapture({
+      measurements.push(
+        await instrumentedMeasurementFromCapture({
           workload,
           phase: "cpu",
           configFingerprint: cfgFp,
@@ -116,7 +116,7 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
     }
 
     if (opts.heap) {
-      const fileName = `${timingRun.id}-heap.heapsnapshot`
+      const fileName = `${timingMeasurement.id}-heap.heapsnapshot`
       const capture = await runHeapCapture({
         argv,
         cwd: opts.cwd,
@@ -124,8 +124,8 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
         artifactDir,
         fileName,
       })
-      runs.push(
-        await instrumentedRunFromCapture({
+      measurements.push(
+        await instrumentedMeasurementFromCapture({
           workload,
           phase: "heap",
           configFingerprint: cfgFp,
@@ -140,27 +140,37 @@ export async function run(opts: RunOptions): Promise<ProfileDocument> {
     }
   }
 
-  return newDocument(workloads, runs)
+  return newDocument(workloads, measurements)
 }
 
-async function instrumentedRunFromCapture(input: {
+/** @deprecated Use `time()`. Kept as an alias for one release so mitata/hyperfine
+ * migrators are not broken by the rename. */
+export const run = time
+
+async function instrumentedMeasurementFromCapture(input: {
   workload: Workload
   phase: "cpu" | "heap"
   configFingerprint: string
   diagnosticWallNs: number
   exitCode?: number
-  cpu?: Parameters<typeof makeInstrumentedRun>[0]["cpu"]
-  heap?: Parameters<typeof makeInstrumentedRun>[0]["heap"]
+  cpu?: Parameters<typeof makeInstrumentedMeasurement>[0]["cpu"]
+  heap?: Parameters<typeof makeInstrumentedMeasurement>[0]["heap"]
   artifactPath?: string
   artifactKind: ArtifactRef["kind"]
   warnings: Warning[]
-}): Promise<Run> {
-  const runIdSeed = `${input.workload.id}-${input.phase}-${input.configFingerprint}`
+}): Promise<Measurement> {
+  const measurementIdSeed = `${input.workload.id}-${input.phase}-${input.configFingerprint}`
   const artifacts: ArtifactRef[] = input.artifactPath
-    ? [await makeArtifactRef(runIdSeed, input.artifactKind, input.artifactPath)]
+    ? [
+        await makeArtifactRef(
+          measurementIdSeed,
+          input.artifactKind,
+          input.artifactPath,
+        ),
+      ]
     : []
 
-  return makeInstrumentedRun({
+  return makeInstrumentedMeasurement({
     workload: input.workload,
     phase: input.phase,
     configFingerprint: input.configFingerprint,
@@ -182,7 +192,7 @@ interface ProfileOptions {
 
 interface ProfileResult<T> {
   result: T
-  run: Run
+  run: Measurement
 }
 
 export async function profile<T>(
@@ -209,7 +219,7 @@ export async function profile<T>(
       fn,
       opts,
     )
-    const run = makeInstrumentedRun({
+    const run = makeInstrumentedMeasurement({
       workload,
       phase: "cpu",
       configFingerprint: cfgFp,
@@ -226,7 +236,7 @@ export async function profile<T>(
     fn,
     opts,
   )
-  const run = makeInstrumentedRun({
+  const run = makeInstrumentedMeasurement({
     workload,
     phase: "cpu",
     configFingerprint: cfgFp,

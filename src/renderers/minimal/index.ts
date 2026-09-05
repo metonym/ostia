@@ -1,4 +1,4 @@
-import type { ProfileDocument, Run, Workload } from "../../ir/types.ts"
+import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
@@ -39,21 +39,21 @@ function sig(n: number): number {
   return Number.isFinite(n) ? Number(n.toPrecision(6)) : n
 }
 
-function taskLabel(w: Workload | undefined, run: Run): string {
+function taskLabel(w: Workload | undefined, run: Measurement): string {
   return w?.entry?.task ?? w?.label ?? w?.command?.join(" ") ?? run.workloadId
 }
 
 function minimalLines(doc: ProfileDocument): MinimalLine[] {
   const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
-  const rows = doc.runs
+  const rows = doc.measurements
     .filter(
-      (r): r is Run & { timing: NonNullable<Run["timing"]> } =>
+      (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>
         r.phase === "timing" && r.timing !== undefined,
     )
     .map((run) => ({ run, workload: byWorkload.get(run.workloadId) }))
   const refs = rows.length > 1 ? relativeReferences(rows) : undefined
   const comparisonByRun = new Map(
-    (doc.comparisons ?? []).map((c) => [c.candidateRunId, c]),
+    (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
 
   return rows.map((row) => {

@@ -6,5 +6,8 @@
     "tests/**/*.ts",
     "scripts/**/*.ts",
     "bench/**/*.ts"
-  ]
+  ],
+  "rules": {
+    "duplicates": "off"
+  }
 }

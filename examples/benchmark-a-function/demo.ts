@@ -7,7 +7,7 @@ process.stdout.write(text ?? "")
 const byLabel = new Map(
   doc.workloads.map((w) => [w.id, w.label ?? w.entry?.task ?? w.id]),
 )
-const runs = doc.runs.filter((r) => r.timing)
+const runs = doc.measurements.filter((r) => r.timing)
 const naiveRun = runs.find((r) => byLabel.get(r.workloadId)?.includes("naive"))
 const setRun = runs.find((r) => byLabel.get(r.workloadId)?.includes("Set"))
 

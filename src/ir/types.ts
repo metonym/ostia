@@ -1,13 +1,13 @@
-// Profile IR schema v1. Base units: ns (time), bytes (memory), µs (sampling interval).
+// Profile IR schema v2. Base units: ns (time), bytes (memory), µs (sampling interval).
 
 export interface ProfileDocument {
-  schemaVersion: 1
+  schemaVersion: 2
   toolVersion: string
   bunVersion: string
   platform: { os: string; arch: string }
   createdAt: string // ISO; metadata only, never used in IDs
   workloads: Workload[]
-  runs: Run[]
+  measurements: Measurement[]
   comparisons?: Comparison[]
 }
 
@@ -40,7 +40,7 @@ export interface Workload {
 
 export type Phase = "timing" | "cpu" | "heap" | "memstats"
 
-export interface Run {
+export interface Measurement {
   id: string
   workloadId: string
   phase: Phase
@@ -55,7 +55,7 @@ export interface Run {
   jit?: JitTierBreakdown
   warnings: Warning[]
   artifacts: ArtifactRef[]
-  baselineRunId?: string
+  baselineMeasurementId?: string
 }
 
 export interface Trial {
@@ -166,8 +166,8 @@ export interface ArtifactRef {
 
 export interface Comparison {
   id: string
-  baselineRunId: string
-  candidateRunId: string
+  baselineMeasurementId: string
+  candidateMeasurementId: string
   timing?: {
     medianDeltaPct: number
     meanDeltaPct: number

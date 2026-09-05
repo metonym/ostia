@@ -14,7 +14,7 @@ export const speedscopeRenderer: Renderer<VizOptions> = {
     doc: ProfileDocument,
     options: VizOptions = {},
   ): Promise<RenderResult> {
-    const runs = selectCpuRuns(doc, options.runId)
+    const runs = selectCpuRuns(doc, options.measurementId)
     const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
 
     const files = runs.map((run) => {

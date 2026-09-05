@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `ostia time` is the primary CLI name for what was `ostia run`; `run` is kept
+  as an alias
+- `time(opts)` is the primary library export for what was `run(opts)`; `run`
+  is kept as a `@deprecated` alias for one release
+
+**Breaking**
+
+- `ProfileDocument.schemaVersion` is now `2`: `runs` is renamed to
+  `measurements` and the IR's `Run` type is renamed to `Measurement`.
+  `Comparison.baselineRunId` / `candidateRunId` are renamed to
+  `baselineMeasurementId` / `candidateMeasurementId`. `loadDocument` upgrades
+  a v1 document in memory, so existing `.ostia/baselines/` files still load.
+  `renderers.*.render(doc, { runId })` is now `{ measurementId }`.
+
 ## 0.1.7 — 2026-09-04
 
 **Features**

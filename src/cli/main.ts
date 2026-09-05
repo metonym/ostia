@@ -3,7 +3,7 @@ import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
 import { loadConfig } from "../config/index.ts"
-import { run } from "../index.ts"
+import { time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
 import type { ProfileDocument } from "../ir/types.ts"
 import {
@@ -35,9 +35,9 @@ async function writeRenderResult(
   }
 }
 
-const RUN_HELP = `ostia run [flags] <command...>
+const TIME_HELP = `ostia time [flags] <command...>  (alias: ostia run)
 
-Run one or more commands N times with warmup and report timing statistics.
+Time one or more commands N times with warmup and report timing statistics.
 
 Flags:
   --runs N            exact number of timed trials (default: hyperfine-style auto)
@@ -55,10 +55,10 @@ Instrumented runs (--cpu, --heap) are labeled separately from clean timing and n
 mixed into the timing statistics.
 
 Examples:
-  ostia run "bun ./fixtures/work.ts"
-  ostia run --runs 25 --warmup 3 "bun a.ts" "bun b.ts"
-  ostia run --cpu --heap "bun src/server.ts"
-  ostia run --format json "bun a.ts"
+  ostia time "bun ./fixtures/work.ts"
+  ostia time --runs 25 --warmup 3 "bun a.ts" "bun b.ts"
+  ostia time --cpu --heap "bun src/server.ts"
+  ostia time --format json "bun a.ts"
 `
 
 const BENCH_HELP = `ostia bench [flags] <suite.ts...>
@@ -209,7 +209,7 @@ Flags:
 Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, spawn failure).
 `
 
-interface RunArgs {
+interface TimeArgs {
   commands: string[]
   runs?: number
   warmup?: number
@@ -223,7 +223,7 @@ interface RunArgs {
   help: boolean
 }
 
-function parseRunArgs(argv: string[]): RunArgs {
+function parseTimeArgs(argv: string[]): TimeArgs {
   const commands: string[] = []
   let runs: number | undefined
   let warmup: number | undefined
@@ -290,10 +290,10 @@ function parseRunArgs(argv: string[]): RunArgs {
   }
 }
 
-async function runCommand(argv: string[]): Promise<number> {
-  const parsed = parseRunArgs(argv)
+async function timeCommand(argv: string[]): Promise<number> {
+  const parsed = parseTimeArgs(argv)
   if (parsed.help || parsed.commands.length === 0) {
-    process.stdout.write(RUN_HELP)
+    process.stdout.write(TIME_HELP)
     return parsed.help ? 0 : 2
   }
 
@@ -306,7 +306,7 @@ async function runCommand(argv: string[]): Promise<number> {
 
   let doc: ProfileDocument
   try {
-    doc = await run({
+    doc = await time({
       commands: parsed.commands,
       runs: parsed.runs,
       warmup: parsed.warmup,
@@ -332,7 +332,7 @@ async function runCommand(argv: string[]): Promise<number> {
     await writeRenderResult(result)
   }
 
-  const anyNonZero = doc.runs.some((r) =>
+  const anyNonZero = doc.measurements.some((r) =>
     r.trials.some((t) => t.exitCode !== undefined && t.exitCode !== 0),
   )
   return anyNonZero ? 1 : 0
@@ -643,7 +643,7 @@ async function reportCommand(argv: string[]): Promise<number> {
 interface VizArgs {
   path?: string
   format?: FormatName
-  runId?: string
+  measurementId?: string
   outDir?: string
   help: boolean
 }
@@ -653,7 +653,7 @@ const VIZ_FORMAT_ALIASES: Record<string, FormatName> = { ascii: "table" }
 function parseVizArgs(argv: string[]): VizArgs {
   let path: string | undefined
   let format: FormatName | undefined
-  let runId: string | undefined
+  let measurementId: string | undefined
   let outDir: string | undefined
   let help = false
 
@@ -666,7 +666,7 @@ function parseVizArgs(argv: string[]): VizArgs {
         break
       }
       case "--run":
-        runId = argv[++i]
+        measurementId = argv[++i]
         break
       case "--out-dir":
         outDir = argv[++i]
@@ -680,7 +680,7 @@ function parseVizArgs(argv: string[]): VizArgs {
     }
   }
 
-  return { path, format, runId, outDir, help }
+  return { path, format, measurementId, outDir, help }
 }
 
 async function vizCommand(argv: string[]): Promise<number> {
@@ -708,11 +708,13 @@ async function vizCommand(argv: string[]): Promise<number> {
   }
 
   const renderer = renderers[parsed.format]
-  const result = await renderer.render(doc, { runId: parsed.runId })
+  const result = await renderer.render(doc, {
+    measurementId: parsed.measurementId,
+  })
   if (!result.text && (!result.files || result.files.length === 0)) {
     process.stderr.write(
-      parsed.runId
-        ? `No CPU evidence found for run "${parsed.runId}".\n`
+      parsed.measurementId
+        ? `No CPU evidence found for run "${parsed.measurementId}".\n`
         : `No CPU evidence found in this document (no cpu-phase runs). Capture some with "ostia run --cpu ...".\n`,
     )
     return 2
@@ -813,8 +815,9 @@ async function main(): Promise<number> {
   const [subcommand, ...rest] = process.argv.slice(2)
 
   switch (subcommand) {
+    case "time":
     case "run":
-      return runCommand(rest)
+      return timeCommand(rest)
     case "bench":
       return benchCommand(rest)
     case "compare":
@@ -829,7 +832,7 @@ async function main(): Promise<number> {
     case "--help":
     case "-h":
       process.stdout.write(
-        `ostia - Bun-native profile IR engine\n\nCommands:\n  run       Run commands N times and report timing/CPU/heap\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument\n  ci        Run configured workloads against a baseline, gate on regressions\n  viz       Render CPU evidence as collapsed/mermaid/speedscope/cpuprofile\n\nRun "ostia <command> --help" for details.\n`,
+        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument\n  ci        Run configured workloads against a baseline, gate on regressions\n  viz       Render CPU evidence as collapsed/mermaid/speedscope/cpuprofile\n\nRun "ostia <command> --help" for details.\n`,
       )
       return subcommand === undefined ? 2 : 0
     default:

@@ -6,8 +6,8 @@ deterministic fixtures (`bench/lib/fixtures.ts`).
 
 | File | Covers |
 |---|---|
-| `stats.ts` | `computeTimingStats`, `timingWarnings` - the sort-heavy path behind every `run`/`ci` |
-| `ir.ts` | `fp`/`canonicalJSON`/`sortKeysDeep`, `makeTimingRun`/`makeInstrumentedRun`, `serializeDocument`, `makeArtifactRef` |
+| `stats.ts` | `computeTimingStats`, `timingWarnings` - the sort-heavy path behind every `time`/`ci` |
+| `ir.ts` | `fp`/`canonicalJSON`/`sortKeysDeep`, `makeTimingMeasurement`/`makeInstrumentedMeasurement`, `serializeDocument`, `makeArtifactRef` |
 | `capture-parse.ts` | `parseCpuProfile`, `parseJscProfile`, `parseHeapSnapshot` - raw capture JSON to IR |
 | `cpu-tree.ts` | `buildParentMap`, `computeNodeTimes` - shared ranking behind the mermaid/collapsed renderers |
 | `compare.ts` | `compareDocuments`, `compareWorkload` - the diff engine behind `compare`/`ci` |

@@ -31,7 +31,7 @@ group("cpuprofile passthrough", () => {
   const cpu = cpuEvidenceFromTree(LARGE_TREE, 10_000)
   const artifactPath = "tests/fixtures/capture/sample.cpuprofile.json"
   const doc = syntheticDocument(1, cpu)
-  const cpuRun = doc.runs.find((r) => r.phase === "cpu")!
+  const cpuRun = doc.measurements.find((r) => r.phase === "cpu")!
   cpuRun.artifacts = [
     {
       id: "art_bench",

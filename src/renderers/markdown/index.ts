@@ -1,4 +1,4 @@
-import type { ProfileDocument, Run, Workload } from "../../ir/types.ts"
+import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -26,8 +26,8 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
       "",
     )
 
-    const timingRuns = doc.runs.filter(
-      (r): r is Run & { timing: NonNullable<Run["timing"]> } =>
+    const timingRuns = doc.measurements.filter(
+      (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>
         r.phase === "timing" && r.timing !== undefined,
     )
     if (timingRuns.length > 0) {
@@ -57,7 +57,7 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
       }
     }
 
-    for (const run of doc.runs) {
+    for (const run of doc.measurements) {
       if (run.phase !== "cpu" && run.phase !== "heap") continue
       const label = commandLabel(byWorkload.get(run.workloadId))
 
@@ -121,7 +121,9 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
     if (doc.comparisons && doc.comparisons.length > 0) {
       lines.push("## Comparisons", "")
       for (const cmp of doc.comparisons) {
-        const run = doc.runs.find((r) => r.id === cmp.candidateRunId)
+        const run = doc.measurements.find(
+          (r) => r.id === cmp.candidateMeasurementId,
+        )
         const label = commandLabel(
           run ? byWorkload.get(run.workloadId) : undefined,
         )

@@ -9,7 +9,7 @@ import {
   DEFAULT_CONFIG,
   type OstiaConfig,
 } from "../../src/config/index.ts"
-import { run } from "../../src/index.ts"
+import { time } from "../../src/index.ts"
 import { saveDocument } from "../../src/ir/document.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
@@ -43,7 +43,7 @@ describe("runCi", () => {
 
   test("first pass executes (cache miss); second pass with no source change hits cache", async () => {
     const cfg = config()
-    const baseline = await run({
+    const baseline = await time({
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
@@ -69,7 +69,7 @@ describe("runCi", () => {
 
   test("--full ignores the cache and always executes", async () => {
     const cfg = config({ outDir: `${OUT_DIR}-full` })
-    const baseline = await run({
+    const baseline = await time({
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
@@ -96,7 +96,7 @@ describe("runCi", () => {
         { label: "work", command: ["bun", FIXTURE], inputs: [trackedFile] },
       ],
     })
-    const baseline = await run({
+    const baseline = await time({
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
@@ -119,7 +119,7 @@ describe("runCi", () => {
 
   test("renderCiReport prints the required fields and gate line", async () => {
     const cfg = config({ outDir: `${OUT_DIR}-report` })
-    const baseline = await run({
+    const baseline = await time({
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,

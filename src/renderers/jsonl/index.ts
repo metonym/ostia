@@ -5,8 +5,11 @@ import type { Renderer, RenderResult } from "../types.ts"
 export const jsonlRenderer: Renderer<Record<string, never>> = {
   name: "jsonl",
   async render(doc: ProfileDocument): Promise<RenderResult> {
-    const { runs, ...header } = doc
-    const lines = [canonicalJSON(header), ...runs.map((r) => canonicalJSON(r))]
+    const { measurements, ...header } = doc
+    const lines = [
+      canonicalJSON(header),
+      ...measurements.map((r) => canonicalJSON(r)),
+    ]
     return { text: `${lines.join("\n")}\n` }
   },
 }

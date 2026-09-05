@@ -1,11 +1,14 @@
-import type { CpuEvidence, ProfileDocument, Run } from "../ir/types.ts"
+import type { CpuEvidence, Measurement, ProfileDocument } from "../ir/types.ts"
 
-export function selectCpuRuns(doc: ProfileDocument, runId?: string): Run[] {
-  if (runId) {
-    const run = doc.runs.find((r) => r.id === runId)
+export function selectCpuRuns(
+  doc: ProfileDocument,
+  measurementId?: string,
+): Measurement[] {
+  if (measurementId) {
+    const run = doc.measurements.find((r) => r.id === measurementId)
     return run?.cpu ? [run] : []
   }
-  return doc.runs.filter((r) => r.phase === "cpu" && r.cpu)
+  return doc.measurements.filter((r) => r.phase === "cpu" && r.cpu)
 }
 
 export function buildParentMap(cpu: CpuEvidence): Map<number, number> {

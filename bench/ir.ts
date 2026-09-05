@@ -1,9 +1,9 @@
 import { group, task } from "../src/index.ts"
 import {
   makeArtifactRef,
-  makeInstrumentedRun,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
-  makeTimingRun,
+  makeTimingMeasurement,
   newDocument,
   serializeDocument,
 } from "../src/ir/document.ts"
@@ -40,8 +40,8 @@ group("document", () => {
   const cpu = cpuEvidenceFromTree(SMALL_TREE, 1_000)
   const timing = computeTimingStats(trials.map((t) => t.wallNs))
 
-  task("makeTimingRun (1e3 trials)", () =>
-    makeTimingRun({
+  task("makeTimingMeasurement (1e3 trials)", () =>
+    makeTimingMeasurement({
       workload,
       configFingerprint: "cfg_dogfood",
       trials,
@@ -50,8 +50,8 @@ group("document", () => {
     }),
   )
 
-  task("makeInstrumentedRun (341-frame cpu evidence)", () =>
-    makeInstrumentedRun({
+  task("makeInstrumentedMeasurement (341-frame cpu evidence)", () =>
+    makeInstrumentedMeasurement({
       workload,
       phase: "cpu",
       configFingerprint: "cfg_dogfood",
@@ -62,7 +62,7 @@ group("document", () => {
     }),
   )
 
-  const timingRun = makeTimingRun({
+  const timingRun = makeTimingMeasurement({
     workload,
     configFingerprint: "cfg_dogfood",
     trials,

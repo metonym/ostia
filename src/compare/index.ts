@@ -1,5 +1,5 @@
 import { fp } from "../ir/fp.ts"
-import type { Comparison, ProfileDocument, Run } from "../ir/types.ts"
+import type { Comparison, Measurement, ProfileDocument } from "../ir/types.ts"
 
 export interface Thresholds {
   timingPct: number
@@ -20,12 +20,14 @@ function pctDelta(base: number, cand: number): number {
   return ((cand - base) / base) * 100
 }
 
-function runsFor(
+function measurementsFor(
   doc: ProfileDocument,
   workloadId: string,
-  phase: Run["phase"],
-): Run | undefined {
-  return doc.runs.find((r) => r.workloadId === workloadId && r.phase === phase)
+  phase: Measurement["phase"],
+): Measurement | undefined {
+  return doc.measurements.find(
+    (r) => r.workloadId === workloadId && r.phase === phase,
+  )
 }
 
 export function compareDocuments(
@@ -49,16 +51,16 @@ export function compareWorkload(
   workloadId: string,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): Comparison | undefined {
-  const baseTiming = runsFor(base, workloadId, "timing")
-  const candTiming = runsFor(cand, workloadId, "timing")
-  const baseCpu = runsFor(base, workloadId, "cpu")
-  const candCpu = runsFor(cand, workloadId, "cpu")
-  const baseHeap = runsFor(base, workloadId, "heap")
-  const candHeap = runsFor(cand, workloadId, "heap")
+  const baseTiming = measurementsFor(base, workloadId, "timing")
+  const candTiming = measurementsFor(cand, workloadId, "timing")
+  const baseCpu = measurementsFor(base, workloadId, "cpu")
+  const candCpu = measurementsFor(cand, workloadId, "cpu")
+  const baseHeap = measurementsFor(base, workloadId, "heap")
+  const candHeap = measurementsFor(cand, workloadId, "heap")
 
-  const baselineRunId = baseTiming?.id ?? baseCpu?.id ?? baseHeap?.id
-  const candidateRunId = candTiming?.id ?? candCpu?.id ?? candHeap?.id
-  if (!baselineRunId || !candidateRunId) return undefined
+  const baselineMeasurementId = baseTiming?.id ?? baseCpu?.id ?? baseHeap?.id
+  const candidateMeasurementId = candTiming?.id ?? candCpu?.id ?? candHeap?.id
+  if (!baselineMeasurementId || !candidateMeasurementId) return undefined
 
   let failed = false
 
@@ -147,9 +149,9 @@ export function compareWorkload(
   }
 
   return {
-    id: fp("cmp", baselineRunId, candidateRunId),
-    baselineRunId,
-    candidateRunId,
+    id: fp("cmp", baselineMeasurementId, candidateMeasurementId),
+    baselineMeasurementId,
+    candidateMeasurementId,
     timing,
     frames,
     heapTypes,

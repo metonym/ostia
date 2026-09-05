@@ -219,6 +219,24 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result.text).not.toContain("Mean [ms]")
   })
 
+  test("table renderer's Spread column is p75...p99, computed from TimingStats", async () => {
+    const doc = fixedDoc()
+    const t = doc.measurements[0]!.timing!
+    const result = await renderers.table.render(doc, {})
+    const line = result.text!.split("\n").find((l) => l.includes("bun a.ts"))!
+    expect(line).toContain((t.p75! / 1e6).toFixed(1))
+    expect(line).toContain((t.p99! / 1e6).toFixed(1))
+  })
+
+  test("table renderer falls back to median/max when p75/p99 are absent (a document saved before item 5)", async () => {
+    const doc = fixedDoc()
+    doc.measurements[0]!.timing!.p75 = undefined
+    doc.measurements[0]!.timing!.p99 = undefined
+    const result = await renderers.table.render(doc, {})
+    expect(result.text).toBeDefined()
+    expect(result.text!.length).toBeGreaterThan(0)
+  })
+
   test("table renderer reads nanosecond-scale medians instead of collapsing to 0.000ms (the tiny/add defect)", async () => {
     const trials = (samples: number[]) =>
       samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
@@ -317,6 +335,13 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result.text).toMatch(/\|\s*Task\s*\|/)
   })
 
+  test("markdown renderer's Timing table includes a Spread (p75...p99) column and MAD", async () => {
+    const doc = fixedDoc()
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toMatch(/\|\s*Spread \(p75…p99\)\s*\|/)
+    expect(result.text).toMatch(/\|\s*MAD\s*\|/)
+  })
+
   test("markdown renderer is deterministic for the same document", async () => {
     const doc = fixedDoc()
     const a = await renderers.markdown.render(doc, {})
@@ -371,6 +396,20 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       { code: "low-sample-count", data: { samples: 3, target: 7 } },
     ])
     for (const key of Object.keys(b)) expect(key).not.toBe("message")
+  })
+
+  test("exposes p75/p99/mad from TimingStats", async () => {
+    const doc = fixedDoc()
+    const result = await renderers.minimal.render(doc, {})
+    const lines = result
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    for (const line of lines) {
+      expect(typeof line.p75).toBe("number")
+      expect(typeof line.p99).toBe("number")
+      expect(typeof line.mad).toBe("number")
+    }
   })
 
   test("carries task/group descriptions, group, and baseline flag from the workload", async () => {

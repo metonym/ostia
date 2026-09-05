@@ -13,6 +13,23 @@ describe("computeTimingStats", () => {
     expect(stats.max).toBe(50)
     expect(stats.stddev).toBeCloseTo(14.142135, 5)
     expect(stats.unit).toBe("ns")
+    expect(stats.p75).toBe(40)
+    expect(stats.p99).toBeCloseTo(49.6, 10)
+    expect(stats.mad).toBe(10)
+  })
+
+  test("p75/p99/mad on a larger fixed sample (deterministic, known answers)", () => {
+    // 1..100, so p-th percentile (linear interpolation, n=100) lands exactly
+    // on p*99 + 1.
+    const samples = Array.from({ length: 100 }, (_, i) => i + 1)
+    const stats = computeTimingStats(samples)
+
+    expect(stats.median).toBe(50.5)
+    expect(stats.p75).toBeCloseTo(75.25, 10)
+    expect(stats.p99).toBeCloseTo(99.01, 10)
+    // |x - 50.5| for x in 1..100 ranges 0.5..49.5 in steps of 1, two values
+    // per magnitude; the median of that sorted deviation list is 25.
+    expect(stats.mad).toBe(25)
   })
 
   test("throws on empty array", () => {

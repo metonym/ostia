@@ -33,13 +33,19 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
     )
     if (timingRuns.length > 0) {
       lines.push("## Timing", "")
-      lines.push("| Task | Median | Mean ± SD | Range |", "|---|---|---|---|")
+      lines.push(
+        "| Task | Median | Spread (p75…p99) | Mean ± SD | Range | MAD |",
+        "|---|---|---|---|---|---|",
+      )
       for (const run of timingRuns) {
         const label = commandLabel(byWorkload.get(run.workloadId))
         const t = run.timing
         const unit = pickDurationUnit(t.median)
+        const p75 = t.p75 ?? t.median
+        const p99 = t.p99 ?? t.max
+        const mad = t.mad !== undefined ? formatDuration(t.mad, unit) : "-"
         lines.push(
-          `| ${label} | ${formatDuration(t.median, unit)} | ${formatDuration(t.mean, unit)} ± ${formatDuration(t.stddev, unit)} | ${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)} |`,
+          `| ${label} | ${formatDuration(t.median, unit)} | ${formatDuration(p75, unit)}…${formatDuration(p99, unit)} | ${formatDuration(t.mean, unit)} ± ${formatDuration(t.stddev, unit)} | ${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)} | ${mad} |`,
         )
       }
       lines.push("")

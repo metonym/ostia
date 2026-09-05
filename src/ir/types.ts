@@ -76,6 +76,15 @@ export interface TimingStats {
   min: number
   max: number
   outliers: { mild: number; severe: number }
+  /** 75th percentile, ns. Optional: absent on documents saved before this
+   * field existed (`loadDocument` never backfills it). */
+  p75?: number
+  /** 99th percentile, ns. Same caveat as `p75`. */
+  p99?: number
+  /** Median absolute deviation, ns: the median of `|sample - median|` across
+   * all samples. A robust spread measure that (unlike stddev) isn't skewed
+   * by the long right tail typical of wall-clock timings. */
+  mad?: number
 }
 
 export interface Frame {

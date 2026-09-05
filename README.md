@@ -221,6 +221,12 @@ same per-task/per-group override pattern as `isolate`/`gc`: `task(name, fn, { cp
 `memstats` measurement is present. With `--cpu` on, `ostia compare` reports per-frame CPU
 deltas for bench tasks the same way it already does for `ostia time --cpu`.
 
+When a `--cpu` capture spends more than 20% of its samples in the llint/baseline tiers,
+the JIT never warmed the task up in that 200ms window, so its CPU numbers (and by
+extension its timing) may not reflect steady state - the cpu measurement carries a
+`jit-cold` warning (`{ llintPct, baselinePct, dfgPct, ftlPct }`), printed alongside the
+CPU capture in the terminal table and folded into the task's line in `--format minimal`.
+
 `--preload PATH` (repeatable) imports a script before each suite file loads, in the same
 subprocess - the same shape as Bun's own `--preload` / `bunfig.toml`'s `preload` array. Use
 it to install globals a suite needs at import time (jsdom's `document`/`window`) or register

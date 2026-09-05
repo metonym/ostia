@@ -94,6 +94,12 @@
   present. With `--cpu` on, `ostia compare`'s per-frame CPU deltas now work
   for bench tasks with no changes to `compare/index.ts` itself, since it
   already matches any `phase: "cpu"` measurement by workload id.
+- A `--cpu` measurement with more than 20% of its samples in the
+  llint/baseline tiers carries a new `jit-cold` warning
+  (`{ llintPct, baselinePct, dfgPct, ftlPct }`): the JIT never warmed the
+  task up in the 200ms capture window, so its CPU (and by extension timing)
+  numbers may not reflect steady state. Printed alongside the CPU capture in
+  the terminal table and folded into the task's line in `--format minimal`.
 
 **Fixes**
 

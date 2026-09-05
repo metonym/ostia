@@ -177,16 +177,11 @@ async function main(): Promise<number> {
     // Per-task options win over the suite-wide ones. The fingerprint is per task
     // for the same reason: two runs of one task only compare like-for-like when
     // they were measured under the same effective settings.
-    const effectiveBudgetMs = t.opts?.budgetMs ?? opts.budgetMs
-    const effectiveSamples = t.opts?.samples ?? opts.samples
-    const effectiveMinSamples = t.opts?.minSamples ?? opts.minSamples
     const taskOpts: InprocessTimingOptions = {
-      ...opts,
-      ...(effectiveBudgetMs !== undefined && { budgetMs: effectiveBudgetMs }),
-      ...(effectiveSamples !== undefined && { samples: effectiveSamples }),
-      ...(effectiveMinSamples !== undefined && {
-        minSamples: effectiveMinSamples,
-      }),
+      budgetMs: t.opts?.budgetMs ?? opts.budgetMs,
+      samples: t.opts?.samples ?? opts.samples,
+      minSamples: t.opts?.minSamples ?? opts.minSamples,
+      warmup: opts.warmup,
       gc: taskGc(t, opts.gc ?? false),
     }
     const result = await measureTask(t.fn, taskOpts)

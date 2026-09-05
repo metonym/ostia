@@ -50,24 +50,26 @@ export async function listBaselines(
   }
   names.sort()
 
-  const infos: BaselineInfo[] = []
-  for (const name of names) {
-    const path = baselinePath(config, name)
-    try {
-      const doc = await loadDocument(path)
-      infos.push({
-        name,
-        path,
-        createdAt: doc.createdAt,
-        toolVersion: doc.toolVersion,
-        bunVersion: doc.bunVersion,
-        workloads: doc.workloads.length,
-        ...(doc.git !== undefined && { git: doc.git }),
-      })
-    } catch {
-      // Not a valid ProfileDocument (or unreadable): skip it rather than
-      // failing the whole listing over one bad file.
-    }
-  }
-  return infos
+  const infos = await Promise.all(
+    names.map(async (name): Promise<BaselineInfo | undefined> => {
+      const path = baselinePath(config, name)
+      try {
+        const doc = await loadDocument(path)
+        return {
+          name,
+          path,
+          createdAt: doc.createdAt,
+          toolVersion: doc.toolVersion,
+          bunVersion: doc.bunVersion,
+          workloads: doc.workloads.length,
+          ...(doc.git !== undefined && { git: doc.git }),
+        }
+      } catch {
+        // Not a valid ProfileDocument (or unreadable): skip it rather than
+        // failing the whole listing over one bad file.
+        return undefined
+      }
+    }),
+  )
+  return infos.filter((info) => info !== undefined)
 }

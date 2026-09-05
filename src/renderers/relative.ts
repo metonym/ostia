@@ -9,7 +9,7 @@ export interface TimingRow {
  * runner records; falls back to splitting the "group/name" id on its last "/"
  * for documents written before that field existed. Workloads without a group
  * (or not from `task()` at all) return undefined. */
-function groupOf(workload: Workload | undefined): string | undefined {
+export function groupOf(workload: Workload | undefined): string | undefined {
   if (!workload?.entry) return undefined
   if (workload.entry.group !== undefined) return workload.entry.group
   const id = workload.entry.task

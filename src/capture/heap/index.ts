@@ -1,4 +1,5 @@
 import type { HeapEvidence, Warning } from "../../ir/types.ts"
+import { withBunFlags } from "../bunflags.ts"
 import { parseHeapSnapshot, type RawHeapSnapshot } from "./parse.ts"
 
 // Do not pass `--heap-prof-md` with `--heap-prof`: md wins and the binary snapshot is silently skipped.
@@ -19,39 +20,21 @@ export interface HeapCaptureResult {
   warnings: Warning[]
 }
 
-function withHeapProfFlags(
-  argv: string[],
-  artifactDir: string,
-  fileName: string,
-): string[] {
-  const flags = [
-    "--heap-prof",
-    "--heap-prof-dir",
-    artifactDir,
-    "--heap-prof-name",
-    fileName,
-  ]
-  const bin = argv[0]
-  if (bin === "bun" || bin?.endsWith("/bun")) {
-    return [bin, ...flags, ...argv.slice(1)]
-  }
-  return argv
-}
-
 export async function runHeapCapture(
   opts: HeapCaptureOptions,
 ): Promise<HeapCaptureResult> {
   const artifactPath = `${opts.artifactDir}/${opts.fileName}`
-  const bin = opts.argv[0]
-  const usesInlineFlags = bin === "bun" || bin?.endsWith("/bun")
-  const argv = withHeapProfFlags(opts.argv, opts.artifactDir, opts.fileName)
-  const env = usesInlineFlags
-    ? opts.env
-    : {
-        ...process.env,
-        ...opts.env,
-        BUN_OPTIONS: `--heap-prof --heap-prof-dir ${opts.artifactDir} --heap-prof-name ${opts.fileName}`,
-      }
+  const { argv, env } = withBunFlags(
+    opts.argv,
+    [
+      "--heap-prof",
+      "--heap-prof-dir",
+      opts.artifactDir,
+      "--heap-prof-name",
+      opts.fileName,
+    ],
+    opts.env,
+  )
 
   const start = Bun.nanoseconds()
   const proc = Bun.spawn(argv, {

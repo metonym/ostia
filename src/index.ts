@@ -2,7 +2,7 @@ import { runCpuCapture } from "./capture/cpu/index.ts"
 import { runHeapCapture } from "./capture/heap/index.ts"
 import { captureInspectorProfile } from "./capture/inspector/index.ts"
 import { captureJscProfile } from "./capture/jsc/index.ts"
-import type { OstiaConfig } from "./config/index.ts"
+import { DEFAULT_OUT_DIR, type OstiaConfig } from "./config/index.ts"
 import {
   configFingerprint,
   makeArtifactRef,
@@ -24,7 +24,7 @@ import {
   noisyMachineWarning,
 } from "./measure/environment.ts"
 import { keep } from "./measure/inprocess.ts"
-import { createTimingPhase, runTimingPhase } from "./measure/timing.ts"
+import { createTimingPhase, drainTimingPhase } from "./measure/timing.ts"
 import {
   type PrepareHook,
   type PrepareRun,
@@ -129,7 +129,6 @@ export interface TimeOptions {
   noiseCheck?: boolean
 }
 
-const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
@@ -185,58 +184,14 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     timeSource: entry.timeSource,
   })
 
-  if (interleave) {
-    const phases = entries.map((entry) =>
-      createTimingPhase(timingPhaseOpts(entry)),
-    )
-    for (const phase of phases) await phase.warmup()
+  const phases = entries.map((entry) =>
+    createTimingPhase(timingPhaseOpts(entry)),
+  )
 
-    let stepped = true
-    while (stepped) {
-      stepped = false
-      for (const phase of phases) {
-        if (await phase.step()) stepped = true
-      }
-    }
-
-    for (let i = 0; i < entries.length; i++) {
-      const { argv, workload, prepare } = entries[i]!
-      workloads.push(workload)
-      const phaseResult = phases[i]!.result()
-      const timingMeasurement = makeTimingMeasurement({
-        workload,
-        configFingerprint: cfgFp,
-        trials: phaseResult.trials,
-        timing: phaseResult.timing,
-        warnings:
-          noiseWarning && measurements.length === 0
-            ? [...phaseResult.warnings, noiseWarning]
-            : phaseResult.warnings,
-        interleaved: true,
-      })
-      measurements.push(timingMeasurement)
-      measurements.push(
-        ...(await captureInstrumentedPhases(
-          workload,
-          argv,
-          timingMeasurement.id,
-          cfgFp,
-          opts,
-          artifactDir,
-          prepare,
-        )),
-      )
-    }
-
-    return newDocument(workloads, measurements, environment)
-  }
-
-  for (const entry of entries) {
-    const { argv, workload, prepare } = entry
+  const record = async (i: number) => {
+    const { argv, workload, prepare } = entries[i]!
     workloads.push(workload)
-
-    const phaseResult = await runTimingPhase(timingPhaseOpts(entry))
-
+    const phaseResult = phases[i]!.result()
     const timingMeasurement = makeTimingMeasurement({
       workload,
       configFingerprint: cfgFp,
@@ -246,33 +201,59 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
         noiseWarning && measurements.length === 0
           ? [...phaseResult.warnings, noiseWarning]
           : phaseResult.warnings,
+      interleaved: interleave ? true : undefined,
     })
     measurements.push(timingMeasurement)
     measurements.push(
-      ...(await captureInstrumentedPhases(
+      ...(await captureInstrumentedPhases({
         workload,
         argv,
-        timingMeasurement.id,
+        timingMeasurementId: timingMeasurement.id,
         cfgFp,
         opts,
         artifactDir,
         prepare,
-      )),
+      })),
     )
+  }
+
+  if (interleave) {
+    for (const phase of phases) await phase.warmup()
+    let stepped = true
+    while (stepped) {
+      stepped = false
+      for (const phase of phases) {
+        if (await phase.step()) stepped = true
+      }
+    }
+    for (let i = 0; i < entries.length; i++) await record(i)
+  } else {
+    for (let i = 0; i < entries.length; i++) {
+      await drainTimingPhase(phases[i]!)
+      await record(i)
+    }
   }
 
   return newDocument(workloads, measurements, environment)
 }
 
-async function captureInstrumentedPhases(
-  workload: Workload,
-  argv: string[],
-  timingMeasurementId: string,
-  cfgFp: string,
-  opts: TimeOptions,
-  artifactDir: string,
-  prepare?: PrepareHook,
-): Promise<Measurement[]> {
+async function captureInstrumentedPhases({
+  workload,
+  argv,
+  timingMeasurementId,
+  cfgFp,
+  opts,
+  artifactDir,
+  prepare,
+}: {
+  workload: Workload
+  argv: string[]
+  timingMeasurementId: string
+  cfgFp: string
+  opts: TimeOptions
+  artifactDir: string
+  prepare?: PrepareHook
+}): Promise<Measurement[]> {
   const extra: Measurement[] = []
   // An instrumented trial is one more run of the command, so a prepare hook
   // (cold cache, fresh fixture) applies to it the same as to a timing trial.
@@ -407,43 +388,22 @@ export async function profile<T>(
         ]
       : []
 
-  if (opts.origin === "jsc") {
-    const { result, cpu, jit, diagnosticWallNs } = await captureJscProfile(
-      fn,
-      opts,
-    )
-    const measurement = makeInstrumentedMeasurement({
-      workload,
-      phase: "cpu",
-      configFingerprint: cfgFp,
-      diagnosticWallNs,
-      cpu,
-      jit,
-      warnings: emptyProfileWarning(cpu),
-      artifacts: [],
-    })
-    return {
-      result,
-      measurement,
-      document: newDocument([workload], [measurement]),
-    }
-  }
-
-  const { result, cpu, diagnosticWallNs } = await captureInspectorProfile(
-    fn,
-    opts,
-  )
+  const captured =
+    opts.origin === "jsc"
+      ? await captureJscProfile(fn, opts)
+      : { ...(await captureInspectorProfile(fn, opts)), jit: undefined }
   const measurement = makeInstrumentedMeasurement({
     workload,
     phase: "cpu",
     configFingerprint: cfgFp,
-    diagnosticWallNs,
-    cpu,
-    warnings: emptyProfileWarning(cpu),
+    diagnosticWallNs: captured.diagnosticWallNs,
+    cpu: captured.cpu,
+    jit: captured.jit,
+    warnings: emptyProfileWarning(captured.cpu),
     artifacts: [],
   })
   return {
-    result,
+    result: captured.result,
     measurement,
     document: newDocument([workload], [measurement]),
   }

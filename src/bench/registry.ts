@@ -265,26 +265,21 @@ export function taskId(t: RegisteredTask): string {
   return t.groupName ? `${t.groupName}/${t.name}` : t.name
 }
 
-/** A task's own `isolate` wins, then its group's, then the suite-wide
- * default passed to `bench()`. */
+// Effective per-task flags: the task's own value wins, then its group's,
+// then the suite-wide default passed to `bench()`.
+
 export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
   return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate
 }
 
-/** A task's own `gc` wins, then its group's, then the suite-wide default
- * passed to `bench()`. */
 export function taskGc(t: RegisteredTask, suiteGc: boolean): boolean {
   return t.opts?.gc ?? t.groupGc ?? suiteGc
 }
 
-/** A task's own `cpu` wins, then its group's, then the suite-wide default
- * passed to `bench()`. */
 export function taskCpu(t: RegisteredTask, suiteCpu: boolean): boolean {
   return t.opts?.cpu ?? t.groupCpu ?? suiteCpu
 }
 
-/** A task's own `alloc` wins, then its group's, then the suite-wide default
- * passed to `bench()`. */
 export function taskAlloc(t: RegisteredTask, suiteAlloc: boolean): boolean {
   return t.opts?.alloc ?? t.groupAlloc ?? suiteAlloc
 }

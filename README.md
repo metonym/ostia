@@ -302,6 +302,13 @@ ostia compare after.json --baseline .ostia/baselines/main.json
   timing: +50.2% median, 95% CI [+45.9%, +54.4%], p<0.001 (regressed)
 ```
 
+When both documents carry `git` metadata (see below), `ostia compare` prints a summary
+line above the verdicts:
+
+```
+base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)
+```
+
 The verdict needs both a confidence interval clear of `timingPct` and a
 significant Mann-Whitney p-value (`thresholds.alpha`, default `0.01`), not
 just a point estimate past the threshold - see
@@ -499,8 +506,14 @@ on disk; it does not need to be committed.
 `ostia baseline save [name]` measures every configured workload (the same code path
 `ostia ci` gates against, no comparison) and writes it to `<baselineDir>/<name>.json`
 (default name: config's `"baseline"` field, or `"main"`). `ostia baseline list` shows every
-saved baseline (name, created date, workload count); `ostia baseline show <name> [--format]`
-renders one (delegates to `ostia report`).
+saved baseline (name, created date, workload count, and git sha/branch when available);
+`ostia baseline show <name> [--format]` renders one (delegates to `ostia report`).
+
+Every document stamps `git: { sha, branch, dirty }` (from `git rev-parse` / `git status
+--porcelain` in the process's cwd, 200ms timeout, silently absent outside a repo or
+without `git` installed) - metadata only, never part of any fingerprint or id, so a
+commit or a dirty working tree never orphans a cached run or baseline. Printed in the
+markdown report's header line and `ostia baseline list`.
 
 Local branch workflow:
 

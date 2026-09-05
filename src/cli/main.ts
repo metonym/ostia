@@ -708,6 +708,11 @@ async function compareCommand(argv: string[]): Promise<number> {
   }
 
   if (!parsed.quiet) {
+    if (base.git && cand.git) {
+      const side = (g: NonNullable<ProfileDocument["git"]>) =>
+        `${g.sha} (${g.branch}${g.dirty ? ", dirty" : ""})`
+      process.stdout.write(`base ${side(base.git)} → cand ${side(cand.git)}\n`)
+    }
     const renderer = renderers[parsed.format]
     const result = await renderer.render(outDoc, {})
     await writeRenderResult(result)
@@ -957,8 +962,11 @@ async function baselineListCommand(argv: string[]): Promise<number> {
     return 0
   }
   for (const info of infos) {
+    const gitSuffix = info.git
+      ? `\t${info.git.sha} (${info.git.branch}${info.git.dirty ? ", dirty" : ""})`
+      : ""
     process.stdout.write(
-      `${info.name}\t${info.workloads} workloads\tcreated ${info.createdAt}\ttoolVersion ${info.toolVersion}\n`,
+      `${info.name}\t${info.workloads} workloads\tcreated ${info.createdAt}\ttoolVersion ${info.toolVersion}${gitSuffix}\n`,
     )
   }
   return 0

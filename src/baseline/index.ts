@@ -1,6 +1,7 @@
 import { measureConfigWorkloads } from "../ci/index.ts"
 import { baselinePath, type OstiaConfig } from "../config/index.ts"
 import { loadDocument, newDocument, saveDocument } from "../ir/document.ts"
+import type { GitMetadata } from "../ir/types.ts"
 
 /** Measures every configured workload (the same code path `ostia ci` gates
  * against, no comparison) and writes it to `<baselineDir>/<name>.json`
@@ -26,6 +27,7 @@ export interface BaselineInfo {
   toolVersion: string
   bunVersion: string
   workloads: number
+  git?: GitMetadata
 }
 
 /** Lists every `<baselineDir>/*.json` that parses as a `ProfileDocument`,
@@ -60,6 +62,7 @@ export async function listBaselines(
         toolVersion: doc.toolVersion,
         bunVersion: doc.bunVersion,
         workloads: doc.workloads.length,
+        ...(doc.git !== undefined && { git: doc.git }),
       })
     } catch {
       // Not a valid ProfileDocument (or unreadable): skip it rather than

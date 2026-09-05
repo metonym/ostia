@@ -404,6 +404,28 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(a.text).toBe(b.text)
   })
 
+  test("markdown renderer appends git sha/branch to the header line when present (item 17)", async () => {
+    const doc = fixedDoc()
+    doc.git = { sha: "a1b2c3d", branch: "main", dirty: false }
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain("a1b2c3d (main)")
+  })
+
+  test("markdown renderer marks a dirty working tree in the header line", async () => {
+    const doc = fixedDoc()
+    doc.git = { sha: "a1b2c3d", branch: "my-opt", dirty: true }
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain("a1b2c3d (my-opt, dirty)")
+  })
+
+  test("markdown renderer omits git info from the header line when absent", async () => {
+    const doc = fixedDoc()
+    delete doc.git
+    const result = await renderers.markdown.render(doc, {})
+    const headerLine = result.text!.split("\n")[2]
+    expect(headerLine).toMatch(/^Bun .* ostia .* \d{4}-\d{2}-\d{2}T[\d:.]+Z$/)
+  })
+
   test("jsonl renderer emits one header line plus one line per run, each valid JSON", async () => {
     const doc = fixedDoc()
     const result = await renderers.jsonl.render(doc, {})

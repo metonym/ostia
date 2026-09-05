@@ -91,6 +91,20 @@ describe("listBaselines", () => {
 
     await Bun.spawn(["rm", "-rf", outDir]).exited
   }, 20_000)
+
+  test("carries git metadata through from the saved document (item 17)", async () => {
+    const outDir = `${OUT_DIR}-list-git`
+    const cfg = config({ outDir })
+
+    await saveBaseline(cfg)
+    const [info] = await listBaselines(cfg)
+    // This repo is a git checkout, so saveBaseline's newDocument() call
+    // picks up real sha/branch/dirty via captureGitMetadata().
+    expect(info!.git).toBeDefined()
+    expect(typeof info!.git!.sha).toBe("string")
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 20_000)
 })
 
 describe("saveBaseline / measureConfigWorkloads share ci's bench()-defaults wiring", () => {

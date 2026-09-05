@@ -13,6 +13,18 @@ export interface ProfileDocument {
    * schema bump. Absent when `noiseCheck: false` (or `--no-noise-check`)
    * skipped the reference measurement. */
   environment?: Environment
+  /** Repo state when this document was measured, from `git rev-parse` /
+   * `git status --porcelain` in the process's cwd. Additive, no schema
+   * bump. Absent outside a git repo (or when `git` itself isn't
+   * available). Metadata only: never part of any fingerprint or id, so a
+   * commit or a dirty working tree never orphans a cached run or baseline. */
+  git?: GitMetadata
+}
+
+export interface GitMetadata {
+  sha: string
+  branch: string
+  dirty: boolean
 }
 
 export interface NoiseFloor {

@@ -1,4 +1,5 @@
 import { fp, sortKeysDeep } from "./fp.ts"
+import { captureGitMetadata } from "./git.ts"
 import type {
   ArtifactRef,
   Comparison,
@@ -23,6 +24,7 @@ export function newDocument(
   measurements: Measurement[],
   environment?: Environment,
 ): ProfileDocument {
+  const git = captureGitMetadata()
   return {
     schemaVersion: 2,
     toolVersion: TOOL_VERSION,
@@ -32,6 +34,7 @@ export function newDocument(
     workloads,
     measurements,
     ...(environment !== undefined && { environment }),
+    ...(git !== undefined && { git }),
   }
 }
 

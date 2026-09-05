@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { loadDocument, makeEntryWorkload } from "../../src/ir/document.ts"
+import {
+  loadDocument,
+  makeEntryWorkload,
+  newDocument,
+} from "../../src/ir/document.ts"
 import type { ProfileDocument } from "../../src/ir/types.ts"
 
 const V1_FIXTURE_PATH = `${import.meta.dir}/../../.ostia-test-v1-fixture.json`
@@ -125,5 +129,16 @@ describe("makeEntryWorkload - params fold into the workload id (item 8)", () => 
     const before = makeEntryWorkload("suite.ts", "t")
     const after = makeEntryWorkload("suite.ts", "t", { params: { size: 100 } })
     expect(before.id).not.toBe(after.id)
+  })
+})
+
+describe("newDocument - git metadata (item 17)", () => {
+  test("attaches sha/branch/dirty when run inside a git repo, additive alongside environment", () => {
+    const doc = newDocument([], [])
+    expect(doc.git).toBeDefined()
+    expect(typeof doc.git!.sha).toBe("string")
+    expect(doc.git!.sha.length).toBeGreaterThan(0)
+    expect(typeof doc.git!.branch).toBe("string")
+    expect(typeof doc.git!.dirty).toBe("boolean")
   })
 })

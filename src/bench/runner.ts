@@ -27,21 +27,23 @@ export interface RunnerOpts extends InprocessTimingOptions {
    * suite-wide `bench()` call's already-resolved isolation plan to a
    * per-work-item runner spawn instead of re-deriving it from `filter`. */
   taskIds?: string[]
-  /** Suite-wide isolate default, consulted only in `planOnly` mode to compute
-   * each task's effective isolate (task/group overrides still win). */
+  /** Suite-wide isolate default, consulted to compute each task's effective
+   * isolate (task/group overrides still win). */
   isolate?: boolean
   /** Stamped onto every workload this invocation produces, recording whether
    * it ran in a subprocess dedicated to it alone. */
   markIsolated?: boolean
-  /** Import the suite, resolve `filter`/`taskIds`/`isolate`, and report the
-   * resulting task ids and their effective isolate instead of running any
-   * benchmark. */
-  planOnly?: boolean
+  /** When set (and `taskIds` is not), this is the suite's one whole-file
+   * pass: after importing the suite, write every filtered task's id and
+   * effective isolate to this path, then run only the non-isolated ones
+   * in this same process. Isolated tasks are left for a later dedicated
+   * subprocess (see `taskIds`), so this pass never imports the suite twice
+   * to learn what's isolated before running anything. */
+  planPath?: string
   /** Scripts imported, in order, before the suite file - in this same
    * subprocess, so a global they install (jsdom's `document`/`window`, a
    * `Bun.plugin()` file-loader) is visible to a later preload script and to
-   * the suite file itself. Runs ahead of `planOnly` too, since discovering a
-   * suite's tasks already means importing it. */
+   * the suite file itself. */
   preload?: string[]
 }
 
@@ -82,18 +84,24 @@ async function main(): Promise<number> {
     return 2
   }
 
-  if (opts.planOnly) {
+  if (opts.planPath) {
     const plan = tasks.map((t) => ({
       id: taskIdOf(t),
       isolate: taskIsolate(t, opts.isolate ?? false),
     }))
-    await Bun.write(outputPath, JSON.stringify({ tasks: plan }))
-    return 0
+    await Bun.write(opts.planPath, JSON.stringify({ tasks: plan }))
   }
+
+  // A `taskIds` call is a dedicated per-isolated-task subprocess: run exactly
+  // what it was handed. A `planPath` call is the suite's whole-file pass: run
+  // only the non-isolated tasks here: isolated ones get their own subprocess.
+  const toRun = opts.taskIds
+    ? tasks
+    : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false))
 
   const workloads = []
   const runs = []
-  for (const t of tasks) {
+  for (const t of toRun) {
     const id = taskIdOf(t)
     const workload = makeEntryWorkload(suiteFile, id, {
       label: id,

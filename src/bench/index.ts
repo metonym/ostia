@@ -49,13 +49,10 @@ interface PlannedTask {
   isolate: boolean
 }
 
-/** One subprocess spawn: either every non-isolated task in a suite file
- * sharing one process (`markIsolated: false`), or a single isolated task
- * alone in its own (`markIsolated: true`). */
+/** One subprocess spawn dedicated to a single isolated task. */
 interface WorkItem {
   suiteIndex: number
   taskIds: string[]
-  markIsolated: boolean
 }
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
@@ -121,29 +118,34 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   }
 
   try {
-    // Phase 1: for each suite file, discover its registered tasks and each
-    // one's effective isolate (task/group override, else the suite-wide
-    // default) without running any benchmark. This is what lets `isolate`
-    // work per task/group even when the suite-wide flag is off, and lets
-    // `--jobs` pool at task granularity below instead of always file
-    // granularity.
+    // Phase 1: for each suite file, import it exactly once. That single pass
+    // discovers the registered tasks and each one's effective isolate
+    // (task/group override, else the suite-wide default), writes that plan
+    // out, and - in the same process, off the same import - runs every
+    // non-isolated task right there. Isolated tasks are skipped here and
+    // left to phase 2's dedicated subprocesses, so a suite file's
+    // module-scope setup never runs twice just to learn what's isolated
+    // before running anything.
     const planPaths = resolvedSuites.map(
       (suite) => `${tmpDir}/${fp("bench-plan", suite)}.json`,
     )
-    const planArgv = resolvedSuites.map((suite, i) => [
+    const primaryPaths = resolvedSuites.map(
+      (suite) => `${tmpDir}/${fp("bench-primary", suite)}.json`,
+    )
+    const primaryArgv = resolvedSuites.map((suite, i) => [
       "bun",
       RUNNER_PATH,
       suite,
-      planPaths[i]!,
+      primaryPaths[i]!,
       JSON.stringify({
         ...taskOpts,
         filter: opts.filter,
         isolate: opts.isolate,
         preload: resolvedPreloads,
-        planOnly: true,
+        planPath: planPaths[i],
       } satisfies RunnerOpts),
     ])
-    await spawnPooled(planArgv, (i) => opts.suites[i]!)
+    await spawnPooled(primaryArgv, (i) => opts.suites[i]!)
 
     const plans: PlannedTask[][] = await Promise.all(
       planPaths.map(async (p) => {
@@ -153,25 +155,14 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         return tasks
       }),
     )
+    const primaryDocs = await Promise.all(primaryPaths.map(loadDocument))
 
-    // Phase 2: flatten each suite's plan into work items and run them
-    // through the same jobs pool. Non-isolated tasks in a suite share one
-    // subprocess, exactly as every suite ran before `isolate` existed;
-    // isolated tasks each get their own.
+    // Phase 2: each isolated task gets its own dedicated subprocess, pooled
+    // the same way phase 1 was.
     const items: WorkItem[] = []
     for (let s = 0; s < plans.length; s++) {
-      const shared = plans[s]!.filter((t) => !t.isolate).map((t) => t.id)
-      if (shared.length > 0) {
-        items.push({ suiteIndex: s, taskIds: shared, markIsolated: false })
-      }
       for (const t of plans[s]!) {
-        if (t.isolate) {
-          items.push({
-            suiteIndex: s,
-            taskIds: [t.id],
-            markIsolated: true,
-          })
-        }
+        if (t.isolate) items.push({ suiteIndex: s, taskIds: [t.id] })
       }
     }
 
@@ -188,10 +179,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         ...taskOpts,
         taskIds: item.taskIds,
         preload: resolvedPreloads,
-        // Omitted (not `false`) for shared items, so a run with no isolated
-        // tasks produces byte-identical workloads to one that never touched
-        // isolate at all.
-        ...(item.markIsolated && { markIsolated: true }),
+        markIsolated: true,
       } satisfies RunnerOpts),
     ])
     await spawnPooled(itemArgv, (i) => opts.suites[items[i]!.suiteIndex]!)
@@ -205,14 +193,11 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     const workloads: Workload[] = []
     const runs: Run[] = []
     for (let s = 0; s < plans.length; s++) {
-      const sharedIndex = items.findIndex(
-        (it) => it.suiteIndex === s && !it.markIsolated,
-      )
-      const sharedDoc = sharedIndex >= 0 ? itemDocs[sharedIndex]! : undefined
+      const sharedDoc = primaryDocs[s]!
       let sharedPtr = 0
       const isolatedDocById = new Map<string, ProfileDocument>()
       items.forEach((it, i) => {
-        if (it.suiteIndex === s && it.markIsolated) {
+        if (it.suiteIndex === s) {
           isolatedDocById.set(it.taskIds[0]!, itemDocs[i]!)
         }
       })
@@ -223,8 +208,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           workloads.push(doc.workloads[0]!)
           runs.push(doc.runs[0]!)
         } else {
-          workloads.push(sharedDoc!.workloads[sharedPtr]!)
-          runs.push(sharedDoc!.runs[sharedPtr]!)
+          workloads.push(sharedDoc.workloads[sharedPtr]!)
+          runs.push(sharedDoc.runs[sharedPtr]!)
           sharedPtr++
         }
       }

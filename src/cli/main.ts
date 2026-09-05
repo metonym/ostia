@@ -95,6 +95,11 @@ Flags:
                        subprocess (repeatable; runs in the order given). Use it to
                        install globals (jsdom's document/window) or register a
                        Bun.plugin() file-loader before the suite's own code runs.
+  --bun-flags FLAGS   extra flags passed through to the \`bun\` invocation that runs each
+                       suite file (repeatable; space-separated flags in one value are all
+                       appended). Useful for packages whose exports map branches on a
+                       resolution condition Bun doesn't set by default, e.g. Svelte/Vue's
+                       "browser" vs "default" build: --bun-flags="--conditions=browser"
   --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
@@ -140,6 +145,7 @@ Examples:
   ostia bench benches/*.ts --filter parse
   ostia bench benches/*.ts --jobs auto --format minimal
   ostia bench --preload ./bench/jsdom-setup.ts benches/*.dom.bench.ts
+  ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
   ostia bench                 # picks up suites/preload/jobs from ostia.config.json
 `
 
@@ -341,6 +347,7 @@ interface BenchArgs {
   filter?: string
   isolate: boolean
   preload: string[]
+  bunFlags: string[]
   outDir?: string
   exportJson?: string
   format: FormatName
@@ -357,6 +364,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   let filter: string | undefined
   let isolate = false
   const preload: string[] = []
+  const bunFlags: string[] = []
   let outDir: string | undefined
   let exportJson: string | undefined
   let format: FormatName = "table"
@@ -365,6 +373,13 @@ function parseBenchArgs(argv: string[]): BenchArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
+    if (arg === "--bun-flags" || arg.startsWith("--bun-flags=")) {
+      const value = arg.startsWith("--bun-flags=")
+        ? arg.slice("--bun-flags=".length)
+        : (argv[++i] ?? "")
+      bunFlags.push(...value.split(/\s+/).filter(Boolean))
+      continue
+    }
     switch (arg) {
       case "--time-budget":
         timeBudgetMs = Number(argv[++i])
@@ -419,6 +434,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     filter,
     isolate,
     preload,
+    bunFlags,
     outDir,
     exportJson,
     format,

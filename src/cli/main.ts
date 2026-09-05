@@ -46,6 +46,7 @@ Flags:
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
   --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
+  --no-noise-check    skip the ~200ms machine noise floor reference measurement
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
   --quiet             suppress the rendered report (still writes --export-json)
@@ -101,6 +102,7 @@ Flags:
                        resolution condition Bun doesn't set by default, e.g. Svelte/Vue's
                        "browser" vs "default" build: --bun-flags="--conditions=browser"
   --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
+  --no-noise-check    skip the ~200ms machine noise floor reference measurement
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
                        "minimal" is one compact JSON object per task with no raw sample
@@ -219,6 +221,7 @@ interface TimeArgs {
   heap: boolean
   cpuIntervalUs?: number
   outDir?: string
+  noiseCheck: boolean
   exportJson?: string
   format: FormatName
   quiet: boolean
@@ -233,6 +236,7 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   let heap = false
   let cpuIntervalUs: number | undefined
   let outDir: string | undefined
+  let noiseCheck = true
   let exportJson: string | undefined
   let format: FormatName = "table"
   let quiet = false
@@ -258,6 +262,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         break
       case "--out-dir":
         outDir = argv[++i]
+        break
+      case "--no-noise-check":
+        noiseCheck = false
         break
       case "--export-json":
         exportJson = argv[++i]
@@ -285,6 +292,7 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     heap,
     cpuIntervalUs,
     outDir,
+    noiseCheck,
     exportJson,
     format,
     quiet,
@@ -316,6 +324,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       heap: parsed.heap,
       cpuIntervalUs: parsed.cpuIntervalUs,
       outDir: parsed.outDir,
+      noiseCheck: parsed.noiseCheck,
     })
   } catch (err) {
     process.stderr.write(
@@ -351,6 +360,7 @@ interface BenchArgs {
   preload: string[]
   bunFlags: string[]
   outDir?: string
+  noiseCheck: boolean
   exportJson?: string
   format: FormatName
   quiet: boolean
@@ -368,6 +378,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   const preload: string[] = []
   const bunFlags: string[] = []
   let outDir: string | undefined
+  let noiseCheck = true
   let exportJson: string | undefined
   let format: FormatName = "table"
   let quiet = false
@@ -409,6 +420,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       case "--out-dir":
         outDir = argv[++i]
         break
+      case "--no-noise-check":
+        noiseCheck = false
+        break
       case "--export-json":
         exportJson = argv[++i]
         break
@@ -438,6 +452,7 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     preload,
     bunFlags,
     outDir,
+    noiseCheck,
     exportJson,
     format,
     quiet,

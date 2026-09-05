@@ -18,6 +18,10 @@ import type {
   Warning,
   Workload,
 } from "./ir/types.ts"
+import {
+  captureEnvironment,
+  noisyMachineWarning,
+} from "./measure/environment.ts"
 import { runTimingPhase } from "./measure/timing.ts"
 import { splitCommand } from "./spawn/index.ts"
 
@@ -50,6 +54,10 @@ interface TimeOptions {
   heap?: boolean
   cpuIntervalUs?: number
   outDir?: string
+  /** Measure this machine's noise floor before the first command (default:
+   * true) and stamp it on the document as `environment`. Set false to skip
+   * the ~200ms reference measurement. */
+  noiseCheck?: boolean
 }
 
 const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
@@ -65,6 +73,11 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   })
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   const artifactDir = `${outDir}/artifacts`
+  const environment =
+    opts.noiseCheck === false ? undefined : captureEnvironment()
+  const noiseWarning = environment
+    ? noisyMachineWarning(environment)
+    : undefined
 
   const workloads: Workload[] = []
   const measurements: Measurement[] = []
@@ -90,7 +103,10 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       configFingerprint: cfgFp,
       trials: phaseResult.trials,
       timing: phaseResult.timing,
-      warnings: phaseResult.warnings,
+      warnings:
+        noiseWarning && measurements.length === 0
+          ? [...phaseResult.warnings, noiseWarning]
+          : phaseResult.warnings,
     })
     measurements.push(timingMeasurement)
 
@@ -144,7 +160,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     }
   }
 
-  return newDocument(workloads, measurements)
+  return newDocument(workloads, measurements, environment)
 }
 
 /** @deprecated Use `time()`. Kept as an alias for one release so mitata/hyperfine

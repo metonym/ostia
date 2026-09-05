@@ -15,6 +15,7 @@ function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
     gc: false,
     isolate: false,
     preload: [],
+    noiseCheck: true,
     ...overrides,
   }
 }

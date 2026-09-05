@@ -84,6 +84,11 @@ export function compareWorkload(
 
   let failed = false
   const warnings: Warning[] = []
+  const effectiveTimingPct = Math.max(
+    thresholds.timingPct,
+    base.environment?.noise.floorPct ?? 0,
+    cand.environment?.noise.floorPct ?? 0,
+  )
 
   let timing: Comparison["timing"]
   if (baseTiming?.timing && candTiming?.timing) {
@@ -103,9 +108,9 @@ export function compareWorkload(
       candSamples.length < MIN_SAMPLES_FOR_TEST
     ) {
       const verdict =
-        medianDeltaPct > thresholds.timingPct
+        medianDeltaPct > effectiveTimingPct
           ? "regressed"
-          : medianDeltaPct < -thresholds.timingPct
+          : medianDeltaPct < -effectiveTimingPct
             ? "improved"
             : "unchanged"
       if (verdict === "regressed") failed = true
@@ -129,9 +134,9 @@ export function compareWorkload(
       })
       const mw = mannWhitneyU(baseSamples, candSamples)
       const verdict =
-        bootstrap.ci95[0] > thresholds.timingPct && mw.pValue < thresholds.alpha
+        bootstrap.ci95[0] > effectiveTimingPct && mw.pValue < thresholds.alpha
           ? "regressed"
-          : bootstrap.ci95[1] < -thresholds.timingPct &&
+          : bootstrap.ci95[1] < -effectiveTimingPct &&
               mw.pValue < thresholds.alpha
             ? "improved"
             : "unchanged"
@@ -220,7 +225,7 @@ export function compareWorkload(
     ...(warnings.length > 0 && { warnings }),
     frames,
     heapTypes,
-    thresholds,
+    thresholds: { ...thresholds, effectiveTimingPct },
     verdict: failed ? "fail" : "pass",
   }
 }

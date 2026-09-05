@@ -8,6 +8,10 @@ import {
   saveDocument,
 } from "../ir/document.ts"
 import {
+  captureEnvironment,
+  noisyMachineWarning,
+} from "../measure/environment.ts"
+import {
   type InprocessTimingOptions,
   measureTask,
 } from "../measure/inprocess.ts"
@@ -45,6 +49,10 @@ export interface RunnerOpts extends InprocessTimingOptions {
    * `Bun.plugin()` file-loader) is visible to a later preload script and to
    * the suite file itself. */
   preload?: string[]
+  /** Measure this machine's noise floor before the first task (default:
+   * true) and stamp it on the document as `environment`. Set false to skip
+   * the ~200ms reference measurement. */
+  noiseCheck?: boolean
 }
 
 async function main(): Promise<number> {
@@ -99,6 +107,14 @@ async function main(): Promise<number> {
     ? tasks
     : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false))
 
+  const environment =
+    toRun.length > 0 && opts.noiseCheck !== false
+      ? captureEnvironment()
+      : undefined
+  const noiseWarning = environment
+    ? noisyMachineWarning(environment)
+    : undefined
+
   const workloads = []
   const measurements = []
   for (const t of toRun) {
@@ -136,12 +152,18 @@ async function main(): Promise<number> {
         }),
         trials: result.trials,
         timing: result.timing,
-        warnings: result.warnings,
+        warnings:
+          noiseWarning && measurements.length === 0
+            ? [...result.warnings, noiseWarning]
+            : result.warnings,
       }),
     )
   }
 
-  await saveDocument(newDocument(workloads, measurements), outputPath)
+  await saveDocument(
+    newDocument(workloads, measurements, environment),
+    outputPath,
+  )
   return 0
 }
 

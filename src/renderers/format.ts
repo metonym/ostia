@@ -1,3 +1,5 @@
+import type { Environment } from "../ir/types.ts"
+
 export type DurationUnit = "ns" | "µs" | "ms" | "s"
 
 const UNIT_DIVISORS: Record<DurationUnit, number> = {
@@ -35,4 +37,10 @@ export function formatDuration(
 ): string {
   const value = ns / UNIT_DIVISORS[unit]
   return `${value.toFixed(sigFigDecimals(value))} ${unit}`
+}
+
+/** One header line describing the machine a document was measured on, e.g.
+ * `Apple M2 Pro · 12 cores · load 2.1 · noise floor 1.8%`. */
+export function formatEnvironmentLine(env: Environment): string {
+  return `${env.cpuModel} · ${env.cores} cores · load ${env.loadAvg1.toFixed(1)} · noise floor ${env.noise.floorPct.toFixed(1)}%`
 }

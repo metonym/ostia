@@ -130,6 +130,38 @@ describe("compareWorkload - bootstrap CI + Mann-Whitney significance test", () =
     expect(cmp!.verdict).toBe("fail")
   })
 
+  test("a 4%-equivalent delta is unchanged when the machine's noise floor is 6% (widened effective threshold)", () => {
+    const base = timingDoc(
+      ["bun", "a.ts"],
+      Array.from({ length: 30 }, (_, i) => 10_000_000 + (i % 5) * 1_000),
+    )
+    const cand = timingDoc(
+      ["bun", "a.ts"],
+      Array.from({ length: 30 }, (_, i) => 10_550_000 + (i % 5) * 1_000),
+    )
+    const noise = { floorPct: 6, referenceMedianNs: 1000, samples: 100 }
+    base.doc.environment = {
+      cpuModel: "test-cpu",
+      cores: 8,
+      loadAvg1: 1,
+      loadAvg5: 1,
+      noise,
+    }
+    cand.doc.environment = {
+      cpuModel: "test-cpu",
+      cores: 8,
+      loadAvg1: 1,
+      loadAvg5: 1,
+      noise,
+    }
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)
+    expect(cmp!.timing!.medianDeltaPct).toBeCloseTo(5.5, 0)
+    expect(cmp!.thresholds.effectiveTimingPct).toBe(6)
+    expect(cmp!.timing!.verdict).toBe("unchanged")
+    expect(cmp!.verdict).toBe("pass")
+  })
+
   test("a thin (3-sample) comparison falls back to the point-estimate rule with a thin-comparison warning", () => {
     const base = timingDoc(
       ["bun", "a.ts"],

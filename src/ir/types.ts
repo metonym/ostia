@@ -9,6 +9,27 @@ export interface ProfileDocument {
   workloads: Workload[]
   measurements: Measurement[]
   comparisons?: Comparison[]
+  /** Machine conditions when this document was measured. Additive, no
+   * schema bump. Absent when `noiseCheck: false` (or `--no-noise-check`)
+   * skipped the reference measurement. */
+  environment?: Environment
+}
+
+export interface NoiseFloor {
+  /** `mad / median` of the reference workload's trial times, as a percent -
+   * how noisy this machine is right now, independent of what's being
+   * measured. */
+  floorPct: number
+  referenceMedianNs: number
+  samples: number
+}
+
+export interface Environment {
+  cpuModel: string
+  cores: number
+  loadAvg1: number
+  loadAvg5: number
+  noise: NoiseFloor
 }
 
 export interface Workload {
@@ -151,6 +172,7 @@ export type WarningCode =
   | "cache-fallback-rerun"
   | "low-sample-count"
   | "thin-comparison"
+  | "noisy-machine"
 
 export interface Warning {
   code: WarningCode
@@ -220,6 +242,10 @@ export interface Comparison {
     minFrameSelfUs: number
     alpha: number
     bootstrapIterations: number
+    /** `max(timingPct, base.environment.noise.floorPct,
+     * cand.environment.noise.floorPct)` - the threshold timing was actually
+     * tested against, once machine noise widens it past `timingPct`. */
+    effectiveTimingPct: number
   }
   verdict: "pass" | "fail"
 }

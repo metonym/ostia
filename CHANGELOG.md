@@ -39,6 +39,16 @@
   2000, capped and subsampled for large sample counts). Comparisons with
   fewer than 5 samples per side fall back to the old point-estimate rule
   and carry a `thin-comparison` warning.
+- `time()`/`bench()` stamp `environment` (`cpuModel`, `cores`, `loadAvg1`,
+  `loadAvg5`, `noise: { floorPct, referenceMedianNs, samples }`) on every
+  document by default: a ~200ms fixed-cost, deterministic, allocation-free
+  reference workload measures how noisy the machine is right now. `compare`
+  widens the effective regression threshold to at least the noise floor
+  (`Comparison.thresholds.effectiveTimingPct`), and warns `noisy-machine`
+  when the 1-minute load average already exceeds 75% of available cores.
+  `--no-noise-check` (`noiseCheck: false`) skips it. Terminal and markdown
+  renderers print one header line, e.g. `Apple M2 Pro · 12 cores · load
+  2.1 · noise floor 1.8%`.
 
 **Fixes**
 

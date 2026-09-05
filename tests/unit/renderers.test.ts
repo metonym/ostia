@@ -219,6 +219,28 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result.text).not.toContain("Mean [ms]")
   })
 
+  test("table and markdown renderers print an environment header line when the document carries one", async () => {
+    const doc = fixedDoc()
+    doc.environment = {
+      cpuModel: "Apple M2 Pro",
+      cores: 12,
+      loadAvg1: 2.1,
+      loadAvg5: 1.8,
+      noise: { floorPct: 1.8, referenceMedianNs: 500, samples: 1000 },
+    }
+    const table = await renderers.table.render(doc, {})
+    const markdown = await renderers.markdown.render(doc, {})
+    const expectedLine = "Apple M2 Pro · 12 cores · load 2.1 · noise floor 1.8%"
+    expect(table.text).toContain(expectedLine)
+    expect(markdown.text).toContain(expectedLine)
+  })
+
+  test("table renderer omits the environment line when the document carries none", async () => {
+    const doc = fixedDoc()
+    const result = await renderers.table.render(doc, {})
+    expect(result.text).not.toContain("noise floor")
+  })
+
   test("table renderer's Spread column is p75...p99, computed from TimingStats", async () => {
     const doc = fixedDoc()
     const t = doc.measurements[0]!.timing!
@@ -468,6 +490,7 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
           minFrameSelfUs: 1000,
           alpha: 0.01,
           bootstrapIterations: 2000,
+          effectiveTimingPct: 5,
         },
         verdict: "fail",
       },

@@ -25,7 +25,13 @@ import {
 } from "./measure/environment.ts"
 import { keep } from "./measure/inprocess.ts"
 import { createTimingPhase, runTimingPhase } from "./measure/timing.ts"
-import { splitCommand } from "./spawn/index.ts"
+import {
+  type PrepareHook,
+  type PrepareRun,
+  runPrepare,
+  splitCommand,
+  type TimeSource,
+} from "./spawn/index.ts"
 
 export { bench } from "./bench/index.ts"
 export { range } from "./bench/range.ts"
@@ -33,7 +39,7 @@ export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { sweep } from "./bench/sweep.ts"
 export { compareDocuments } from "./compare/index.ts"
-export type { OstiaConfig } from "./config/index.ts"
+export type { OstiaConfig, WorkloadConfig } from "./config/index.ts"
 export {
   loadDocument,
   newDocument as createDocument,
@@ -47,6 +53,13 @@ export type {
 } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
 export type { MinimalLine } from "./renderers/minimal/index.ts"
+export type {
+  PrepareFn,
+  PrepareHook,
+  PrepareRun,
+  TimeSource,
+  TimeUnit,
+} from "./spawn/index.ts"
 export { keep }
 
 /** Identity function purely for typing: lets `ostia.config.ts` write
@@ -60,8 +73,33 @@ export function defineConfig(
   return config
 }
 
-interface TimeOptions {
-  commands: (string | string[])[]
+/** One command for `time()`: a string (whitespace-split, no shell), an argv
+ * array, or an object carrying per-command settings. The object form is how
+ * two workloads with the same command but a different `prepare` (warm vs
+ * cold build) or a different `timeSource` (wall clock vs self-reported) get
+ * distinct labels in the same document. */
+export interface CommandSpec {
+  command: string | string[]
+  label?: string
+  /** Overrides `TimeOptions.prepare` for this command. */
+  prepare?: PrepareHook
+  /** Overrides `TimeOptions.timeSource` for this command. */
+  timeSource?: TimeSource
+}
+
+export interface TimeOptions {
+  commands: (string | string[] | CommandSpec)[]
+  /** Runs before every trial of every command (warmup and instrumented
+   * trials included), unmeasured, in `cwd`/`env`: a command string / argv
+   * array spawned and awaited, or a function. hyperfine's `--prepare`. A
+   * `CommandSpec.prepare` overrides it per command. */
+  prepare?: PrepareHook
+  /** Take every command's timing from a number in its own output instead of
+   * its wall clock (e.g. a build tool's `built in 342ms` line, which
+   * excludes runtime startup). A `CommandSpec.timeSource` overrides it per
+   * command. The parsed value becomes `timing.samples`; each trial keeps
+   * `wallNs` too. */
+  timeSource?: TimeSource
   /** Exact trial count. When set, `budgetMs` is ignored. */
   samples?: number
   /** Wall-clock time budget for the sampling loop, ms (default: a
@@ -115,30 +153,41 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const workloads: Workload[] = []
   const measurements: Measurement[] = []
 
-  const entries = opts.commands.map((command) => {
-    const argv = Array.isArray(command) ? command : splitCommand(command)
+  const entries = opts.commands.map((entry) => {
+    const spec: CommandSpec =
+      typeof entry === "string" || Array.isArray(entry)
+        ? { command: entry }
+        : entry
+    const argv = Array.isArray(spec.command)
+      ? spec.command
+      : splitCommand(spec.command)
+    const prepare = spec.prepare ?? opts.prepare
+    const timeSource = spec.timeSource ?? opts.timeSource
     const workload = makeSubprocessWorkload(
       argv,
-      Array.isArray(command) ? undefined : command,
+      spec.label ?? (Array.isArray(spec.command) ? undefined : spec.command),
+      { prepare, timeSource },
     )
-    return { argv, workload }
+    return { argv, workload, prepare, timeSource }
   })
 
   const interleave = (opts.interleave ?? true) && entries.length > 1
 
-  const timingPhaseOpts = (argv: string[]) => ({
-    argv,
+  const timingPhaseOpts = (entry: (typeof entries)[number]) => ({
+    argv: entry.argv,
     cwd: opts.cwd,
     env: opts.env,
     samples: opts.samples,
     budgetMs: opts.budgetMs,
     minSamples: opts.minSamples,
     warmup: opts.warmup,
+    prepare: entry.prepare,
+    timeSource: entry.timeSource,
   })
 
   if (interleave) {
-    const phases = entries.map(({ argv }) =>
-      createTimingPhase(timingPhaseOpts(argv)),
+    const phases = entries.map((entry) =>
+      createTimingPhase(timingPhaseOpts(entry)),
     )
     for (const phase of phases) await phase.warmup()
 
@@ -151,7 +200,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     }
 
     for (let i = 0; i < entries.length; i++) {
-      const { argv, workload } = entries[i]!
+      const { argv, workload, prepare } = entries[i]!
       workloads.push(workload)
       const phaseResult = phases[i]!.result()
       const timingMeasurement = makeTimingMeasurement({
@@ -174,6 +223,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
           cfgFp,
           opts,
           artifactDir,
+          prepare,
         )),
       )
     }
@@ -181,10 +231,11 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     return newDocument(workloads, measurements, environment)
   }
 
-  for (const { argv, workload } of entries) {
+  for (const entry of entries) {
+    const { argv, workload, prepare } = entry
     workloads.push(workload)
 
-    const phaseResult = await runTimingPhase(timingPhaseOpts(argv))
+    const phaseResult = await runTimingPhase(timingPhaseOpts(entry))
 
     const timingMeasurement = makeTimingMeasurement({
       workload,
@@ -205,6 +256,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
         cfgFp,
         opts,
         artifactDir,
+        prepare,
       )),
     )
   }
@@ -219,10 +271,22 @@ async function captureInstrumentedPhases(
   cfgFp: string,
   opts: TimeOptions,
   artifactDir: string,
+  prepare?: PrepareHook,
 ): Promise<Measurement[]> {
   const extra: Measurement[] = []
+  // An instrumented trial is one more run of the command, so a prepare hook
+  // (cold cache, fresh fixture) applies to it the same as to a timing trial.
+  const prepareFor = async (phase: PrepareRun["phase"]) => {
+    if (prepare)
+      await runPrepare(
+        prepare,
+        { phase, index: 0 },
+        { cwd: opts.cwd, env: opts.env },
+      )
+  }
 
   if (opts.cpu) {
+    await prepareFor("cpu")
     const fileName = `${timingMeasurementId}-cpu.cpuprofile`
     const capture = await runCpuCapture({
       argv,
@@ -248,6 +312,7 @@ async function captureInstrumentedPhases(
   }
 
   if (opts.heap) {
+    await prepareFor("heap")
     const fileName = `${timingMeasurementId}-heap.heapsnapshot`
     const capture = await runHeapCapture({
       argv,

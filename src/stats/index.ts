@@ -77,7 +77,10 @@ function percentile(sorted: Float64Array, p: number): number {
 const FAST_COMMAND_NS = 5_000_000
 const TIMER_RESOLUTION_NS = 200
 
-export type TimingMode = "subprocess" | "inprocess"
+/** `reported` is a subprocess whose samples are its own reported times (a
+ * `timeSource` workload): neither the spawn-overhead nor the timer-resolution
+ * heuristic applies to a number the command printed itself. */
+export type TimingMode = "subprocess" | "inprocess" | "reported"
 
 export function timingWarnings(
   stats: TimingStats,

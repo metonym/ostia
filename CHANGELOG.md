@@ -1,5 +1,35 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `prepare` hook for `command` workloads (`ostia time --prepare CMD`,
+  `time({ prepare })`, config `prepare`): runs before every trial, warmup
+  and `--cpu`/`--heap` trials included, unmeasured, in the command's cwd -
+  hyperfine's `--prepare`. A command string / argv array anywhere, or a
+  function `({ phase, index }) => ...` in the library API and
+  `ostia.config.ts`. Part of the workload id; a function-form hook makes
+  its workload uncacheable for `ostia ci`. `--prepare` given once applies to
+  every command, once per command pairs in order.
+- `timeSource` for `command` workloads (`ostia time --time-source REGEX
+  [--time-unit ns|us|ms|s]`, `time({ timeSource })`, config `timeSource`):
+  take each trial's time from a number in the command's own stdout/stderr
+  instead of its wall clock (a build tool's `built in 342ms` line). The
+  parsed value becomes `timing.samples`, so `compare`/`ci`/renderers need
+  nothing new; `Trial.reportedNs` keeps it next to `wallNs`. A trial whose
+  output doesn't match aborts the run with the output quoted. Part of the
+  workload id, so wall-clock and reported timings of one command are two
+  workloads.
+- `time()` accepts `{ command, label?, prepare?, timeSource? }` objects in
+  `commands`, so one command can be several labeled workloads (warm /
+  incremental / cold) in the same document.
+- `Workload.prepare` / `Workload.timeSource` on the document (additive, no
+  schema bump); `WorkloadConfig`, `PrepareHook`, `PrepareRun`, `TimeSource`
+  exported from the library.
+- README: a watch-mode recipe for `ostia bench` (`watchexec -e ts -- ostia
+  bench ... --budget 100`) rather than a built-in `--watch`.
+
 ## 0.2.0 — 2026-09-05
 
 **Features**

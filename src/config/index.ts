@@ -1,15 +1,25 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from "../compare/index.ts"
+import type { PrepareHook, TimeSource } from "../spawn/index.ts"
 
 /** Exactly one of `command` (a subprocess to time) / `suites` (in-process
  * `group()`/`task()` suite file globs, run via `bench()`) must be given. A
  * `suites` entry gates every task in those files individually - one
  * candidate-vs-baseline comparison per task, matched by workload id the same
  * way `command` workloads already are. */
-interface WorkloadConfig {
+export interface WorkloadConfig {
   label?: string
   command?: string[]
   suites?: string[]
   inputs?: string[]
+  /** `command` only. Runs before every trial (warmup included), unmeasured:
+   * a command string / argv array in both `.ts` and JSON config, or a
+   * function in `ostia.config.ts`. A function-form hook makes the workload
+   * uncacheable for `ostia ci` (its effect can't be fingerprinted), so it
+   * always executes. */
+  prepare?: PrepareHook
+  /** `command` only. Take timing from a number in the command's own output
+   * instead of its wall clock; see `TimeSource`. */
+  timeSource?: TimeSource
 }
 
 export interface BenchConfig {

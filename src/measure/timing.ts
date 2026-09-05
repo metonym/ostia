@@ -1,5 +1,10 @@
 import type { TimingStats, Trial, Warning } from "../ir/types.ts"
-import { runTrial, type SpawnTrialOptions } from "../spawn/index.ts"
+import {
+  type PrepareHook,
+  runPrepare,
+  runTrial,
+  type SpawnTrialOptions,
+} from "../spawn/index.ts"
 import { computeTimingStats, timingWarnings } from "../stats/index.ts"
 
 export interface TimingPhaseOptions extends SpawnTrialOptions {
@@ -12,6 +17,9 @@ export interface TimingPhaseOptions extends SpawnTrialOptions {
   minSamples?: number
   /** Wall-clock time budget for the sampling loop, ms. */
   budgetMs?: number
+  /** Runs before every trial, warmup included, unmeasured. See
+   * `PrepareHook`. */
+  prepare?: PrepareHook
 }
 
 const DEFAULT_MIN_SAMPLES = 10
@@ -52,6 +60,7 @@ export function createTimingPhase(
       : opts.budgetMs !== undefined
         ? opts.budgetMs * 1e6
         : DEFAULT_BUDGET_NS
+  const reported = opts.timeSource !== undefined
 
   const trials: Trial[] = []
   let totalNs = 0
@@ -62,13 +71,24 @@ export function createTimingPhase(
     return i >= minSamplesFloor && totalNs >= budgetNs
   }
 
+  async function trial(phase: "warmup" | "timing", index: number) {
+    if (opts.prepare) {
+      await runPrepare(
+        opts.prepare,
+        { phase, index },
+        { cwd: opts.cwd, env: opts.env },
+      )
+    }
+    return runTrial(opts)
+  }
+
   return {
     async warmup() {
-      for (let w = 0; w < warmupCount; w++) await runTrial(opts)
+      for (let w = 0; w < warmupCount; w++) await trial("warmup", w)
     },
     async step() {
       if (done()) return false
-      const result = await runTrial(opts)
+      const result = await trial("timing", i)
       trials.push({
         i,
         wallNs: result.wallNs,
@@ -76,18 +96,26 @@ export function createTimingPhase(
         userNs: result.userNs,
         systemNs: result.systemNs,
         maxRssBytes: result.maxRssBytes,
+        ...(result.reportedNs !== undefined && {
+          reportedNs: result.reportedNs,
+        }),
       })
+      // The budget is about how long the loop is allowed to take, so it
+      // always counts wall time, even when the samples are reported times.
       totalNs += result.wallNs
       i++
       return true
     },
     done,
     result(): TimingPhaseResult {
-      const timingSamples = trials.map((t) => t.wallNs)
+      const timingSamples = trials.map((t) =>
+        reported ? (t.reportedNs ?? t.wallNs) : t.wallNs,
+      )
       const timing = computeTimingStats(timingSamples)
       const warnings = timingWarnings(
         timing,
         trials.map((t) => t.exitCode),
+        reported ? "reported" : "subprocess",
       )
       return { trials, timing, warnings }
     },

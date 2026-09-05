@@ -1,3 +1,9 @@
+import {
+  type PrepareHook,
+  prepareArgv,
+  type TimeSource,
+  timeSourceSpec,
+} from "../spawn/index.ts"
 import { fp, sortKeysDeep } from "./fp.ts"
 import { captureGitMetadata } from "./git.ts"
 import type {
@@ -38,12 +44,41 @@ export function newDocument(
   }
 }
 
+export interface SubprocessWorkloadOptions {
+  prepare?: PrepareHook
+  timeSource?: TimeSource
+}
+
+/** `prepare` and `timeSource` join the id only when given, so commands
+ * without them keep their pre-existing id (no orphaned baselines). A
+ * function-form `prepare` hashes by its source text, like an in-process
+ * workload does. */
 export function makeSubprocessWorkload(
   command: string[],
   label?: string,
+  opts: SubprocessWorkloadOptions = {},
 ): Workload {
-  const id = fp("wl", "subprocess", command, process.cwd())
-  return { id, kind: "subprocess", command, label }
+  const prepare = prepareArgv(opts.prepare)
+  const timeSource = timeSourceSpec(opts.timeSource)
+  const prepareKey =
+    typeof opts.prepare === "function" ? opts.prepare.toString() : prepare
+  const id = fp(
+    "wl",
+    "subprocess",
+    command,
+    process.cwd(),
+    ...(prepareKey !== undefined || timeSource !== undefined
+      ? [prepareKey ?? null, timeSource ?? null]
+      : []),
+  )
+  return {
+    id,
+    kind: "subprocess",
+    command,
+    label,
+    ...(prepare !== undefined && { prepare }),
+    ...(timeSource !== undefined && { timeSource }),
+  }
 }
 
 export function makeInprocessWorkload(

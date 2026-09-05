@@ -106,12 +106,19 @@ export async function measureConfigWorkloads(
       continue
     }
 
-    const workload = makeSubprocessWorkload(wc.command!, wc.label)
+    const workload = makeSubprocessWorkload(wc.command!, wc.label, {
+      prepare: wc.prepare,
+      timeSource: wc.timeSource,
+    })
     const inputsDigest = await computeInputsDigest(wc.inputs ?? [])
     const cfgFp = configFingerprint({
       runs: config.runs,
       warmup: config.warmup,
     })
+    // A function-form prepare hook can do anything (its source text is in
+    // the workload id, but not what it reads), so its runs never come from
+    // cache: the same "fail conservative" rule as a workload with no inputs.
+    const cacheable = typeof wc.prepare !== "function"
     const cacheKey = computeCacheKey({
       workloadId: workload.id,
       phase: "timing",
@@ -122,9 +129,10 @@ export async function measureConfigWorkloads(
       inputsDigest,
     })
 
-    const cachedRun = full
-      ? undefined
-      : await readCachedRun(config.outDir, cacheKey)
+    const cachedRun =
+      full || !cacheable
+        ? undefined
+        : await readCachedRun(config.outDir, cacheKey)
     let run: Measurement
     let status: WorkloadStatus
 
@@ -136,6 +144,8 @@ export async function measureConfigWorkloads(
         argv: wc.command!,
         samples: config.runs ?? undefined,
         warmup: config.warmup,
+        prepare: wc.prepare,
+        timeSource: wc.timeSource,
       })
       run = makeTimingMeasurement({
         workload,
@@ -144,7 +154,7 @@ export async function measureConfigWorkloads(
         timing: phaseResult.timing,
         warnings: phaseResult.warnings,
       })
-      await writeCachedRun(config.outDir, cacheKey, run)
+      if (cacheable) await writeCachedRun(config.outDir, cacheKey, run)
       status = "executed"
     }
 

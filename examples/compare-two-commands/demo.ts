@@ -3,8 +3,8 @@ const cli = `${import.meta.dir}/../../src/cli/main.ts`
 const proc = Bun.spawn(
   [
     cli,
-    "run",
-    "--runs",
+    "time",
+    "--samples",
     "10",
     "--warmup",
     "2",
@@ -23,7 +23,7 @@ process.stdout.write(stdout)
 
 if (exitCode !== 0) {
   process.stderr.write(stderr)
-  process.stderr.write(`error: ostia run exited ${exitCode}\n`)
+  process.stderr.write(`error: ostia time exited ${exitCode}\n`)
   process.exit(1)
 }
 if (!stdout.includes("Relative")) {

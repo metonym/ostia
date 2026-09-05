@@ -36,12 +36,12 @@ async function writeRenderResult(
   }
 }
 
-const TIME_HELP = `ostia time [flags] <command...>  (alias: ostia run)
+const TIME_HELP = `ostia time [flags] <command...>
 
 Time one or more commands N times with warmup and report timing statistics.
 
 Flags:
-  --samples N         exact number of timed trials (--runs is a deprecated alias)
+  --samples N         exact number of timed trials
   --budget MS         wall-clock time budget for the sampling loop (default: a
                        hyperfine-style ~3s min-total-time loop when neither
                        --samples nor --budget is given)
@@ -69,7 +69,7 @@ mixed into the timing statistics.
 
 Examples:
   ostia time "bun ./fixtures/work.ts"
-  ostia time --runs 25 --warmup 3 "bun a.ts" "bun b.ts"
+  ostia time --samples 25 --warmup 3 "bun a.ts" "bun b.ts"
   ostia time --no-interleave "bun a.ts" "bun b.ts"
   ostia time --cpu --heap "bun src/server.ts"
   ostia time --format json "bun a.ts"
@@ -82,9 +82,8 @@ in its own spawned child process (isolated from CLI startup state).
 
 Flags:
   --budget MS         sampling budget per task; always runs at least this long (default: 500).
-                       --time-budget is a deprecated alias.
   --samples N         exact trial count per task; when set, the budget is ignored -
-                       the in-process equivalent of "ostia time"'s --samples/--runs.
+                       the in-process equivalent of "ostia time"'s --samples.
   --min-samples N     hard floor on samples per task, kept even when it overruns the
                        budget. Default: cost-aware - as many as fit in the budget (max 20),
                        but never below the floor the task's per-trial cost earns it: 3 at
@@ -140,9 +139,9 @@ Suite files register tasks like:
   import { group, task } from "<pkg>"
   group("parse", () => {
     task("small input", () => parse(smallBuf))
-    task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
+    task("full pipeline", () => build(), { budgetMs: 2000, minSamples: 10 })
   }, { description: "parser throughput on representative inputs" })
-Per-task options override --time-budget / --min-samples / --gc / --isolate / --cpu / --alloc
+Per-task options override --budget / --min-samples / --gc / --isolate / --cpu / --alloc
 for that task only; per-group { gc } / { isolate } / { cpu } / { alloc } set the default for
 every task in that group.
 Optional { description } on group() and task() flows into the document (Workload.description
@@ -178,7 +177,7 @@ still works as a one-off override without editing the config.
 
 Examples:
   ostia bench benches/parse.ts
-  ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
+  ostia bench --budget 1000 --min-samples 50 benches/*.ts
   ostia bench benches/*.ts --filter parse
   ostia bench benches/*.ts --jobs auto --format minimal
   ostia bench benches/*.ts --cpu --alloc
@@ -275,7 +274,6 @@ Examples:
 
 interface TimeArgs {
   commands: string[]
-  runs?: number
   samples?: number
   budgetMs?: number
   minSamples?: number
@@ -294,7 +292,6 @@ interface TimeArgs {
 
 function parseTimeArgs(argv: string[]): TimeArgs {
   const commands: string[] = []
-  let runs: number | undefined
   let samples: number | undefined
   let budgetMs: number | undefined
   let minSamples: number | undefined
@@ -313,9 +310,6 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
-      case "--runs":
-        runs = Number(argv[++i])
-        break
       case "--samples":
         samples = Number(argv[++i])
         break
@@ -366,7 +360,6 @@ function parseTimeArgs(argv: string[]): TimeArgs {
 
   return {
     commands,
-    runs,
     samples,
     budgetMs,
     minSamples,
@@ -402,7 +395,6 @@ async function timeCommand(argv: string[]): Promise<number> {
   try {
     doc = await time({
       commands: parsed.commands,
-      runs: parsed.runs,
       samples: parsed.samples,
       budgetMs: parsed.budgetMs,
       minSamples: parsed.minSamples,
@@ -439,7 +431,6 @@ async function timeCommand(argv: string[]): Promise<number> {
 
 interface BenchArgs {
   suites: string[]
-  timeBudgetMs?: number
   budgetMs?: number
   samples?: number
   minSamples?: number
@@ -461,7 +452,6 @@ interface BenchArgs {
 
 function parseBenchArgs(argv: string[]): BenchArgs {
   const suites: string[] = []
-  let timeBudgetMs: number | undefined
   let budgetMs: number | undefined
   let samples: number | undefined
   let minSamples: number | undefined
@@ -490,9 +480,6 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       continue
     }
     switch (arg) {
-      case "--time-budget":
-        timeBudgetMs = Number(argv[++i])
-        break
       case "--budget":
         budgetMs = Number(argv[++i])
         break
@@ -551,7 +538,6 @@ function parseBenchArgs(argv: string[]): BenchArgs {
 
   return {
     suites,
-    timeBudgetMs,
     budgetMs,
     samples,
     minSamples,
@@ -730,8 +716,6 @@ interface ReportArgs {
   help: boolean
 }
 
-const VIZ_FORMAT_ALIASES: Record<string, FormatName> = { ascii: "table" }
-
 function parseReportArgs(argv: string[]): ReportArgs {
   let path: string | undefined
   let format: FormatName = "table"
@@ -742,11 +726,9 @@ function parseReportArgs(argv: string[]): ReportArgs {
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
-      case "--format": {
-        const raw = argv[++i] ?? ""
-        format = VIZ_FORMAT_ALIASES[raw] ?? (raw as FormatName)
+      case "--format":
+        format = (argv[++i] ?? "") as FormatName
         break
-      }
       case "--measurement":
         measurementId = argv[++i]
         break
@@ -774,7 +756,7 @@ async function reportCommand(argv: string[]): Promise<number> {
 
   if (!(parsed.format in renderers)) {
     process.stderr.write(
-      `Unknown --format "${parsed.format}". Expected one of: ${Object.keys(renderers).join(", ")}, ascii\n`,
+      `Unknown --format "${parsed.format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
     )
     return 2
   }
@@ -803,24 +785,6 @@ async function reportCommand(argv: string[]): Promise<number> {
   }
   await writeRenderResult(result, parsed.outDir)
   return 0
-}
-
-/** Hidden alias: `ostia viz` folded into `ostia report --format` (item 4). Kept so
- * existing scripts/muscle memory keep working; delegates after a deprecation notice. */
-async function vizCommand(argv: string[]): Promise<number> {
-  process.stderr.write(
-    'ostia viz is deprecated; use "ostia report <document.json> --format <fmt>" instead.\n',
-  )
-  const translated: string[] = []
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    if (arg === "--run") {
-      translated.push("--measurement", argv[++i] ?? "")
-    } else {
-      translated.push(arg)
-    }
-  }
-  return reportCommand(translated)
 }
 
 interface CiArgs {
@@ -1015,7 +979,6 @@ async function main(): Promise<number> {
 
   switch (subcommand) {
     case "time":
-    case "run":
       return timeCommand(rest)
     case "bench":
       return benchCommand(rest)
@@ -1027,13 +990,11 @@ async function main(): Promise<number> {
       return ciCommand(rest)
     case "baseline":
       return baselineCommand(rest)
-    case "viz":
-      return vizCommand(rest)
     case undefined:
     case "--help":
     case "-h":
       process.stdout.write(
-        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n  baseline  Manage baseline ProfileDocuments (save/list/show)\n\nRun "ostia <command> --help" for details.\n`,
+        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n  baseline  Manage baseline ProfileDocuments (save/list/show)\n\nRun "ostia <command> --help" for details.\n`,
       )
       return subcommand === undefined ? 2 : 0
     default:

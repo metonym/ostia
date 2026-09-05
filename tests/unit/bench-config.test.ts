@@ -90,14 +90,14 @@ describe("resolveBenchOptions", () => {
 
   test("CLI scalar flags override config, config overrides built-in undefined default", async () => {
     const config: BenchConfig = {
-      timeBudgetMs: 1000,
+      budgetMs: 1000,
       minSamples: 20,
       jobs: "auto",
       filter: "parse",
       outDir: ".config-out",
     }
     const resolved = await resolveBenchOptions(
-      cli({ timeBudgetMs: 5000 }),
+      cli({ budgetMs: 5000 }),
       config,
       "/tmp",
     )
@@ -112,7 +112,7 @@ describe("resolveBenchOptions", () => {
     expect(unset.outDir).toBeUndefined()
   })
 
-  test("new-name (budgetMs/samples) CLI and config fields resolve the same way as the deprecated names", async () => {
+  test("samples CLI and config fields resolve correctly", async () => {
     const resolved = await resolveBenchOptions(
       cli({ samples: 42 }),
       { budgetMs: 750 },

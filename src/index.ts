@@ -62,10 +62,7 @@ export function defineConfig(
 
 interface TimeOptions {
   commands: (string | string[])[]
-  /** @deprecated Use `samples`. */
-  runs?: number
-  /** Exact trial count. Same concept as the deprecated `runs`; when set,
-   * `budgetMs` is ignored. */
+  /** Exact trial count. When set, `budgetMs` is ignored. */
   samples?: number
   /** Wall-clock time budget for the sampling loop, ms (default: a
    * hyperfine-style ~3s min-total-time loop when neither `samples` nor
@@ -99,7 +96,7 @@ const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const cfgFp = configFingerprint({
-    samples: opts.samples ?? opts.runs ?? null,
+    samples: opts.samples ?? null,
     budgetMs: opts.budgetMs ?? null,
     minSamples: opts.minSamples ?? null,
     warmup: opts.warmup ?? null,
@@ -133,7 +130,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     argv,
     cwd: opts.cwd,
     env: opts.env,
-    samples: opts.samples ?? opts.runs,
+    samples: opts.samples,
     budgetMs: opts.budgetMs,
     minSamples: opts.minSamples,
     warmup: opts.warmup,
@@ -276,10 +273,6 @@ async function captureInstrumentedPhases(
 
   return extra
 }
-
-/** @deprecated Use `time()`. Kept as an alias for one release so mitata/hyperfine
- * migrators are not broken by the rename. */
-export const run = time
 
 async function instrumentedMeasurementFromCapture(input: {
   workload: Workload

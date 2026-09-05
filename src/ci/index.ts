@@ -51,7 +51,7 @@ export interface CiSummary {
 export class BaselineNotFoundError extends Error {
   constructor(public readonly path: string) {
     super(
-      `No baseline document at ${path}. Create one with: ostia run --export-json ${path} <command...>`,
+      `No baseline document at ${path}. Create one with: ostia time --export-json ${path} <command...>`,
     )
   }
 }
@@ -134,7 +134,7 @@ export async function measureConfigWorkloads(
     } else {
       const phaseResult = await runTimingPhase({
         argv: wc.command!,
-        runs: config.runs ?? undefined,
+        samples: config.runs ?? undefined,
         warmup: config.warmup,
       })
       run = makeTimingMeasurement({

@@ -12,7 +12,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   test("--cpu produces a labeled, instrumented CpuEvidence run with an artifact on disk", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 3,
+      samples: 3,
       warmup: 1,
       cpu: true,
       cpuIntervalUs: 100,
@@ -50,7 +50,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   test("--heap produces a HeapEvidence summary with a snapshot artifact on disk", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 1,
+      samples: 1,
       warmup: 0,
       heap: true,
       outDir: OUT_DIR,
@@ -73,7 +73,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   test("timing run carries free per-trial memory evidence from resourceUsage()", async () => {
     const doc = await time({
       commands: [`bun ${FIXTURE}`],
-      runs: 3,
+      samples: 3,
       warmup: 0,
       noiseCheck: false,
     })
@@ -86,7 +86,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
   test("a non-bun workload warns artifact-missing instead of throwing", async () => {
     const doc = await time({
       commands: [["sleep", "0.05"]],
-      runs: 1,
+      samples: 1,
       warmup: 0,
       cpu: true,
       outDir: OUT_DIR,

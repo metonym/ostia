@@ -13,7 +13,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 50,
+      budgetMs: 50,
       minSamples: 5,
       outDir: OUT_DIR,
     })
@@ -52,14 +52,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const a = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
       outDir: `${OUT_DIR}-a`,
     })
     const b = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
       outDir: `${OUT_DIR}-b`,
     })
@@ -75,7 +75,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-overrides.ts`],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 5,
       outDir: `${OUT_DIR}-overrides`,
     })
@@ -109,7 +109,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
       filter: "math",
       outDir: `${OUT_DIR}-filter-match`,
@@ -126,7 +126,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await expect(
       bench({
         suites: [SUITE],
-        timeBudgetMs: 20,
+        budgetMs: 20,
         minSamples: 5,
         filter: "nonexistent-xyz",
         outDir: `${OUT_DIR}-filter-empty`,
@@ -140,7 +140,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-described.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-described`,
     })
@@ -163,7 +163,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const bare = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-described-b`,
     })
@@ -186,14 +186,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const sequential = await bench({
       noiseCheck: false,
       suites,
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-jobs-1`,
     })
     const concurrent = await bench({
       noiseCheck: false,
       suites,
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       jobs: 3,
       outDir: `${OUT_DIR}-jobs-3`,
@@ -214,7 +214,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await expect(
       bench({
         suites: [SUITE, emptySuite],
-        timeBudgetMs: 10,
+        budgetMs: 10,
         minSamples: 3,
         jobs: 2,
         outDir: `${OUT_DIR}-jobs-fail`,
@@ -228,14 +228,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const bare = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-isolate-bare`,
     })
     const isolated = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       isolate: true,
       outDir: `${OUT_DIR}-isolate-all`,
@@ -259,7 +259,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-isolate.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-isolate-mixed`,
     })
@@ -286,7 +286,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       isolate: true,
       filter: "math",
@@ -305,7 +305,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       isolate: true,
       jobs: 3,
@@ -327,7 +327,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-gc.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-gc-mixed`,
     })
@@ -351,7 +351,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await expect(
       bench({
         suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-dom.ts`],
-        timeBudgetMs: 10,
+        budgetMs: 10,
         minSamples: 3,
         outDir: `${OUT_DIR}-preload-missing`,
       }),
@@ -364,7 +364,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-dom.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       preload: [`${import.meta.dir}/../fixtures/bench-preload-dom-setup.ts`],
       outDir: `${OUT_DIR}-preload-dom`,
@@ -379,7 +379,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-preload-order.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       preload: [
         `${import.meta.dir}/../fixtures/bench-preload-order-a.ts`,
@@ -399,7 +399,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
         suites: [
           `${import.meta.dir}/../fixtures/bench-suite-needs-bun-flag.ts`,
         ],
-        timeBudgetMs: 10,
+        budgetMs: 10,
         minSamples: 3,
         outDir: `${OUT_DIR}-bun-flags-missing`,
       }),
@@ -412,7 +412,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     const doc = await bench({
       noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-bun-flag.ts`],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       bunFlags: ["--define", 'process.env.OSTIA_BUN_FLAG_TEST:"1"'],
       outDir: `${OUT_DIR}-bun-flags-set`,
@@ -428,7 +428,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await bench({
       noiseCheck: false,
       suites: [SUITE],
-      timeBudgetMs: 20,
+      budgetMs: 20,
       minSamples: 5,
       outDir: runOutDir,
     })
@@ -449,7 +449,7 @@ describe("bench() - noise floor (item 7)", () => {
   test("stamps environment.noise by default", async () => {
     const doc = await bench({
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-noise`,
     })
@@ -461,7 +461,7 @@ describe("bench() - noise floor (item 7)", () => {
   test("noiseCheck: false skips the reference measurement", async () => {
     const doc = await bench({
       suites: [SUITE],
-      timeBudgetMs: 10,
+      budgetMs: 10,
       minSamples: 3,
       noiseCheck: false,
       outDir: `${OUT_DIR}-no-noise`,
@@ -474,7 +474,7 @@ describe("bench() - sweep() and structured params (item 8)", () => {
   test("registers one workload per cartesian point, each with distinct params and id", async () => {
     const doc = await bench({
       suites: [`${import.meta.dir}/../fixtures/bench-suite-sweep.ts`],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       outDir: `${OUT_DIR}-sweep`,
@@ -504,7 +504,7 @@ describe("bench() - before/after hooks (item 9)", () => {
 
     await bench({
       suites: [`${import.meta.dir}/../fixtures/bench-suite-hooks.ts`],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       outDir: `${OUT_DIR}-hooks`,
@@ -538,39 +538,13 @@ describe("bench() - unified timing vocabulary (item 11)", () => {
     }
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-vocab-samples`]).exited
   }, 20_000)
-
-  test("configFingerprint is identical for an old-name (timeBudgetMs) and new-name (budgetMs) call with the same effective settings", async () => {
-    const withOldName = await bench({
-      suites: [SUITE],
-      timeBudgetMs: 20,
-      minSamples: 3,
-      noiseCheck: false,
-      outDir: `${OUT_DIR}-vocab-old`,
-    })
-    const withNewName = await bench({
-      suites: [SUITE],
-      budgetMs: 20,
-      minSamples: 3,
-      noiseCheck: false,
-      outDir: `${OUT_DIR}-vocab-new`,
-    })
-    expect(withNewName.measurements.map((m) => m.configFingerprint)).toEqual(
-      withOldName.measurements.map((m) => m.configFingerprint),
-    )
-    await Bun.spawn([
-      "rm",
-      "-rf",
-      `${OUT_DIR}-vocab-old`,
-      `${OUT_DIR}-vocab-new`,
-    ]).exited
-  }, 20_000)
 })
 
 describe("bench() - --cpu and --alloc (item 12)", () => {
   test('--cpu adds an extra phase: "cpu" measurement per task without touching timing', async () => {
     const doc = await bench({
       suites: [SUITE],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       cpu: true,
@@ -597,7 +571,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
   test('--alloc adds an extra phase: "memstats" measurement with bytesPerOp', async () => {
     const doc = await bench({
       suites: [SUITE],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       alloc: true,
@@ -618,7 +592,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
   test("TaskOptions.cpu overrides the suite-wide default for one task", async () => {
     const doc = await bench({
       suites: [`${import.meta.dir}/../fixtures/bench-suite-cpu-override.ts`],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       cpu: false,
@@ -636,7 +610,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
   test("with --cpu on both sides, compareDocuments reports frame deltas for bench tasks", async () => {
     const base = await bench({
       suites: [SUITE],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       cpu: true,
@@ -644,7 +618,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
     })
     const cand = await bench({
       suites: [SUITE],
-      timeBudgetMs: 5,
+      budgetMs: 5,
       minSamples: 3,
       noiseCheck: false,
       cpu: true,

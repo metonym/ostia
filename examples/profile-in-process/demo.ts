@@ -37,7 +37,7 @@ if (!measurement.jit || measurement.jit.tiers.ftl === 0) {
 }
 
 // `document` is a full ProfileDocument (one workload, one measurement), so it
-// composes with the same renderers `ostia run --cpu` and `ostia bench` use,
+// composes with the same renderers `ostia time --cpu` and `ostia bench` use,
 // with no need to reach into src/ir/document.ts.
 const { files } = await renderers.collapsed.render(document, {})
 console.log(

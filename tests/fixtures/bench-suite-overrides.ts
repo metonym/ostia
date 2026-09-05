@@ -9,5 +9,5 @@ function spin(ms: number): number {
 
 group("overrides", () => {
   task("global", () => spin(1))
-  task("pinned", () => spin(1), { timeBudgetMs: 5, minSamples: 40 })
+  task("pinned", () => spin(1), { budgetMs: 5, minSamples: 40 })
 })

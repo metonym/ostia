@@ -3,22 +3,14 @@ import { runTrial, type SpawnTrialOptions } from "../spawn/index.ts"
 import { computeTimingStats, timingWarnings } from "../stats/index.ts"
 
 export interface TimingPhaseOptions extends SpawnTrialOptions {
-  /** @deprecated Use `samples`. */
-  runs?: number
-  /** Exact trial count. Same concept as the deprecated `runs`; when set, the
-   * budget (`budgetMs`/`minTotalNs`) is ignored and the loop runs exactly
-   * this many trials. */
+  /** Exact trial count; when set, the budget (`budgetMs`) is ignored and the
+   * loop runs exactly this many trials. */
   samples?: number
   /** Warmup trial count, discarded before sampling starts. */
   warmup?: number
-  /** @deprecated Use `minSamples`. */
-  minRuns?: number
   /** Hard floor on trials when no exact `samples` count is given. */
   minSamples?: number
-  /** @deprecated Use `budgetMs` (same value, in ms instead of ns). */
-  minTotalNs?: number
-  /** Wall-clock time budget for the sampling loop, ms. Same concept as the
-   * deprecated `minTotalNs`. */
+  /** Wall-clock time budget for the sampling loop, ms. */
   budgetMs?: number
 }
 
@@ -50,17 +42,16 @@ export function createTimingPhase(
   opts: TimingPhaseOptions,
 ): TimingPhaseIterator {
   const warmupCount = opts.warmup ?? DEFAULT_WARMUP
-  const samples = opts.samples ?? opts.runs
-  const minSamples = opts.minSamples ?? opts.minRuns ?? DEFAULT_MIN_SAMPLES
+  const samples = opts.samples
+  const minSamples = opts.minSamples ?? DEFAULT_MIN_SAMPLES
   const minSamplesFloor = samples ?? minSamples
-  // An exact sample count ignores the budget entirely, same as it always has
-  // under the `runs` name.
+  // An exact sample count ignores the budget entirely.
   const budgetNs =
     samples !== undefined
       ? 0
       : opts.budgetMs !== undefined
         ? opts.budgetMs * 1e6
-        : (opts.minTotalNs ?? DEFAULT_BUDGET_NS)
+        : DEFAULT_BUDGET_NS
 
   const trials: Trial[] = []
   let totalNs = 0

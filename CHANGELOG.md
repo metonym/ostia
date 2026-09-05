@@ -4,10 +4,9 @@
 
 **Features**
 
-- `ostia time` is the primary CLI name for what was `ostia run`; `run` is kept
-  as an alias
-- `time(opts)` is the primary library export for what was `run(opts)`; `run`
-  is kept as a `@deprecated` alias for one release
+- `ostia time` (renamed from `ostia run`) is the CLI subcommand for timing
+  commands; `time(opts)` (renamed from `run(opts)`) is the matching library
+  export
 - `profile(fn, opts)` returns `{ result, measurement, document }`; `document`
   is a full `ProfileDocument` so it composes with `renderers.*` /
   `saveDocument` without reaching into `src/ir/document.ts`
@@ -25,7 +24,7 @@
 
 - `ostia report --format` now covers `collapsed`/`mermaid`/`speedscope`/
   `cpuprofile` too (`--measurement <id>`, `--out-dir PATH`), folding in what
-  was `ostia viz`. `ostia viz` is a hidden, deprecated alias for one release.
+  was the separate `ostia viz` subcommand (removed)
 - `TimingStats` gains `p75`/`p99`/`mad` (median absolute deviation), all in
   ns, additive with no schema bump. Exposed in `minimal` lines and the
   markdown renderer's Timing table. The terminal table's Spread column now
@@ -72,16 +71,11 @@
   selected tasks (`--filter` still applies on top) and print a one-line
   `bench: N task(s) selected by .only` notice to stderr.
 - Unified timing vocabulary across `time()`/`ostia time` and
-  `bench()`/`ostia bench`: `samples` (exact trial count; `runs` is a
-  deprecated alias), `budgetMs` (wall-clock budget; `timeBudgetMs` is a
-  deprecated alias for `bench()`), `minSamples`, `warmup` (a trial count for
-  `time()`, a *fraction* of `budgetMs` for `bench()` - the asymmetry is
-  real, not papered over; `warmupFraction` is a deprecated alias). CLI:
-  `ostia time` gains `--samples`/`--budget`/`--min-samples`; `ostia bench`
-  gains `--budget`/`--samples` (`--time-budget` stays as an alias).
-  `configFingerprint` resolves old and new names to the same canonical
-  value, so an old-name and new-name call with the same effective settings
-  produce the same fingerprint and don't orphan a baseline.
+  `bench()`/`ostia bench`: `samples` (exact trial count), `budgetMs`
+  (wall-clock budget), `minSamples`, `warmup` (a trial count for `time()`,
+  a *fraction* of `budgetMs` for `bench()` - the asymmetry is real, not
+  papered over). CLI: `ostia time` gains `--samples`/`--budget`/
+  `--min-samples`; `ostia bench` gains `--budget`/`--samples`.
 - `ostia bench --cpu` captures an extra `phase: "cpu"` measurement per task
   (200ms of the task looped under the JSC sampling profiler, JIT tiers
   included) on top of its timing numbers; `ostia bench --alloc` captures an
@@ -156,6 +150,16 @@
   `baselineMeasurementId` / `candidateMeasurementId`. `loadDocument` upgrades
   a v1 document in memory, so existing `.ostia/baselines/` files still load.
   `renderers.*.render(doc, { runId })` is now `{ measurementId }`.
+- Removed every deprecated alias introduced during this release cycle rather
+  than shipping them: `run` (library export) and `ostia run` (CLI subcommand)
+  are gone, use `time()` / `ostia time`. `ostia viz` is gone, use
+  `ostia report --format`. `TimeOptions.runs` / `TimingPhaseOptions.runs` /
+  `--runs` are gone, use `samples`. `TimingPhaseOptions.minRuns` /
+  `minTotalNs` are gone, use `minSamples` / `budgetMs`.
+  `BenchOptions.timeBudgetMs` / `TaskOptions.timeBudgetMs` /
+  `BenchConfig.timeBudgetMs` / `InprocessTimingOptions.timeBudgetMs` /
+  `--time-budget` are gone, use `budgetMs` / `--budget`.
+  `InprocessTimingOptions.warmupFraction` is gone, use `warmup`.
 
 **Documentation**
 

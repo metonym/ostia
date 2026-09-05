@@ -188,7 +188,9 @@ it to install globals a suite needs at import time (jsdom's `document`/`window`)
 a `Bun.plugin()` file-loader (e.g. compiling `.svelte`/`.vue` SFCs) before the suite's own
 top-level code runs. Multiple `--preload` scripts run in the order given, so state one
 installs (a plugin registration, a global) is visible to the next and to the suite itself.
-ostia ships none of this itself - just the hook point:
+ostia ships none of this itself - just the hook point (for a full jsdom/happy-dom global
+setup or a `Bun.plugin()` component-compile hook, see
+[docs/preload-recipes.md](docs/preload-recipes.md)):
 
 ```ts
 // bench/jsdom-setup.ts

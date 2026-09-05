@@ -35,6 +35,12 @@ export function computeTimingStats(samples: number[]): TimingStats {
     else if (s < mildLow || s > mildHigh) mild++
   }
 
+  const p99 = percentile(sorted, 0.99)
+  const deviations = new Float64Array(n)
+  for (let i = 0; i < n; i++) deviations[i] = Math.abs(samples[i]! - median)
+  deviations.sort()
+  const mad = percentile(deviations, 0.5)
+
   return {
     unit: "ns",
     samples,
@@ -44,18 +50,10 @@ export function computeTimingStats(samples: number[]): TimingStats {
     min,
     max,
     outliers: { mild, severe },
+    p75: q3,
+    p99,
+    mad,
   }
-}
-
-/** 25th/75th percentiles of `samples`, for a table's Spread column. Kept
- * separate from `TimingStats` (which stores `outliers` counts, not the
- * quartiles themselves) until `p75`/`p99`/`mad` land on the IR. */
-export function computeQuartiles(samples: number[]): {
-  q1: number
-  q3: number
-} {
-  const sorted = sortedCopy(samples)
-  return { q1: percentile(sorted, 0.25), q3: percentile(sorted, 0.75) }
 }
 
 function sortedCopy(samples: number[]): Float64Array {

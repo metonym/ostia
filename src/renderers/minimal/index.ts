@@ -20,6 +20,11 @@ export interface MinimalLine {
   stddevPct: number
   min: number
   max: number
+  /** 75th/99th percentile and median absolute deviation, ns. Absent on
+   * documents saved before these fields existed. */
+  p75?: number
+  p99?: number
+  mad?: number
   /** Median over the group's reference median (its baseline task, else its
    * fastest). Only present when the document has more than one timing run. */
   relative?: number
@@ -73,6 +78,9 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
         w.data ? { code: w.code, data: w.data } : { code: w.code },
       ),
     }
+    if (t.p75 !== undefined) line.p75 = sig(t.p75)
+    if (t.p99 !== undefined) line.p99 = sig(t.p99)
+    if (t.mad !== undefined) line.mad = sig(t.mad)
     if (workload?.entry?.group !== undefined) line.group = workload.entry.group
     if (workload?.description !== undefined)
       line.description = workload.description

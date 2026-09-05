@@ -26,6 +26,10 @@
 - `ostia report --format` now covers `collapsed`/`mermaid`/`speedscope`/
   `cpuprofile` too (`--measurement <id>`, `--out-dir PATH`), folding in what
   was `ostia viz`. `ostia viz` is a hidden, deprecated alias for one release.
+- `TimingStats` gains `p75`/`p99`/`mad` (median absolute deviation), all in
+  ns, additive with no schema bump. Exposed in `minimal` lines and the
+  markdown renderer's Timing table. The terminal table's Spread column now
+  reads `p75…p99` instead of the IQR item 3 shipped as a placeholder.
 
 **Fixes**
 

@@ -279,7 +279,7 @@ sample (tens of thousands for a fast task), which is tokens a reviewer never rea
 Numbers stay in ns so they line up with `compare` deltas and the JSON document.
 
 ```
-{"task":"diffText()/append at end","group":"diffText()","samples":9282,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"relative":1,"warnings":[],"unit":"ns"}
+{"task":"diffText()/append at end","group":"diffText()","samples":9282,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"p75":50920,"p99":58011,"mad":1780,"relative":1,"warnings":[],"unit":"ns"}
 {"task":"repaint/4000 chars","group":"repaint","description":"full repaint every keystroke","samples":3,"mean":2.61e9,"median":2.4e9,"stddevPct":15.3,"relative":47800,"warnings":[{"code":"low-sample-count","data":{"samples":3,"target":10}}],"unit":"ns"}
 ```
 
@@ -291,13 +291,13 @@ Markdown:
 ```
 # Profile Report
 
-Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T03:44:08.196Z
+Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T13:14:50.085Z
 
 ## Timing
 
-| Task | Median | Mean ± SD | Range |
-|---|---|---|---|
-| bun -e 1 | 5.46 ms | 5.54 ms ± 0.48 ms | 5.19 ms…13.3 ms |
+| Task | Median | Spread (p75…p99) | Mean ± SD | Range | MAD |
+|---|---|---|---|---|---|
+| bun -e 1 | 5.03 ms | 5.42 ms…9.70 ms | 5.29 ms ± 0.84 ms | 4.77 ms…13.4 ms | 0.16 ms |
 ```
 
 #### CPU visualization formats

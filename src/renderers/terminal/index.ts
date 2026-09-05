@@ -1,5 +1,4 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
-import { computeQuartiles } from "../../stats/index.ts"
 import { formatDuration, pickDurationUnit } from "../format.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
@@ -100,9 +99,12 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
 
       const indent = indents.get(row)!
       const unit = pickDurationUnit(t.median)
-      const { q1, q3 } = computeQuartiles(t.samples)
+      // p75/p99 are absent only on documents saved before this field existed;
+      // fall back to the range so an old baseline still renders sensibly.
+      const p75 = t.p75 ?? t.median
+      const p99 = t.p99 ?? t.max
       const medianCell = formatDuration(t.median, unit)
-      const spreadCell = `${formatDuration(q1, unit)}…${formatDuration(q3, unit)}`
+      const spreadCell = `${formatDuration(p75, unit)}…${formatDuration(p99, unit)}`
       const rangeCell = `${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)}`
 
       let line = `${(indent + label).padEnd(labelWidth)}   ${medianCell.padEnd(medianWidth)} ${spreadCell.padEnd(spreadWidth)} ${rangeCell.padEnd(rangeWidth)}`

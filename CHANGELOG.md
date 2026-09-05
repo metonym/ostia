@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.1.7 — 2026-09-04
+
+**Features**
+
+- `--bun-flags` passes extra Bun flags (e.g. `--conditions`) to suite
+  subprocesses
+- `ostia.config.json` `"bench"` section supplies suite/preload/jobs defaults
+  when `ostia bench` is run with no arguments; CLI flags still override per
+  field
+
+**Fixes**
+
+- avoid importing a suite file twice per invocation (plan + shared-task passes
+  now share one import; isolated tasks still get their own subprocess)
+
+**Documentation**
+
+- preload recipes cookbook for DOM/component suites (jsdom/happy-dom,
+  Bun.plugin component compile)
+- multi-instance scoping pattern for suites
+
 ## 0.1.6 — 2026-09-04
 
 **Features**

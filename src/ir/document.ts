@@ -103,6 +103,7 @@ export interface TimingMeasurementInput {
   trials: Trial[]
   timing: TimingStats
   warnings: Warning[]
+  interleaved?: boolean
 }
 
 export function makeTimingMeasurement(
@@ -127,6 +128,7 @@ export function makeTimingMeasurement(
     warnings: input.warnings,
     artifacts: [],
     memory: memoryFromTrials(input.trials),
+    ...(input.interleaved !== undefined && { interleaved: input.interleaved }),
   }
 }
 

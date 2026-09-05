@@ -46,6 +46,13 @@ Flags:
                        --samples nor --budget is given)
   --min-samples N     hard floor on trials when --samples is not given
   --warmup N          warmup trials, discarded (default: 3)
+  --no-interleave     run each command's whole trial loop to completion before the next
+                       command starts, instead of round-robin (one trial per command,
+                       repeated). Round-robin is the default with 2+ commands: it spreads
+                       drift over the run's wall-clock span (thermal throttling, a noisy
+                       neighbor process) evenly across every command instead of favoring
+                       whichever ran first or last. Meaningless (and ignored) with one
+                       command. Interleaved measurements carry Measurement.interleaved: true.
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
@@ -62,6 +69,7 @@ mixed into the timing statistics.
 Examples:
   ostia time "bun ./fixtures/work.ts"
   ostia time --runs 25 --warmup 3 "bun a.ts" "bun b.ts"
+  ostia time --no-interleave "bun a.ts" "bun b.ts"
   ostia time --cpu --heap "bun src/server.ts"
   ostia time --format json "bun a.ts"
 `
@@ -247,6 +255,7 @@ interface TimeArgs {
   budgetMs?: number
   minSamples?: number
   warmup?: number
+  interleave: boolean
   cpu: boolean
   heap: boolean
   cpuIntervalUs?: number
@@ -265,6 +274,7 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   let budgetMs: number | undefined
   let minSamples: number | undefined
   let warmup: number | undefined
+  let interleave = true
   let cpu = false
   let heap = false
   let cpuIntervalUs: number | undefined
@@ -292,6 +302,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         break
       case "--warmup":
         warmup = Number(argv[++i])
+        break
+      case "--no-interleave":
+        interleave = false
         break
       case "--cpu":
         cpu = true
@@ -333,6 +346,7 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     budgetMs,
     minSamples,
     warmup,
+    interleave,
     cpu,
     heap,
     cpuIntervalUs,
@@ -368,6 +382,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       budgetMs: parsed.budgetMs,
       minSamples: parsed.minSamples,
       warmup: parsed.warmup,
+      interleave: parsed.interleave,
       cpu: parsed.cpu,
       heap: parsed.heap,
       cpuIntervalUs: parsed.cpuIntervalUs,

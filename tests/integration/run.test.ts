@@ -153,3 +153,62 @@ describe("time() - unified timing vocabulary (item 11)", () => {
     expect(totalNs).toBeGreaterThanOrEqual(200 * 1e6 * 0.9) // small slack
   }, 20_000)
 })
+
+describe("time() - interleaved trials for multi-command runs (item 14)", () => {
+  const MARKER = `${import.meta.dir}/../fixtures/interleave-marker.ts`
+
+  test("round-robins trials across commands by default with 2+ commands", async () => {
+    const logPath = `${import.meta.dir}/../../.ostia-test-interleave-default.log`
+    await Bun.spawn(["rm", "-f", logPath]).exited
+
+    const doc = await time({
+      commands: [
+        ["bun", MARKER, "a", logPath],
+        ["bun", MARKER, "b", logPath],
+      ],
+      runs: 3,
+      warmup: 0,
+      noiseCheck: false,
+    })
+
+    const log = await Bun.file(logPath).text()
+    expect(log.trim().split("\n")).toEqual(["a", "b", "a", "b", "a", "b"])
+    expect(doc.measurements.every((m) => m.interleaved === true)).toBe(true)
+
+    await Bun.spawn(["rm", "-f", logPath]).exited
+  }, 20_000)
+
+  test("--no-interleave (interleave: false) runs each command's loop to completion first", async () => {
+    const logPath = `${import.meta.dir}/../../.ostia-test-interleave-off.log`
+    await Bun.spawn(["rm", "-f", logPath]).exited
+
+    const doc = await time({
+      commands: [
+        ["bun", MARKER, "a", logPath],
+        ["bun", MARKER, "b", logPath],
+      ],
+      runs: 3,
+      warmup: 0,
+      interleave: false,
+      noiseCheck: false,
+    })
+
+    const log = await Bun.file(logPath).text()
+    expect(log.trim().split("\n")).toEqual(["a", "a", "a", "b", "b", "b"])
+    expect(doc.measurements.every((m) => m.interleaved === undefined)).toBe(
+      true,
+    )
+
+    await Bun.spawn(["rm", "-f", logPath]).exited
+  }, 20_000)
+
+  test("a single command is never interleaved even by default", async () => {
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 3,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    expect(doc.measurements[0]!.interleaved).toBeUndefined()
+  }, 20_000)
+})

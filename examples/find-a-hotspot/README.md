@@ -25,18 +25,19 @@ the same table is what you'd get pointed at real code.
 
 ## Viz is files, not a GUI
 
-The captured evidence turns into whatever shape is useful:
+`ostia report --format` renders the captured evidence into whatever shape is
+useful (`ostia viz` still works as a deprecated alias for one release):
 
 ```console
-ostia viz .ostia/doc.json --format collapsed
+ostia report .ostia/doc.json --format collapsed
 # (root);(module);hashLoop 1053
 
-ostia viz .ostia/doc.json --format mermaid
+ostia report .ostia/doc.json --format mermaid
 # graph TD
 #   n3["hashLoop (self 489.23ms, total 489.23ms)"]
 #   ...
 
-ostia viz .ostia/doc.json --format speedscope > flame.json
+ostia report .ostia/doc.json --format speedscope > flame.json
 # open flame.json at speedscope.app
 ```
 

@@ -166,32 +166,34 @@ Examples:
   ostia compare after.json --baseline .ostia/baselines/main.json
 `
 
-const REPORT_HELP = `ostia report <document.json> [--format table|json|markdown|jsonl|minimal]
+const REPORT_HELP = `ostia report <document.json> [flags]
 
-Render a saved ProfileDocument.
-`
-
-const VIZ_HELP = `ostia viz <document.json> --format FORMAT [--run <id>] [--out-dir PATH]
-
-Render CPU evidence from a saved ProfileDocument as a visualization artifact. Files,
-not a GUI - hand the output to speedscope.app, flamegraph.pl, or
-a Mermaid renderer.
+Render a saved ProfileDocument. Files, not a GUI for the visualization formats -
+hand the output to speedscope.app, flamegraph.pl, or a Mermaid renderer.
 
 Formats:
-  ascii        ranked self-time table (alias for the table renderer)
+  table        terminal timing/CPU/heap/comparison text (default)
+  json         pretty JSON document
+  jsonl        one metadata line, then one line per measurement
+  markdown     agent- and human-readable report
+  minimal      one compact JSON object per timing measurement, for LLM/CI consumption
   collapsed    folded stacks: "root;a;b 42" - flamegraph.pl and most flame tooling
   mermaid      call tree, top-15 frames by total time (never the whole profile)
   speedscope   sampled profile JSON for speedscope.app
   cpuprofile   verbatim .cpuprofile pass-through (cpu-prof/inspector origins only)
 
 Flags:
-  --run <id>    render only this run (default: every CPU run in the document)
-  --out-dir PATH  write artifacts here instead of stdout
-  --help        show this message
+  --format FORMAT     one of the formats above (default: table)
+  --measurement <id>  for the visualization formats: render only this measurement
+                       (default: every CPU measurement in the document)
+  --out-dir PATH      write visualization files here instead of stdout
+  --help              show this message
 
 Examples:
-  ostia viz run.json --format speedscope --out-dir node_modules/.cache/ostia/viz
-  ostia viz run.json --format collapsed | flamegraph.pl > flame.svg
+  ostia report doc.json
+  ostia report doc.json --format markdown
+  ostia report doc.json --format speedscope --out-dir node_modules/.cache/ostia/viz
+  ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
 `
 
 const CI_HELP = `ostia ci [--full] [--baseline NAME]
@@ -591,58 +593,6 @@ async function compareCommand(argv: string[]): Promise<number> {
 interface ReportArgs {
   path?: string
   format: FormatName
-  help: boolean
-}
-
-function parseReportArgs(argv: string[]): ReportArgs {
-  let path: string | undefined
-  let format: FormatName = "table"
-  let help = false
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    switch (arg) {
-      case "--format":
-        format = argv[++i] as FormatName
-        break
-      case "--help":
-      case "-h":
-        help = true
-        break
-      default:
-        path = arg
-    }
-  }
-
-  return { path, format, help }
-}
-
-async function reportCommand(argv: string[]): Promise<number> {
-  const parsed = parseReportArgs(argv)
-  if (parsed.help || !parsed.path) {
-    process.stdout.write(REPORT_HELP)
-    return parsed.help ? 0 : 2
-  }
-
-  let doc: ProfileDocument
-  try {
-    doc = await loadDocument(parsed.path)
-  } catch (err) {
-    process.stderr.write(
-      `Failed to load ${parsed.path}: ${err instanceof Error ? err.message : String(err)}\n`,
-    )
-    return 2
-  }
-
-  const renderer = renderers[parsed.format]
-  const result = await renderer.render(doc, {})
-  await writeRenderResult(result)
-  return 0
-}
-
-interface VizArgs {
-  path?: string
-  format?: FormatName
   measurementId?: string
   outDir?: string
   help: boolean
@@ -650,9 +600,9 @@ interface VizArgs {
 
 const VIZ_FORMAT_ALIASES: Record<string, FormatName> = { ascii: "table" }
 
-function parseVizArgs(argv: string[]): VizArgs {
+function parseReportArgs(argv: string[]): ReportArgs {
   let path: string | undefined
-  let format: FormatName | undefined
+  let format: FormatName = "table"
   let measurementId: string | undefined
   let outDir: string | undefined
   let help = false
@@ -665,7 +615,7 @@ function parseVizArgs(argv: string[]): VizArgs {
         format = VIZ_FORMAT_ALIASES[raw] ?? (raw as FormatName)
         break
       }
-      case "--run":
+      case "--measurement":
         measurementId = argv[++i]
         break
       case "--out-dir":
@@ -683,10 +633,10 @@ function parseVizArgs(argv: string[]): VizArgs {
   return { path, format, measurementId, outDir, help }
 }
 
-async function vizCommand(argv: string[]): Promise<number> {
-  const parsed = parseVizArgs(argv)
-  if (parsed.help || !parsed.path || !parsed.format) {
-    process.stdout.write(VIZ_HELP)
+async function reportCommand(argv: string[]): Promise<number> {
+  const parsed = parseReportArgs(argv)
+  if (parsed.help || !parsed.path) {
+    process.stdout.write(REPORT_HELP)
     return parsed.help ? 0 : 2
   }
 
@@ -714,13 +664,31 @@ async function vizCommand(argv: string[]): Promise<number> {
   if (!result.text && (!result.files || result.files.length === 0)) {
     process.stderr.write(
       parsed.measurementId
-        ? `No CPU evidence found for run "${parsed.measurementId}".\n`
-        : `No CPU evidence found in this document (no cpu-phase runs). Capture some with "ostia run --cpu ...".\n`,
+        ? `No CPU evidence found for measurement "${parsed.measurementId}".\n`
+        : `No CPU evidence found in this document (no cpu-phase measurements). Capture some with "ostia time --cpu ...".\n`,
     )
     return 2
   }
   await writeRenderResult(result, parsed.outDir)
   return 0
+}
+
+/** Hidden alias: `ostia viz` folded into `ostia report --format` (item 4). Kept so
+ * existing scripts/muscle memory keep working; delegates after a deprecation notice. */
+async function vizCommand(argv: string[]): Promise<number> {
+  process.stderr.write(
+    'ostia viz is deprecated; use "ostia report <document.json> --format <fmt>" instead.\n',
+  )
+  const translated: string[] = []
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    if (arg === "--run") {
+      translated.push("--measurement", argv[++i] ?? "")
+    } else {
+      translated.push(arg)
+    }
+  }
+  return reportCommand(translated)
 }
 
 interface CiArgs {
@@ -832,7 +800,7 @@ async function main(): Promise<number> {
     case "--help":
     case "-h":
       process.stdout.write(
-        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument\n  ci        Run configured workloads against a baseline, gate on regressions\n  viz       Render CPU evidence as collapsed/mermaid/speedscope/cpuprofile\n\nRun "ostia <command> --help" for details.\n`,
+        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n\nRun "ostia <command> --help" for details.\n`,
       )
       return subcommand === undefined ? 2 : 0
     default:

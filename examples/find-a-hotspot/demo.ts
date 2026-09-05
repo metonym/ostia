@@ -24,7 +24,7 @@ async function run(
 }
 
 const capture = await run([
-  "run",
+  "time",
   "--runs",
   "5",
   "--cpu",
@@ -36,7 +36,7 @@ const capture = await run([
 ])
 process.stdout.write(capture.stdout)
 
-const collapsed = await run(["viz", docPath, "--format", "collapsed"])
+const collapsed = await run(["report", docPath, "--format", "collapsed"])
 if (!collapsed.stdout.includes("hashLoop")) {
   process.stderr.write(
     "error: expected hashLoop to appear in the collapsed stack output\n",
@@ -47,7 +47,7 @@ process.stdout.write(
   `\ncollapsed stacks (first line):\n${collapsed.stdout.split("\n")[0]}\n`,
 )
 
-const mermaid = await run(["viz", docPath, "--format", "mermaid"])
+const mermaid = await run(["report", docPath, "--format", "mermaid"])
 if (!mermaid.stdout.includes("hashLoop")) {
   process.stderr.write(
     "error: expected hashLoop to appear in the mermaid call tree\n",

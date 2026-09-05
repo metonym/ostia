@@ -203,6 +203,24 @@ Object.assign(globalThis, { document: dom.window.document, window: dom.window })
 ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
 ```
 
+`--bun-flags FLAGS` (repeatable, space-separated flags within one value are all appended)
+passes extra flags through to the `bun` invocation that spawns each suite file - the fix for
+packages whose `package.json` `exports` map branches on a resolution condition Bun doesn't
+set by default. Svelte 5's `exports` map, for example, is `{ "browser": "./src/index-client.js",
+"default": "./src/index-server.js" }`: without `--conditions browser`, Bun resolves `default`
+(the server-rendering build), and mounting a component via `@testing-library/svelte` throws
+`lifecycle_function_unavailable` since `mount()` isn't available server-side. The same applies
+to Vue and other dual-target frameworks:
+
+```sh
+ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
+```
+
+Unlike `BUN_OPTIONS` (an env var Bun's CLI reads to prepend flags, which only reaches the
+spawned suite process today because ostia's `Bun.spawn()` happens to inherit `process.env`),
+`--bun-flags` is a declared, documented integration point that doesn't depend on the parent
+shell's environment.
+
 
 ```
 Command                                  Mean [ms]        Min…Max [ms]        Relative

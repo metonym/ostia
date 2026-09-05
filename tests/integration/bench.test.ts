@@ -370,6 +370,35 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-preload-order`]).exited
   }, 20_000)
 
+  test("a suite that needs a --bun-flags-defined constant fails without it", async () => {
+    await expect(
+      bench({
+        suites: [
+          `${import.meta.dir}/../fixtures/bench-suite-needs-bun-flag.ts`,
+        ],
+        timeBudgetMs: 10,
+        minSamples: 3,
+        outDir: `${OUT_DIR}-bun-flags-missing`,
+      }),
+    ).rejects.toThrow()
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-bun-flags-missing`]).exited
+  }, 20_000)
+
+  test("--bun-flags passes extra flags through to the bun invocation", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-bun-flag.ts`],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      bunFlags: ["--define", 'process.env.OSTIA_BUN_FLAG_TEST:"1"'],
+      outDir: `${OUT_DIR}-bun-flags-set`,
+    })
+
+    expect(doc.workloads.map((w) => w.label)).toEqual(["reads-bun-flag"])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-bun-flags-set`]).exited
+  }, 20_000)
+
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({

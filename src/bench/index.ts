@@ -35,6 +35,13 @@ export interface BenchOptions {
    * of the suite's own top-level code. Consumer-authored; ostia ships no
    * preload scripts itself. */
   preload?: string[]
+  /** Extra flags passed through to the `bun` invocation that runs each suite
+   * file (e.g. `["--conditions", "browser"]`), inserted before the runner
+   * script path so `bun` itself parses them rather than the runner. Useful
+   * for suites that import packages whose `exports` map branches on a
+   * resolution condition Bun doesn't set by default (e.g. Svelte/Vue's
+   * `browser` vs `default` builds). */
+  bunFlags?: string[]
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -72,6 +79,7 @@ export interface BenchCliOverrides {
   filter?: string
   isolate: boolean
   preload: string[]
+  bunFlags?: string[]
   outDir?: string
 }
 
@@ -108,6 +116,7 @@ export async function resolveBenchOptions(
     filter: cli.filter ?? config?.filter,
     isolate: cli.isolate || (config?.isolate ?? false),
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
+    bunFlags: cli.bunFlags,
     outDir: cli.outDir ?? config?.outDir,
     cwd,
   }
@@ -142,6 +151,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   const resolvedPreloads = (opts.preload ?? []).map((preloadFile) =>
     preloadFile.startsWith("/") ? preloadFile : `${cwd}/${preloadFile}`,
   )
+  const bunFlags = opts.bunFlags ?? []
 
   // A pool of `jobs` workers pulling from a shared cursor of spawn targets.
   // The first failure stops the pool: remaining queued targets are skipped
@@ -203,6 +213,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     )
     const primaryArgv = resolvedSuites.map((suite, i) => [
       "bun",
+      ...bunFlags,
       RUNNER_PATH,
       suite,
       primaryPaths[i]!,
@@ -241,6 +252,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     )
     const itemArgv = items.map((item, i) => [
       "bun",
+      ...bunFlags,
       RUNNER_PATH,
       resolvedSuites[item.suiteIndex]!,
       itemPaths[i]!,

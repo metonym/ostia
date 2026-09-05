@@ -14,7 +14,10 @@ export interface BenchConfig {
   suites?: string[]
   preload?: string[]
   jobs?: number | "auto"
+  /** @deprecated Use `budgetMs`. */
   timeBudgetMs?: number
+  budgetMs?: number
+  samples?: number
   minSamples?: number
   gc?: boolean
   filter?: string

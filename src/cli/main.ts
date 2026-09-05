@@ -40,7 +40,11 @@ const TIME_HELP = `ostia time [flags] <command...>  (alias: ostia run)
 Time one or more commands N times with warmup and report timing statistics.
 
 Flags:
-  --runs N            exact number of timed trials (default: hyperfine-style auto)
+  --samples N         exact number of timed trials (--runs is a deprecated alias)
+  --budget MS         wall-clock time budget for the sampling loop (default: a
+                       hyperfine-style ~3s min-total-time loop when neither
+                       --samples nor --budget is given)
+  --min-samples N     hard floor on trials when --samples is not given
   --warmup N          warmup trials, discarded (default: 3)
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
@@ -68,7 +72,10 @@ Run in-process benchmark suites (registered via group()/task()). Each suite file
 in its own spawned child process (isolated from CLI startup state).
 
 Flags:
-  --time-budget MS    sampling budget per task; always runs at least this long (default: 500)
+  --budget MS         sampling budget per task; always runs at least this long (default: 500).
+                       --time-budget is a deprecated alias.
+  --samples N         exact trial count per task; when set, the budget is ignored -
+                       the in-process equivalent of "ostia time"'s --samples/--runs.
   --min-samples N     hard floor on samples per task, kept even when it overruns the
                        budget. Default: cost-aware - as many as fit in the budget (max 20),
                        but never below the floor the task's per-trial cost earns it: 3 at
@@ -226,6 +233,9 @@ Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, spaw
 interface TimeArgs {
   commands: string[]
   runs?: number
+  samples?: number
+  budgetMs?: number
+  minSamples?: number
   warmup?: number
   cpu: boolean
   heap: boolean
@@ -241,6 +251,9 @@ interface TimeArgs {
 function parseTimeArgs(argv: string[]): TimeArgs {
   const commands: string[] = []
   let runs: number | undefined
+  let samples: number | undefined
+  let budgetMs: number | undefined
+  let minSamples: number | undefined
   let warmup: number | undefined
   let cpu = false
   let heap = false
@@ -257,6 +270,15 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     switch (arg) {
       case "--runs":
         runs = Number(argv[++i])
+        break
+      case "--samples":
+        samples = Number(argv[++i])
+        break
+      case "--budget":
+        budgetMs = Number(argv[++i])
+        break
+      case "--min-samples":
+        minSamples = Number(argv[++i])
         break
       case "--warmup":
         warmup = Number(argv[++i])
@@ -297,6 +319,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   return {
     commands,
     runs,
+    samples,
+    budgetMs,
+    minSamples,
     warmup,
     cpu,
     heap,
@@ -329,6 +354,9 @@ async function timeCommand(argv: string[]): Promise<number> {
     doc = await time({
       commands: parsed.commands,
       runs: parsed.runs,
+      samples: parsed.samples,
+      budgetMs: parsed.budgetMs,
+      minSamples: parsed.minSamples,
       warmup: parsed.warmup,
       cpu: parsed.cpu,
       heap: parsed.heap,
@@ -362,6 +390,8 @@ async function timeCommand(argv: string[]): Promise<number> {
 interface BenchArgs {
   suites: string[]
   timeBudgetMs?: number
+  budgetMs?: number
+  samples?: number
   minSamples?: number
   jobs?: number
   gc: boolean
@@ -380,6 +410,8 @@ interface BenchArgs {
 function parseBenchArgs(argv: string[]): BenchArgs {
   const suites: string[] = []
   let timeBudgetMs: number | undefined
+  let budgetMs: number | undefined
+  let samples: number | undefined
   let minSamples: number | undefined
   let jobs: number | undefined
   let gc = false
@@ -406,6 +438,12 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     switch (arg) {
       case "--time-budget":
         timeBudgetMs = Number(argv[++i])
+        break
+      case "--budget":
+        budgetMs = Number(argv[++i])
+        break
+      case "--samples":
+        samples = Number(argv[++i])
         break
       case "--min-samples":
         minSamples = Number(argv[++i])
@@ -454,6 +492,8 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   return {
     suites,
     timeBudgetMs,
+    budgetMs,
+    samples,
     minSamples,
     jobs,
     gc,

@@ -215,3 +215,23 @@ describe("measure/inprocess", () => {
     }).not.toThrow()
   })
 })
+
+describe("measure/inprocess - unified timing vocabulary (item 11)", () => {
+  test("budgetMs behaves like the deprecated timeBudgetMs", async () => {
+    const result = await measureTask(() => 1, { budgetMs: 20, minSamples: 5 })
+    expect(result.trials.length).toBeGreaterThanOrEqual(5)
+  })
+
+  test("warmup (a fraction, like the deprecated warmupFraction) accepts 0", async () => {
+    const result = await measureTask(() => 1, { budgetMs: 10, warmup: 0 })
+    expect(result.trials.length).toBeGreaterThanOrEqual(3)
+  })
+
+  test("samples produces an exact trial count, ignoring the budget", async () => {
+    const result = await measureTask(() => spin(2), {
+      samples: 4,
+      budgetMs: 1, // would otherwise be far too small to reach 4 trials
+    })
+    expect(result.trials).toHaveLength(4)
+  })
+})

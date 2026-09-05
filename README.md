@@ -116,9 +116,18 @@ trial each, labeled separately in the document.
 
 ```sh
 ostia time "bun a.ts" "bun b.ts"
-ostia time --runs 25 --warmup 3 --cpu --heap "bun src/server.ts"
+ostia time --samples 25 --warmup 3 --cpu --heap "bun src/server.ts"
 ostia time --format json --export-json out.json "bun a.ts"
 ```
+
+`--samples N` is an exact trial count (`--runs` is a deprecated alias); `--budget MS`
+is a wall-clock time budget instead (default: a hyperfine-style ~3s min-total-time
+loop when neither is given); `--min-samples N` is a hard floor when `--samples` isn't
+given. The same three names work on `ostia bench` (`--budget`/`--samples`/
+`--min-samples`), where `--budget` is a per-task sampling window (`--time-budget` is
+its deprecated alias) - `warmup` differs by surface, though: a trial count here, a
+*fraction* of the budget for `ostia bench`, since in-process warmup has no natural
+"N calls" unit before the JIT has even seen the function once.
 
 Timing table (two commands get a Relative column automatically):
 
@@ -175,7 +184,7 @@ without re-deriving the policy from the raw sample array.
 
 ```sh
 ostia bench bench/*.ts
-ostia bench --time-budget 500 --min-samples 50 bench/stats.ts
+ostia bench --budget 500 --min-samples 50 bench/stats.ts
 ostia bench bench/*.ts --jobs auto          # suite files in parallel, see below
 ostia bench bench/*.ts --format minimal       # one compact JSON object per task
 ```
@@ -503,7 +512,9 @@ Subprocess timing, optional CPU/heap capture. Same behavior as `ostia time`.
 ```ts
 const doc = await time({
   commands: ["bun a.ts", "bun b.ts"],
-  runs: 10,
+  samples: 10, // exact trial count; `runs` is a deprecated alias
+  // budgetMs: 3000,   // wall-clock budget instead of an exact count
+  // minSamples: 10,   // hard floor when samples isn't given
   warmup: 2,
   cpu: true,
   heap: false,
@@ -726,7 +737,8 @@ import { bench } from "ostia"
 
 const doc = await bench({
   suites: ["suite.ts"],
-  timeBudgetMs: 500,
+  budgetMs: 500, // `timeBudgetMs` is a deprecated alias
+  // samples: 50,   // exact per-task trial count instead of a budget
   minSamples: 50,
   jobs: 1, // suite files at once; > 1 trades fidelity for wall time
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement

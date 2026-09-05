@@ -71,6 +71,17 @@
   `task.only(...)` / `group.only(...)` restrict a suite file to only the
   selected tasks (`--filter` still applies on top) and print a one-line
   `bench: N task(s) selected by .only` notice to stderr.
+- Unified timing vocabulary across `time()`/`ostia time` and
+  `bench()`/`ostia bench`: `samples` (exact trial count; `runs` is a
+  deprecated alias), `budgetMs` (wall-clock budget; `timeBudgetMs` is a
+  deprecated alias for `bench()`), `minSamples`, `warmup` (a trial count for
+  `time()`, a *fraction* of `budgetMs` for `bench()` - the asymmetry is
+  real, not papered over; `warmupFraction` is a deprecated alias). CLI:
+  `ostia time` gains `--samples`/`--budget`/`--min-samples`; `ostia bench`
+  gains `--budget`/`--samples` (`--time-budget` stays as an alias).
+  `configFingerprint` resolves old and new names to the same canonical
+  value, so an old-name and new-name call with the same effective settings
+  produce the same fingerprint and don't orphan a baseline.
 
 **Fixes**
 

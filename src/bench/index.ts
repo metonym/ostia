@@ -6,7 +6,14 @@ import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
   suites: string[]
+  /** @deprecated Use `budgetMs`. */
   timeBudgetMs?: number
+  /** Wall-clock sampling budget per task, ms (default 500). Same concept as
+   * the deprecated `timeBudgetMs`. */
+  budgetMs?: number
+  /** Exact trial count per task. When set, the budget is ignored - the
+   * in-process equivalent of `time()`'s `samples`/`runs`. */
+  samples?: number
   minSamples?: number
   gc?: boolean
   filter?: string
@@ -77,6 +84,8 @@ export async function expandSuiteGlobs(
 export interface BenchCliOverrides {
   suites: string[]
   timeBudgetMs?: number
+  budgetMs?: number
+  samples?: number
   minSamples?: number
   jobs?: number
   gc: boolean
@@ -114,7 +123,12 @@ export async function resolveBenchOptions(
 
   return {
     suites,
-    timeBudgetMs: cli.timeBudgetMs ?? config?.timeBudgetMs,
+    budgetMs:
+      cli.budgetMs ??
+      cli.timeBudgetMs ??
+      config?.budgetMs ??
+      config?.timeBudgetMs,
+    samples: cli.samples ?? config?.samples,
     minSamples: cli.minSamples ?? config?.minSamples,
     jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
     gc: cli.gc || (config?.gc ?? false),
@@ -146,7 +160,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   const jobs = Math.max(1, Math.floor(opts.jobs ?? 1))
 
   const taskOpts = {
-    timeBudgetMs: opts.timeBudgetMs,
+    budgetMs: opts.budgetMs ?? opts.timeBudgetMs,
+    samples: opts.samples,
     minSamples: opts.minSamples,
     gc: opts.gc,
     noiseCheck: opts.noiseCheck,

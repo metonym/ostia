@@ -164,14 +164,22 @@ async function main(): Promise<number> {
 
     // Per-task options win over the suite-wide ones. The fingerprint is per task
     // for the same reason: two runs of one task only compare like-for-like when
-    // they were measured under the same effective settings.
+    // they were measured under the same effective settings. Hashed under the
+    // canonical (new) names so an old-name and new-name call with the same
+    // effective settings produce the same fingerprint.
+    const effectiveBudgetMs =
+      t.opts?.budgetMs ??
+      t.opts?.timeBudgetMs ??
+      opts.budgetMs ??
+      opts.timeBudgetMs
+    const effectiveSamples = t.opts?.samples ?? opts.samples
+    const effectiveMinSamples = t.opts?.minSamples ?? opts.minSamples
     const taskOpts: InprocessTimingOptions = {
       ...opts,
-      ...(t.opts?.timeBudgetMs !== undefined && {
-        timeBudgetMs: t.opts.timeBudgetMs,
-      }),
-      ...(t.opts?.minSamples !== undefined && {
-        minSamples: t.opts.minSamples,
+      ...(effectiveBudgetMs !== undefined && { budgetMs: effectiveBudgetMs }),
+      ...(effectiveSamples !== undefined && { samples: effectiveSamples }),
+      ...(effectiveMinSamples !== undefined && {
+        minSamples: effectiveMinSamples,
       }),
       gc: taskGc(t, opts.gc ?? false),
     }
@@ -180,7 +188,8 @@ async function main(): Promise<number> {
       makeTimingMeasurement({
         workload,
         configFingerprint: configFingerprint({
-          timeBudgetMs: taskOpts.timeBudgetMs ?? null,
+          budgetMs: taskOpts.budgetMs ?? null,
+          samples: taskOpts.samples ?? null,
           minSamples: taskOpts.minSamples ?? null,
           gc: taskOpts.gc ?? false,
         }),

@@ -109,3 +109,47 @@ describe("time() - noise floor (item 7)", () => {
     expect(doc.environment).toBeUndefined()
   }, 20_000)
 })
+
+describe("time() - unified timing vocabulary (item 11)", () => {
+  test("samples produces the same trial count as the deprecated runs", async () => {
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      samples: 4,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    expect(doc.measurements[0]!.trials).toHaveLength(4)
+  }, 20_000)
+
+  test("configFingerprint is identical for an old-name (runs) and new-name (samples) call with the same effective settings", async () => {
+    const withOldName = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 3,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    const withNewName = await time({
+      commands: [`bun ${FIXTURE}`],
+      samples: 3,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    expect(withNewName.measurements[0]!.configFingerprint).toBe(
+      withOldName.measurements[0]!.configFingerprint,
+    )
+  }, 20_000)
+
+  test("budgetMs runs a min-total-time loop like the default, for at least the given budget", async () => {
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      budgetMs: 200,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    const totalNs = doc.measurements[0]!.trials.reduce(
+      (sum, t) => sum + t.wallNs,
+      0,
+    )
+    expect(totalNs).toBeGreaterThanOrEqual(200 * 1e6 * 0.9) // small slack
+  }, 20_000)
+})

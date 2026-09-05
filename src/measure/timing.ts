@@ -122,13 +122,17 @@ export function createTimingPhase(
   }
 }
 
+export async function drainTimingPhase(
+  phase: TimingPhaseIterator,
+): Promise<void> {
+  await phase.warmup()
+  while (await phase.step()) {}
+}
+
 export async function runTimingPhase(
   opts: TimingPhaseOptions,
 ): Promise<TimingPhaseResult> {
   const phase = createTimingPhase(opts)
-  await phase.warmup()
-  while (await phase.step()) {
-    /* drain the phase's own stopping criterion */
-  }
+  await drainTimingPhase(phase)
   return phase.result()
 }

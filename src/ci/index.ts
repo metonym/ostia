@@ -18,6 +18,7 @@ import type {
   Workload,
 } from "../ir/types.ts"
 import { runTimingPhase } from "../measure/timing.ts"
+import { workloadLabel } from "../renderers/format.ts"
 
 export interface CiOptions {
   config: OstiaConfig
@@ -177,9 +178,8 @@ export async function runCi(
 
   const measured = await measureConfigWorkloads(config, opts.full)
   const results: CiWorkloadResult[] = measured.map((m) => ({ ...m }))
-  const affected = results.filter((r) => r.status === "executed").length
-  const cached = results.filter((r) => r.status === "cached").length
-  const executed = affected
+  const executed = results.filter((r) => r.status === "executed").length
+  const cached = results.length - executed
 
   const candidateDoc = newDocument(
     results.map((r) => r.workload),
@@ -214,7 +214,7 @@ export async function runCi(
     document: candidateDoc,
     summary: {
       total: results.length,
-      affected,
+      affected: executed,
       cached,
       executed,
       passed,
@@ -240,12 +240,10 @@ export function renderCiReport(summary: CiSummary): string {
     .filter((r) => r.comparison?.verdict === "fail")
     .map((r) => {
       const t = r.comparison!.timing
-      const label =
-        r.workload.label ?? r.workload.command?.join(" ") ?? r.workload.id
-      const detail = t
+      const label = workloadLabel(r.workload)
+      return t
         ? `${t.medianDeltaPct > 0 ? "+" : ""}${t.medianDeltaPct.toFixed(1)}% median on ${label}`
         : label
-      return detail
     })
 
   lines.push(

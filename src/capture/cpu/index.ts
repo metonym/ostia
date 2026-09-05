@@ -1,4 +1,5 @@
 import type { CpuEvidence, Warning } from "../../ir/types.ts"
+import { withBunFlags } from "../bunflags.ts"
 import { parseCpuProfile, type RawCpuProfile } from "./parse.ts"
 
 // BUN_OPTIONS is the fallback when argv[0] isn't literally `bun`; BUN_CPU_PROFILE does not work on Bun 1.4.0 despite being documented.
@@ -20,47 +21,23 @@ export interface CpuCaptureResult {
   warnings: Warning[]
 }
 
-function withCpuProfFlags(
-  argv: string[],
-  artifactDir: string,
-  fileName: string,
-  intervalUs: number,
-): string[] {
-  const flags = [
-    "--cpu-prof",
-    "--cpu-prof-dir",
-    artifactDir,
-    "--cpu-prof-name",
-    fileName,
-    "--cpu-prof-interval",
-    String(intervalUs),
-  ]
-  const bin = argv[0]
-  if (bin === "bun" || bin?.endsWith("/bun")) {
-    return [bin, ...flags, ...argv.slice(1)]
-  }
-  return argv
-}
-
 export async function runCpuCapture(
   opts: CpuCaptureOptions,
 ): Promise<CpuCaptureResult> {
   const artifactPath = `${opts.artifactDir}/${opts.fileName}`
-  const bin = opts.argv[0]
-  const usesInlineFlags = bin === "bun" || bin?.endsWith("/bun")
-  const argv = withCpuProfFlags(
+  const { argv, env } = withBunFlags(
     opts.argv,
-    opts.artifactDir,
-    opts.fileName,
-    opts.intervalUs,
+    [
+      "--cpu-prof",
+      "--cpu-prof-dir",
+      opts.artifactDir,
+      "--cpu-prof-name",
+      opts.fileName,
+      "--cpu-prof-interval",
+      String(opts.intervalUs),
+    ],
+    opts.env,
   )
-  const env = usesInlineFlags
-    ? opts.env
-    : {
-        ...process.env,
-        ...opts.env,
-        BUN_OPTIONS: `--cpu-prof --cpu-prof-dir ${opts.artifactDir} --cpu-prof-name ${opts.fileName} --cpu-prof-interval ${opts.intervalUs}`,
-      }
 
   const start = Bun.nanoseconds()
   const proc = Bun.spawn(argv, {

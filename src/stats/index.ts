@@ -63,7 +63,7 @@ function sortedCopy(samples: number[]): Float64Array {
   return sorted
 }
 
-function percentile(sorted: Float64Array, p: number): number {
+export function percentile(sorted: Float64Array, p: number): number {
   const n = sorted.length
   if (n === 1) return sorted[0]!
   const idx = p * (n - 1)

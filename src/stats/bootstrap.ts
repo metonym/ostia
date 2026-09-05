@@ -1,3 +1,5 @@
+import { percentile } from "./index.ts"
+
 /** mulberry32: a small, fast, seeded PRNG. Deterministic across platforms
  * (32-bit integer arithmetic only), good enough for resampling; not
  * cryptographic. */
@@ -36,17 +38,6 @@ function median(sorted: Float64Array): number {
   const n = sorted.length
   const mid = n >> 1
   return n % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
-}
-
-function percentileOf(sorted: Float64Array, p: number): number {
-  const n = sorted.length
-  if (n === 1) return sorted[0]!
-  const idx = p * (n - 1)
-  const lo = Math.floor(idx)
-  const hi = Math.ceil(idx)
-  if (lo === hi) return sorted[lo]!
-  const frac = idx - lo
-  return sorted[lo]! * (1 - frac) + sorted[hi]! * frac
 }
 
 /** Random subsample without replacement (partial Fisher-Yates), capped at
@@ -117,7 +108,7 @@ export function bootstrapMedianDiffCi(
   deltas.sort()
 
   return {
-    ci95: [percentileOf(deltas, 0.025), percentileOf(deltas, 0.975)],
+    ci95: [percentile(deltas, 0.025), percentile(deltas, 0.975)],
     seed,
     data: { subsampled, iterations },
   }

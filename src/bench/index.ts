@@ -1,4 +1,5 @@
-import type { BenchConfig } from "../config/index.ts"
+import { type BenchConfig, DEFAULT_OUT_DIR } from "../config/index.ts"
+import { scanGlobs } from "../glob.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
@@ -63,7 +64,6 @@ export interface BenchOptions {
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
-const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 
 /** Logical CPUs available to this process, for `--jobs auto`. */
 export function availableJobs(): number {
@@ -76,14 +76,7 @@ export async function expandSuiteGlobs(
   patterns: string[],
   cwd: string,
 ): Promise<string[]> {
-  const paths = new Set<string>()
-  for (const pattern of patterns) {
-    const glob = new Bun.Glob(pattern)
-    for await (const path of glob.scan({ cwd, absolute: false })) {
-      paths.add(path)
-    }
-  }
-  return [...paths].sort()
+  return scanGlobs(patterns, cwd)
 }
 
 /** The subset of `ostia bench`'s CLI flags that have a config-file
@@ -175,12 +168,12 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     noiseCheck: opts.noiseCheck,
   }
 
-  const resolvedSuites = opts.suites.map((suiteFile) =>
-    suiteFile.startsWith("/") ? suiteFile : `${cwd}/${suiteFile}`,
-  )
-  const resolvedPreloads = (opts.preload ?? []).map((preloadFile) =>
-    preloadFile.startsWith("/") ? preloadFile : `${cwd}/${preloadFile}`,
-  )
+  // Plain string join, not path.resolve: the suite path is hashed into every
+  // workload id, so normalizing "./x" would orphan existing baselines.
+  const absolute = (file: string) =>
+    file.startsWith("/") ? file : `${cwd}/${file}`
+  const resolvedSuites = opts.suites.map(absolute)
+  const resolvedPreloads = (opts.preload ?? []).map(absolute)
   const bunFlags = opts.bunFlags ?? []
 
   // A pool of `jobs` workers pulling from a shared cursor of spawn targets.

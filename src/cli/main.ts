@@ -3,16 +3,61 @@ import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
-import { baselinePath, loadConfig } from "../config/index.ts"
+import { baselinePath, loadConfig, type OstiaConfig } from "../config/index.ts"
 import { type CommandSpec, time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
 import type { ProfileDocument } from "../ir/types.ts"
+import { formatGit } from "../renderers/format.ts"
 import {
   type FormatName,
   type RenderResult,
   renderers,
 } from "../renderers/index.ts"
-import type { TimeSource, TimeUnit } from "../spawn/index.ts"
+import { splitCommand, type TimeSource, type TimeUnit } from "../spawn/index.ts"
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err)
+}
+
+function checkFormat(format: string): format is FormatName {
+  if (format in renderers) return true
+  process.stderr.write(
+    `Unknown --format "${format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
+  )
+  return false
+}
+
+/** Shared tail of time/bench/compare: optional --export-json, then the
+ * rendered report unless --quiet. */
+async function emitDocument(
+  doc: ProfileDocument,
+  args: { exportJson?: string; format: FormatName; quiet: boolean },
+): Promise<void> {
+  if (args.exportJson) await saveDocument(doc, args.exportJson)
+  if (args.quiet) return
+  await writeRenderResult(await renderers[args.format].render(doc, {}))
+}
+
+/** Loads the project config, printing the standard "not found" message
+ * (and, when `command` is given, requiring at least one workload). */
+async function requireConfig(
+  command?: string,
+): Promise<OstiaConfig | undefined> {
+  const config = await loadConfig()
+  if (!config) {
+    process.stderr.write(
+      command
+        ? `No ostia.config.json found. "${command}" needs configured workloads.\n`
+        : `No ostia.config.json found.\n`,
+    )
+    return undefined
+  }
+  if (command && config.workloads.length === 0) {
+    process.stderr.write(`ostia.config.json has no "workloads" configured.\n`)
+    return undefined
+  }
+  return config
+}
 
 async function writeRenderResult(
   result: RenderResult,
@@ -309,105 +354,79 @@ interface TimeArgs {
 }
 
 function parseTimeArgs(argv: string[]): TimeArgs {
-  const commands: string[] = []
-  const prepare: string[] = []
-  let timeSource: string | undefined
-  let timeUnit: TimeUnit | undefined
-  let samples: number | undefined
-  let budgetMs: number | undefined
-  let minSamples: number | undefined
-  let warmup: number | undefined
-  let interleave = true
-  let cpu = false
-  let heap = false
-  let cpuIntervalUs: number | undefined
-  let outDir: string | undefined
-  let noiseCheck = true
-  let exportJson: string | undefined
-  let format: FormatName = "table"
-  let quiet = false
-  let help = false
+  const args: TimeArgs = {
+    commands: [],
+    prepare: [],
+    interleave: true,
+    cpu: false,
+    heap: false,
+    noiseCheck: true,
+    format: "table",
+    quiet: false,
+    help: false,
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
       case "--samples":
-        samples = Number(argv[++i])
+        args.samples = Number(argv[++i])
         break
       case "--budget":
-        budgetMs = Number(argv[++i])
+        args.budgetMs = Number(argv[++i])
         break
       case "--min-samples":
-        minSamples = Number(argv[++i])
+        args.minSamples = Number(argv[++i])
         break
       case "--warmup":
-        warmup = Number(argv[++i])
+        args.warmup = Number(argv[++i])
         break
       case "--no-interleave":
-        interleave = false
+        args.interleave = false
         break
       case "--prepare":
-        prepare.push(argv[++i] ?? "")
+        args.prepare.push(argv[++i] ?? "")
         break
       case "--time-source":
-        timeSource = argv[++i]
+        args.timeSource = argv[++i]
         break
       case "--time-unit":
-        timeUnit = argv[++i] as TimeUnit
+        args.timeUnit = argv[++i] as TimeUnit
         break
       case "--cpu":
-        cpu = true
+        args.cpu = true
         break
       case "--heap":
-        heap = true
+        args.heap = true
         break
       case "--cpu-interval":
-        cpuIntervalUs = Number(argv[++i])
+        args.cpuIntervalUs = Number(argv[++i])
         break
       case "--out-dir":
-        outDir = argv[++i]
+        args.outDir = argv[++i]
         break
       case "--no-noise-check":
-        noiseCheck = false
+        args.noiseCheck = false
         break
       case "--export-json":
-        exportJson = argv[++i]
+        args.exportJson = argv[++i]
         break
       case "--format":
-        format = argv[++i] as FormatName
+        args.format = argv[++i] as FormatName
         break
       case "--quiet":
-        quiet = true
+        args.quiet = true
         break
       case "--help":
       case "-h":
-        help = true
+        args.help = true
         break
       default:
-        commands.push(arg)
+        args.commands.push(arg)
     }
   }
 
-  return {
-    commands,
-    prepare,
-    timeSource,
-    timeUnit,
-    samples,
-    budgetMs,
-    minSamples,
-    warmup,
-    interleave,
-    cpu,
-    heap,
-    cpuIntervalUs,
-    outDir,
-    noiseCheck,
-    exportJson,
-    format,
-    quiet,
-    help,
-  }
+  return args
 }
 
 const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
@@ -419,12 +438,7 @@ async function timeCommand(argv: string[]): Promise<number> {
     return parsed.help ? 0 : 2
   }
 
-  if (!(parsed.format in renderers)) {
-    process.stderr.write(
-      `Unknown --format "${parsed.format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
-    )
-    return 2
-  }
+  if (!checkFormat(parsed.format)) return 2
 
   if (
     parsed.prepare.length > 1 &&
@@ -446,7 +460,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       new RegExp(parsed.timeSource)
     } catch (err) {
       process.stderr.write(
-        `Invalid --time-source regex: ${err instanceof Error ? err.message : String(err)}\n`,
+        `Invalid --time-source regex: ${errorMessage(err)}\n`,
       )
       return 2
     }
@@ -478,21 +492,11 @@ async function timeCommand(argv: string[]): Promise<number> {
       noiseCheck: parsed.noiseCheck,
     })
   } catch (err) {
-    process.stderr.write(
-      `Run failed: ${err instanceof Error ? err.message : String(err)}\n`,
-    )
+    process.stderr.write(`Run failed: ${errorMessage(err)}\n`)
     return 2
   }
 
-  if (parsed.exportJson) {
-    await saveDocument(doc, parsed.exportJson)
-  }
-
-  if (!parsed.quiet) {
-    const renderer = renderers[parsed.format]
-    const result = await renderer.render(doc, {})
-    await writeRenderResult(result)
-  }
+  await emitDocument(doc, parsed)
 
   const anyNonZero = doc.measurements.some((r) =>
     r.trials.some((t) => t.exitCode !== undefined && t.exitCode !== 0),
@@ -522,24 +526,19 @@ interface BenchArgs {
 }
 
 function parseBenchArgs(argv: string[]): BenchArgs {
-  const suites: string[] = []
-  let budgetMs: number | undefined
-  let samples: number | undefined
-  let minSamples: number | undefined
-  let jobs: number | undefined
-  let gc = false
-  let cpu = false
-  let alloc = false
-  let filter: string | undefined
-  let isolate = false
-  const preload: string[] = []
-  const bunFlags: string[] = []
-  let outDir: string | undefined
-  let noiseCheck = true
-  let exportJson: string | undefined
-  let format: FormatName = "table"
-  let quiet = false
-  let help = false
+  const args: BenchArgs = {
+    suites: [],
+    gc: false,
+    cpu: false,
+    alloc: false,
+    isolate: false,
+    preload: [],
+    bunFlags: [],
+    noiseCheck: true,
+    format: "table",
+    quiet: false,
+    help: false,
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
@@ -547,86 +546,67 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       const value = arg.startsWith("--bun-flags=")
         ? arg.slice("--bun-flags=".length)
         : (argv[++i] ?? "")
-      bunFlags.push(...value.split(/\s+/).filter(Boolean))
+      args.bunFlags.push(...splitCommand(value))
       continue
     }
     switch (arg) {
       case "--budget":
-        budgetMs = Number(argv[++i])
+        args.budgetMs = Number(argv[++i])
         break
       case "--samples":
-        samples = Number(argv[++i])
+        args.samples = Number(argv[++i])
         break
       case "--min-samples":
-        minSamples = Number(argv[++i])
+        args.minSamples = Number(argv[++i])
         break
       case "--jobs": {
         const raw = argv[++i]
-        jobs = raw === "auto" ? availableJobs() : Number(raw)
+        args.jobs = raw === "auto" ? availableJobs() : Number(raw)
         break
       }
       case "--gc":
-        gc = true
+        args.gc = true
         break
       case "--cpu":
-        cpu = true
+        args.cpu = true
         break
       case "--alloc":
-        alloc = true
+        args.alloc = true
         break
       case "--filter":
-        filter = argv[++i]
+        args.filter = argv[++i]
         break
       case "--isolate":
-        isolate = true
+        args.isolate = true
         break
       case "--preload":
-        preload.push(argv[++i]!)
+        args.preload.push(argv[++i]!)
         break
       case "--out-dir":
-        outDir = argv[++i]
+        args.outDir = argv[++i]
         break
       case "--no-noise-check":
-        noiseCheck = false
+        args.noiseCheck = false
         break
       case "--export-json":
-        exportJson = argv[++i]
+        args.exportJson = argv[++i]
         break
       case "--format":
-        format = argv[++i] as FormatName
+        args.format = argv[++i] as FormatName
         break
       case "--quiet":
-        quiet = true
+        args.quiet = true
         break
       case "--help":
       case "-h":
-        help = true
+        args.help = true
         break
       default:
-        suites.push(arg)
+        args.suites.push(arg)
     }
   }
 
-  return {
-    suites,
-    budgetMs,
-    samples,
-    minSamples,
-    jobs,
-    gc,
-    cpu,
-    alloc,
-    filter,
-    isolate,
-    preload,
-    bunFlags,
-    outDir,
-    noiseCheck,
-    exportJson,
-    format,
-    quiet,
-    help,
-  }
+  return args
 }
 
 async function benchCommand(argv: string[]): Promise<number> {
@@ -636,12 +616,7 @@ async function benchCommand(argv: string[]): Promise<number> {
     return 0
   }
 
-  if (!(parsed.format in renderers)) {
-    process.stderr.write(
-      `Unknown --format "${parsed.format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
-    )
-    return 2
-  }
+  if (!checkFormat(parsed.format)) return 2
 
   const config = await loadConfig()
   const resolved = await resolveBenchOptions(parsed, config?.bench)
@@ -659,22 +634,11 @@ async function benchCommand(argv: string[]): Promise<number> {
   try {
     doc = await bench(resolved)
   } catch (err) {
-    process.stderr.write(
-      `Bench failed: ${err instanceof Error ? err.message : String(err)}\n`,
-    )
+    process.stderr.write(`Bench failed: ${errorMessage(err)}\n`)
     return 2
   }
 
-  if (parsed.exportJson) {
-    await saveDocument(doc, parsed.exportJson)
-  }
-
-  if (!parsed.quiet) {
-    const renderer = renderers[parsed.format]
-    const result = await renderer.render(doc, {})
-    await writeRenderResult(result)
-  }
-
+  await emitDocument(doc, parsed)
   return 0
 }
 
@@ -688,38 +652,38 @@ interface CompareArgs {
 }
 
 function parseCompareArgs(argv: string[]): CompareArgs {
-  const paths: string[] = []
-  let baseline: string | undefined
-  let exportJson: string | undefined
-  let format: FormatName = "table"
-  let quiet = false
-  let help = false
+  const args: CompareArgs = {
+    paths: [],
+    format: "table",
+    quiet: false,
+    help: false,
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
       case "--baseline":
-        baseline = argv[++i]
+        args.baseline = argv[++i]
         break
       case "--export-json":
-        exportJson = argv[++i]
+        args.exportJson = argv[++i]
         break
       case "--format":
-        format = argv[++i] as FormatName
+        args.format = argv[++i] as FormatName
         break
       case "--quiet":
-        quiet = true
+        args.quiet = true
         break
       case "--help":
       case "-h":
-        help = true
+        args.help = true
         break
       default:
-        paths.push(arg)
+        args.paths.push(arg)
     }
   }
 
-  return { paths, baseline, exportJson, format, quiet, help }
+  return args
 }
 
 async function compareCommand(argv: string[]): Promise<number> {
@@ -751,29 +715,19 @@ async function compareCommand(argv: string[]): Promise<number> {
       loadDocument(candPath),
     ])
   } catch (err) {
-    process.stderr.write(
-      `Failed to load documents: ${err instanceof Error ? err.message : String(err)}\n`,
-    )
+    process.stderr.write(`Failed to load documents: ${errorMessage(err)}\n`)
     return 2
   }
 
   const comparisons = compareDocuments(base, cand)
   const outDoc = { ...cand, comparisons }
 
-  if (parsed.exportJson) {
-    await saveDocument(outDoc, parsed.exportJson)
+  if (!parsed.quiet && base.git && cand.git) {
+    process.stdout.write(
+      `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,
+    )
   }
-
-  if (!parsed.quiet) {
-    if (base.git && cand.git) {
-      const side = (g: NonNullable<ProfileDocument["git"]>) =>
-        `${g.sha} (${g.branch}${g.dirty ? ", dirty" : ""})`
-      process.stdout.write(`base ${side(base.git)} → cand ${side(cand.git)}\n`)
-    }
-    const renderer = renderers[parsed.format]
-    const result = await renderer.render(outDoc, {})
-    await writeRenderResult(result)
-  }
+  await emitDocument(outDoc, parsed)
 
   const anyFail = comparisons.some((c) => c.verdict === "fail")
   return anyFail ? 1 : 0
@@ -788,34 +742,30 @@ interface ReportArgs {
 }
 
 function parseReportArgs(argv: string[]): ReportArgs {
-  let path: string | undefined
-  let format: FormatName = "table"
-  let measurementId: string | undefined
-  let outDir: string | undefined
-  let help = false
+  const args: ReportArgs = { format: "table", help: false }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
       case "--format":
-        format = (argv[++i] ?? "") as FormatName
+        args.format = (argv[++i] ?? "") as FormatName
         break
       case "--measurement":
-        measurementId = argv[++i]
+        args.measurementId = argv[++i]
         break
       case "--out-dir":
-        outDir = argv[++i]
+        args.outDir = argv[++i]
         break
       case "--help":
       case "-h":
-        help = true
+        args.help = true
         break
       default:
-        path = arg
+        args.path = arg
     }
   }
 
-  return { path, format, measurementId, outDir, help }
+  return args
 }
 
 async function reportCommand(argv: string[]): Promise<number> {
@@ -825,19 +775,14 @@ async function reportCommand(argv: string[]): Promise<number> {
     return parsed.help ? 0 : 2
   }
 
-  if (!(parsed.format in renderers)) {
-    process.stderr.write(
-      `Unknown --format "${parsed.format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
-    )
-    return 2
-  }
+  if (!checkFormat(parsed.format)) return 2
 
   let doc: ProfileDocument
   try {
     doc = await loadDocument(parsed.path)
   } catch (err) {
     process.stderr.write(
-      `Failed to load ${parsed.path}: ${err instanceof Error ? err.message : String(err)}\n`,
+      `Failed to load ${parsed.path}: ${errorMessage(err)}\n`,
     )
     return 2
   }
@@ -868,39 +813,39 @@ interface CiArgs {
 }
 
 function parseCiArgs(argv: string[]): CiArgs {
-  let full = false
-  let baseline: string | undefined
-  let saveBaseline = false
-  let exportJson: string | undefined
-  let quiet = false
-  let help = false
+  const args: CiArgs = {
+    full: false,
+    saveBaseline: false,
+    quiet: false,
+    help: false,
+  }
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
     switch (arg) {
       case "--full":
-        full = true
+        args.full = true
         break
       case "--baseline":
-        baseline = argv[++i]
+        args.baseline = argv[++i]
         break
       case "--save-baseline":
-        saveBaseline = true
+        args.saveBaseline = true
         break
       case "--export-json":
-        exportJson = argv[++i]
+        args.exportJson = argv[++i]
         break
       case "--quiet":
-        quiet = true
+        args.quiet = true
         break
       case "--help":
       case "-h":
-        help = true
+        args.help = true
         break
     }
   }
 
-  return { full, baseline, saveBaseline, exportJson, quiet, help }
+  return args
 }
 
 async function ciCommand(argv: string[]): Promise<number> {
@@ -910,17 +855,8 @@ async function ciCommand(argv: string[]): Promise<number> {
     return 0
   }
 
-  const config = await loadConfig()
-  if (!config) {
-    process.stderr.write(
-      `No ostia.config.json found. "ostia ci" needs configured workloads.\n`,
-    )
-    return 2
-  }
-  if (config.workloads.length === 0) {
-    process.stderr.write(`ostia.config.json has no "workloads" configured.\n`)
-    return 2
-  }
+  const config = await requireConfig("ostia ci")
+  if (!config) return 2
 
   let outcome: Awaited<ReturnType<typeof runCi>>
   try {
@@ -934,9 +870,7 @@ async function ciCommand(argv: string[]): Promise<number> {
       process.stderr.write(`${err.message}\n`)
       return 2
     }
-    process.stderr.write(
-      `CI run failed: ${err instanceof Error ? err.message : String(err)}\n`,
-    )
+    process.stderr.write(`CI run failed: ${errorMessage(err)}\n`)
     return 2
   }
 
@@ -962,17 +896,8 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
   }
   const name = argv[0]
 
-  const config = await loadConfig()
-  if (!config) {
-    process.stderr.write(
-      `No ostia.config.json found. "ostia baseline save" needs configured workloads.\n`,
-    )
-    return 2
-  }
-  if (config.workloads.length === 0) {
-    process.stderr.write(`ostia.config.json has no "workloads" configured.\n`)
-    return 2
-  }
+  const config = await requireConfig("ostia baseline save")
+  if (!config) return 2
 
   const path = await saveBaseline(config, name)
   process.stdout.write(`Wrote ${path}\n`)
@@ -985,11 +910,8 @@ async function baselineListCommand(argv: string[]): Promise<number> {
     return 0
   }
 
-  const config = await loadConfig()
-  if (!config) {
-    process.stderr.write(`No ostia.config.json found.\n`)
-    return 2
-  }
+  const config = await requireConfig()
+  if (!config) return 2
 
   const infos = await listBaselines(config)
   if (infos.length === 0) {
@@ -997,9 +919,7 @@ async function baselineListCommand(argv: string[]): Promise<number> {
     return 0
   }
   for (const info of infos) {
-    const gitSuffix = info.git
-      ? `\t${info.git.sha} (${info.git.branch}${info.git.dirty ? ", dirty" : ""})`
-      : ""
+    const gitSuffix = info.git ? `\t${formatGit(info.git)}` : ""
     process.stdout.write(
       `${info.name}\t${info.workloads} workloads\tcreated ${info.createdAt}\ttoolVersion ${info.toolVersion}${gitSuffix}\n`,
     )
@@ -1014,11 +934,8 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
     return name ? 0 : 2
   }
 
-  const config = await loadConfig()
-  if (!config) {
-    process.stderr.write(`No ostia.config.json found.\n`)
-    return 2
-  }
+  const config = await requireConfig()
+  if (!config) return 2
 
   return reportCommand([baselinePath(config, name), ...rest])
 }

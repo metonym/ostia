@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-09-05
 
 **Features**
 
@@ -27,8 +27,6 @@
 - `Workload.prepare` / `Workload.timeSource` on the document (additive, no
   schema bump); `WorkloadConfig`, `PrepareHook`, `PrepareRun`, `TimeSource`
   exported from the library.
-- README: a watch-mode recipe for `ostia bench` (`watchexec -e ts -- ostia
-  bench ... --budget 100`) rather than a built-in `--watch`.
 
 ## 0.2.0 — 2026-09-05
 

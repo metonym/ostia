@@ -102,6 +102,12 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
   const measuredWorkloadIds = new Set(rows.map((r) => r.run.workloadId))
+  const cpuWarningsByWorkloadId = new Map<string, Measurement["warnings"]>()
+  for (const m of doc.measurements) {
+    if (m.phase !== "cpu" || m.warnings.length === 0) continue
+    const existing = cpuWarningsByWorkloadId.get(m.workloadId) ?? []
+    cpuWarningsByWorkloadId.set(m.workloadId, [...existing, ...m.warnings])
+  }
   const skippedLines = doc.workloads
     .filter((w) => w.skipped && !measuredWorkloadIds.has(w.id))
     .map((w) => skippedLine(w, comparisonByRun.get(w.id)))
@@ -119,7 +125,10 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
       stddevPct: sig(t.mean === 0 ? 0 : (t.stddev / t.mean) * 100),
       min: sig(t.min),
       max: sig(t.max),
-      warnings: run.warnings.map((w) =>
+      warnings: [
+        ...run.warnings,
+        ...(cpuWarningsByWorkloadId.get(run.workloadId) ?? []),
+      ].map((w) =>
         w.data ? { code: w.code, data: w.data } : { code: w.code },
       ),
     }

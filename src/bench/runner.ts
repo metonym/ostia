@@ -9,7 +9,7 @@ import {
   saveDocument,
 } from "../ir/document.ts"
 import { measureAllocPerOp } from "../measure/alloc.ts"
-import { captureTaskCpuProfile } from "../measure/cpu.ts"
+import { captureTaskCpuProfile, jitColdWarning } from "../measure/cpu.ts"
 import {
   captureEnvironment,
   noisyMachineWarning,
@@ -218,6 +218,7 @@ async function main(): Promise<number> {
     // the timing numbers above.
     if (taskCpu(t, opts.cpu ?? false)) {
       const cpuResult = await captureTaskCpuProfile(t.fn)
+      const jitWarning = jitColdWarning(cpuResult.jit)
       measurements.push(
         makeInstrumentedMeasurement({
           workload,
@@ -226,7 +227,7 @@ async function main(): Promise<number> {
           diagnosticWallNs: cpuResult.diagnosticWallNs,
           cpu: cpuResult.cpu,
           jit: cpuResult.jit,
-          warnings: [],
+          warnings: jitWarning ? [jitWarning] : [],
           artifacts: [],
         }),
       )

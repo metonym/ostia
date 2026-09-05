@@ -191,6 +191,7 @@ export type WarningCode =
   | "thin-comparison"
   | "noisy-machine"
   | "skipped"
+  | "jit-cold"
 
 export interface Warning {
   code: WarningCode

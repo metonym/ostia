@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { captureTaskCpuProfile } from "../../src/measure/cpu"
+import { captureTaskCpuProfile, jitColdWarning } from "../../src/measure/cpu"
 
 function hotInner(n: number): number {
   let acc = 0
@@ -22,4 +22,37 @@ describe("measure/cpu", () => {
     }, 30)
     expect(result.cpu.origin).toBe("jsc-profile")
   }, 10_000)
+})
+
+describe("jitColdWarning", () => {
+  test("undefined when llint+baseline is at or below the 20% threshold", () => {
+    const warning = jitColdWarning({
+      origin: "jsc-profile",
+      tiers: { llint: 5, baseline: 15, dfg: 30, ftl: 50 },
+    })
+    expect(warning).toBeUndefined()
+  })
+
+  test("undefined when there are zero samples", () => {
+    const warning = jitColdWarning({
+      origin: "jsc-profile",
+      tiers: { llint: 0, baseline: 0, dfg: 0, ftl: 0 },
+    })
+    expect(warning).toBeUndefined()
+  })
+
+  test("fires with tier percentages when llint+baseline exceeds 20%", () => {
+    const warning = jitColdWarning({
+      origin: "jsc-profile",
+      tiers: { llint: 30, baseline: 20, dfg: 30, ftl: 20 },
+    })
+    expect(warning).toBeDefined()
+    expect(warning!.code).toBe("jit-cold")
+    expect(warning!.data).toEqual({
+      llintPct: 30,
+      baselinePct: 20,
+      dfgPct: 30,
+      ftlPct: 20,
+    })
+  })
 })

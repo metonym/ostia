@@ -447,6 +447,63 @@ describe("table renderer - Alloc/op column (item 12)", () => {
   })
 })
 
+describe("jit-cold warning surfaces from a cpu measurement (item 13)", () => {
+  function docWithJitColdCpuRun() {
+    const doc = fixedDoc()
+    const workload = doc.workloads[0]!
+    const cpuRun = makeInstrumentedMeasurement({
+      workload,
+      phase: "cpu",
+      configFingerprint: "cfg_cpu",
+      diagnosticWallNs: 200_000_000,
+      cpu: {
+        origin: "jsc-profile",
+        samplingIntervalUs: 1000,
+        frames: [],
+        nodes: [],
+        totals: [],
+      },
+      jit: {
+        origin: "jsc-profile",
+        tiers: { llint: 40, baseline: 20, dfg: 20, ftl: 20 },
+      },
+      warnings: [
+        {
+          code: "jit-cold",
+          message:
+            "60.0% of CPU samples were in the llint/baseline tiers: the JIT never warmed this task up.",
+          data: { llintPct: 40, baselinePct: 20, dfgPct: 20, ftlPct: 20 },
+        },
+      ],
+      artifacts: [],
+    })
+    doc.measurements.push(cpuRun)
+    return doc
+  }
+
+  test("table renderer prints the jit-cold message alongside the CPU capture", async () => {
+    const result = await renderers.table.render(docWithJitColdCpuRun(), {})
+    expect(result.text).toContain("the JIT never warmed this task up")
+  })
+
+  test("minimal renderer merges the jit-cold warning into the matching timing line", async () => {
+    const result = await renderers.minimal.render(docWithJitColdCpuRun(), {})
+    const lines = result
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    const line = lines.find((l) => l.task === "bun a.ts")
+    expect(line.warnings).toEqual(
+      expect.arrayContaining([
+        {
+          code: "jit-cold",
+          data: { llintPct: 40, baselinePct: 20, dfgPct: 20, ftlPct: 20 },
+        },
+      ]),
+    )
+  })
+})
+
 describe("minimal renderer - one compact JSON object per timing run", () => {
   test("emits one line per task with stats, no raw sample array, and warning codes with data", async () => {
     const doc = fixedDoc()

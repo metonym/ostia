@@ -56,7 +56,7 @@ export interface OstiaConfig {
 // Scratch/artifact output: node_modules is already gitignored everywhere,
 // so consumers get that for free (matches node_modules/.cache/<tool> as
 // used by Babel, ESLint, Jest, etc).
-const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
+export const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 
 // Baselines are the one output that must survive node_modules churn (bun
 // install, CI job boundaries, branch switches) - they stay at the repo

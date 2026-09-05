@@ -63,6 +63,31 @@ function taskLabel(w: Workload | undefined, run: Measurement): string {
   return w?.entry?.task ?? w?.label ?? w?.command?.join(" ") ?? run.workloadId
 }
 
+/** Copies the workload's descriptive fields onto `line`, only when set, so
+ * the JSON line stays free of `undefined`-valued keys. */
+function addWorkloadFields(line: MinimalLine, w: Workload | undefined): void {
+  if (w?.entry?.group !== undefined) line.group = w.entry.group
+  if (w?.description !== undefined) line.description = w.description
+  if (w?.groupDescription !== undefined)
+    line.groupDescription = w.groupDescription
+  if (w?.params !== undefined) line.params = w.params
+}
+
+function deltaFrom(cmp: Comparison | undefined): MinimalLine["delta"] {
+  if (!cmp?.timing) return undefined
+  const delta: NonNullable<MinimalLine["delta"]> = {
+    medianPct: sig(cmp.timing.medianDeltaPct),
+    meanPct: sig(cmp.timing.meanDeltaPct),
+    verdict: cmp.timing.verdict,
+    pass: cmp.verdict === "pass",
+  }
+  if (cmp.timing.ci95) {
+    delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])]
+  }
+  if (cmp.timing.pValue !== undefined) delta.pValue = sig(cmp.timing.pValue)
+  return delta
+}
+
 function skippedLine(
   workload: Workload,
   cmp: Comparison | undefined,
@@ -72,20 +97,9 @@ function skippedLine(
     skipped: true,
     warnings: [],
   }
-  if (workload.entry?.group !== undefined) line.group = workload.entry.group
-  if (workload.description !== undefined)
-    line.description = workload.description
-  if (workload.groupDescription !== undefined)
-    line.groupDescription = workload.groupDescription
-  if (workload.params !== undefined) line.params = workload.params
-  if (cmp?.timing) {
-    line.delta = {
-      medianPct: sig(cmp.timing.medianDeltaPct),
-      meanPct: sig(cmp.timing.meanDeltaPct),
-      verdict: cmp.timing.verdict,
-      pass: cmp.verdict === "pass",
-    }
-  }
+  addWorkloadFields(line, workload)
+  const delta = deltaFrom(cmp)
+  if (delta) line.delta = delta
   return line
 }
 
@@ -135,29 +149,11 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
     if (t.p75 !== undefined) line.p75 = sig(t.p75)
     if (t.p99 !== undefined) line.p99 = sig(t.p99)
     if (t.mad !== undefined) line.mad = sig(t.mad)
-    if (workload?.entry?.group !== undefined) line.group = workload.entry.group
-    if (workload?.description !== undefined)
-      line.description = workload.description
-    if (workload?.groupDescription !== undefined)
-      line.groupDescription = workload.groupDescription
-    if (workload?.params !== undefined) line.params = workload.params
+    addWorkloadFields(line, workload)
     if (refs) line.relative = sig(t.median / (refs.get(row) ?? t.median))
     if (workload?.baseline) line.baseline = true
-    const cmp = comparisonByRun.get(run.id)
-    if (cmp?.timing) {
-      line.delta = {
-        medianPct: sig(cmp.timing.medianDeltaPct),
-        meanPct: sig(cmp.timing.meanDeltaPct),
-        verdict: cmp.timing.verdict,
-        pass: cmp.verdict === "pass",
-      }
-      if (cmp.timing.ci95) {
-        line.delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])]
-      }
-      if (cmp.timing.pValue !== undefined) {
-        line.delta.pValue = sig(cmp.timing.pValue)
-      }
-    }
+    const delta = deltaFrom(comparisonByRun.get(run.id))
+    if (delta) line.delta = delta
     return line
   })
 

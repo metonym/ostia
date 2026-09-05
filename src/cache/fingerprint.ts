@@ -1,3 +1,4 @@
+import { scanGlobs } from "../glob.ts"
 import { fp } from "../ir/fp.ts"
 import type { Phase } from "../ir/types.ts"
 
@@ -30,17 +31,9 @@ export async function computeInputsDigest(
 ): Promise<string | undefined> {
   if (globs.length === 0) return undefined
 
-  const paths = new Set<string>()
-  for (const pattern of globs) {
-    const glob = new Bun.Glob(pattern)
-    for await (const path of glob.scan({ cwd, absolute: false })) {
-      paths.add(path)
-    }
-  }
-
-  const sorted = [...paths].sort()
+  const paths = await scanGlobs(globs, cwd)
   const entries = await Promise.all(
-    sorted.map(async (path) => {
+    paths.map(async (path) => {
       const buf = await Bun.file(`${cwd}/${path}`).arrayBuffer()
       return { path, sha256: Bun.CryptoHasher.hash("sha256", buf, "hex") }
     }),

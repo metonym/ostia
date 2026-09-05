@@ -122,16 +122,20 @@ export function compareWorkload(
       candTiming.timing.mean,
     )
 
+    const verdictFor = (
+      low: number,
+      high: number,
+    ): NonNullable<Comparison["timing"]>["verdict"] => {
+      if (low > effectiveTimingPct) return "regressed"
+      if (high < -effectiveTimingPct) return "improved"
+      return "unchanged"
+    }
+
     if (
       baseSamples.length < MIN_SAMPLES_FOR_TEST ||
       candSamples.length < MIN_SAMPLES_FOR_TEST
     ) {
-      const verdict =
-        medianDeltaPct > effectiveTimingPct
-          ? "regressed"
-          : medianDeltaPct < -effectiveTimingPct
-            ? "improved"
-            : "unchanged"
+      const verdict = verdictFor(medianDeltaPct, medianDeltaPct)
       if (verdict === "regressed") failed = true
       timing = {
         medianDeltaPct,
@@ -153,12 +157,9 @@ export function compareWorkload(
       })
       const mw = mannWhitneyU(baseSamples, candSamples)
       const verdict =
-        bootstrap.ci95[0] > effectiveTimingPct && mw.pValue < thresholds.alpha
-          ? "regressed"
-          : bootstrap.ci95[1] < -effectiveTimingPct &&
-              mw.pValue < thresholds.alpha
-            ? "improved"
-            : "unchanged"
+        mw.pValue < thresholds.alpha
+          ? verdictFor(bootstrap.ci95[0], bootstrap.ci95[1])
+          : "unchanged"
       if (verdict === "regressed") failed = true
       timing = {
         medianDeltaPct,

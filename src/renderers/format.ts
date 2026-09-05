@@ -1,4 +1,4 @@
-import type { Environment } from "../ir/types.ts"
+import type { Environment, GitMetadata, Workload } from "../ir/types.ts"
 
 export type DurationUnit = "ns" | "µs" | "ms" | "s"
 
@@ -43,4 +43,17 @@ export function formatDuration(
  * `Apple M2 Pro · 12 cores · load 2.1 · noise floor 1.8%`. */
 export function formatEnvironmentLine(env: Environment): string {
   return `${env.cpuModel} · ${env.cores} cores · load ${env.loadAvg1.toFixed(1)} · noise floor ${env.noise.floorPct.toFixed(1)}%`
+}
+
+/** `abc1234 (main, dirty)`: the short sha, branch, and a dirty marker. */
+export function formatGit(git: GitMetadata): string {
+  return `${git.sha} (${git.branch}${git.dirty ? ", dirty" : ""})`
+}
+
+/** Display name for a workload: its label, else the command line, else the
+ * bench task id, else the raw workload id. */
+export function workloadLabel(w: Workload | undefined): string {
+  return (
+    w?.label ?? w?.command?.join(" ") ?? w?.entry?.task ?? w?.id ?? "unknown"
+  )
 }

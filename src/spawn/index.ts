@@ -154,7 +154,7 @@ export async function runPrepare(
     await hook(run)
     return
   }
-  const argv = Array.isArray(hook) ? hook : splitCommand(hook)
+  const argv = prepareArgv(hook)!
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,

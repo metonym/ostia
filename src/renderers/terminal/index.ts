@@ -3,8 +3,9 @@ import {
   formatDuration,
   formatEnvironmentLine,
   pickDurationUnit,
+  workloadLabel,
 } from "../format.ts"
-import { relativeReferences } from "../relative.ts"
+import { groupOf, relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -15,20 +16,6 @@ function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes.toFixed(0)}B`
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`
   return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
-}
-
-function commandLabel(w: Workload): string {
-  return w.label ?? w.command?.join(" ") ?? w.entry?.task ?? w.id
-}
-
-/** Prefers the explicit `entry.group` the bench runner records over
- * splitting the "group/name" id, so task names may themselves contain "/". */
-function groupOf(workload: Workload | undefined): string | undefined {
-  if (!workload?.entry) return undefined
-  if (workload.entry.group !== undefined) return workload.entry.group
-  const id = workload.entry.task
-  const idx = id.lastIndexOf("/")
-  return idx === -1 ? undefined : id.slice(0, idx)
 }
 
 interface TimingRow {
@@ -79,22 +66,18 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       timingRuns.map((r) => [r.workloadId, r]),
     )
     const rows: TableRow[] = []
+    const measuredRows: ({ kind: "measured" } & TimingRow)[] = []
     for (const workload of doc.workloads) {
       const run = measurementByWorkloadId.get(workload.id)
+      const label = workloadLabel(workload)
       if (run) {
-        rows.push({
-          kind: "measured",
-          run,
-          workload,
-          label: commandLabel(workload),
-        })
+        const row = { kind: "measured" as const, run, workload, label }
+        rows.push(row)
+        measuredRows.push(row)
       } else if (workload.skipped) {
-        rows.push({ kind: "skipped", workload, label: commandLabel(workload) })
+        rows.push({ kind: "skipped", workload, label })
       }
     }
-    const measuredRows = rows.filter(
-      (r): r is { kind: "measured" } & TimingRow => r.kind === "measured",
-    )
 
     const allocByWorkloadId = new Map(
       doc.measurements
@@ -107,8 +90,6 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const showAlloc = allocByWorkloadId.size > 0
 
     const showRelative = measuredRows.length > 1
-    // Grouped tasks get their own Relative baseline (see relative.ts);
-    // ungrouped tasks fall back to the whole-run fastest.
     const references = relativeReferences(measuredRows)
 
     // Group rows visually: a row's group header prints once, right before
@@ -218,29 +199,24 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
   },
 }
 
-function runLabelFor(
-  doc: ProfileDocument,
-  byWorkload: Map<string, Workload>,
-  measurementId: string,
-): string {
-  const run = doc.measurements.find((r) => r.id === measurementId)
-  // A skipped candidate has no measurement, so `compareWorkload` falls back
-  // to the workload's own id for `candidateMeasurementId` - resolve that too.
-  const workload = run
-    ? byWorkload.get(run.workloadId)
-    : byWorkload.get(measurementId)
-  return workload ? commandLabel(workload) : measurementId
-}
-
 function renderComparisons(
   doc: ProfileDocument,
   byWorkload: Map<string, Workload>,
 ): string[] {
   if (!doc.comparisons || doc.comparisons.length === 0) return []
   const lines: string[] = []
+  const byMeasurement = new Map(doc.measurements.map((m) => [m.id, m]))
 
   for (const cmp of doc.comparisons) {
-    const label = runLabelFor(doc, byWorkload, cmp.candidateMeasurementId)
+    const run = byMeasurement.get(cmp.candidateMeasurementId)
+    // A skipped candidate has no measurement, so `compareWorkload` falls back
+    // to the workload's own id for `candidateMeasurementId` - resolve that too.
+    const workload = byWorkload.get(
+      run?.workloadId ?? cmp.candidateMeasurementId,
+    )
+    const label = workload
+      ? workloadLabel(workload)
+      : cmp.candidateMeasurementId
     const verdictMark = cmp.verdict === "pass" ? "✓" : "✗"
     lines.push(`${verdictMark} ${label}`)
 
@@ -295,7 +271,7 @@ function renderInstrumentedRuns(
   for (const run of doc.measurements) {
     if (run.phase !== "cpu" && run.phase !== "heap") continue
     const workload = byWorkload.get(run.workloadId)
-    const label = workload ? commandLabel(workload) : run.workloadId
+    const label = workload ? workloadLabel(workload) : run.workloadId
 
     if (run.phase === "cpu") {
       if (run.cpu) {

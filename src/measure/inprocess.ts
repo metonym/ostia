@@ -2,19 +2,33 @@ import type { TimingStats, Trial, Warning } from "../ir/types.ts"
 import { computeTimingStats, timingWarnings } from "../stats/index.ts"
 
 export interface InprocessTimingOptions {
-  /** Wall-clock budget for the sampling loop, per task (default: 500). The loop
-   * always runs for at least this long. */
+  /** @deprecated Use `budgetMs`. */
   timeBudgetMs?: number
-  /** Hard floor on the number of trials. When set, the loop keeps sampling past the
-   * time budget until this many trials exist, however slow each one is. When unset,
-   * the floor is cost-aware (see `defaultSampleFloor`): as many trials as fit in the
+  /** Wall-clock budget for the sampling loop, per task (default: 500). The loop
+   * always runs for at least this long, unless `samples` is set. Same concept
+   * as the deprecated `timeBudgetMs`. */
+  budgetMs?: number
+  /** Exact trial count. When set, the budget is ignored and the loop runs
+   * exactly this many trials, however slow each one is - the in-process
+   * equivalent of `time()`'s `samples`/`runs`. */
+  samples?: number
+  /** Hard floor on the number of trials when no exact `samples` count is
+   * given. When set, the loop keeps sampling past the time budget until this
+   * many trials exist, however slow each one is. When unset, the floor is
+   * cost-aware (see `defaultSampleFloor`): as many trials as fit in the
    * budget, capped at 20, but never below the rigor floor the task's per-trial cost
    * earns it (3 at ≤1ms, rising to 10 for multi-second calls). */
   minSamples?: number
-  /** Warmup budget as a fraction of `timeBudgetMs` (default: 0.1), not a call
-   * count. Warmup always runs at least one call; for a task slower than the
-   * warmup budget that single call is the whole warmup. */
+  /** @deprecated Use `warmup`. */
   warmupFraction?: number
+  /** Warmup budget as a fraction of `budgetMs` (default: 0.1) - a fraction,
+   * not a call count. Same concept as the deprecated `warmupFraction`, named
+   * `warmup` for cross-surface consistency with `time()`'s trial-count
+   * `warmup`; the two are genuinely different units (a fraction here, a
+   * count there), not papered over. Warmup always runs at least one call;
+   * for a task slower than the warmup budget that single call is the whole
+   * warmup. */
+  warmup?: number
   gc?: boolean
 }
 
@@ -102,9 +116,11 @@ export async function measureTask(
   fn: () => unknown | Promise<unknown>,
   opts: InprocessTimingOptions = {},
 ): Promise<InprocessTimingResult> {
-  const timeBudgetNs = (opts.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6
+  const timeBudgetNs =
+    (opts.budgetMs ?? opts.timeBudgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6
   const warmupBudgetNs =
-    timeBudgetNs * (opts.warmupFraction ?? DEFAULT_WARMUP_FRACTION)
+    timeBudgetNs *
+    (opts.warmup ?? opts.warmupFraction ?? DEFAULT_WARMUP_FRACTION)
 
   const warmupStart = Bun.nanoseconds()
   let warmupCalls = 0
@@ -150,13 +166,18 @@ export async function measureTask(
   }
   const trialCostNs = singleCallNs * batchSize
   const minSamples =
-    opts.minSamples ?? defaultSampleFloor(trialCostNs, timeBudgetNs)
+    opts.samples ??
+    opts.minSamples ??
+    defaultSampleFloor(trialCostNs, timeBudgetNs)
+  // An exact sample count ignores the budget entirely, same as subprocess
+  // timing's `runs`/`samples`.
+  const effectiveBudgetNs = opts.samples !== undefined ? 0 : timeBudgetNs
 
   const trials: Trial[] = []
   const start = Bun.nanoseconds()
   let elapsed = 0
   let i = 0
-  while (i < minSamples || elapsed < timeBudgetNs) {
+  while (i < minSamples || elapsed < effectiveBudgetNs) {
     const trialStart = Bun.nanoseconds()
     for (let b = 0; b < batchSize; b++) {
       const result = fn()
@@ -167,10 +188,11 @@ export async function measureTask(
     i++
     elapsed = Bun.nanoseconds() - start
     if (opts.gc) Bun.gc(true)
+    if (opts.samples !== undefined && i >= opts.samples) break
   }
 
-  const samples = trials.map((t) => t.wallNs)
-  const timing = computeTimingStats(samples)
+  const wallTimes = trials.map((t) => t.wallNs)
+  const timing = computeTimingStats(wallTimes)
   const warnings = timingWarnings(timing, [], "inprocess")
 
   // The default floor guarantees the rigor target, so this only fires when an

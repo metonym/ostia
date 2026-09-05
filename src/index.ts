@@ -49,7 +49,17 @@ export { keep }
 
 interface TimeOptions {
   commands: (string | string[])[]
+  /** @deprecated Use `samples`. */
   runs?: number
+  /** Exact trial count. Same concept as the deprecated `runs`; when set,
+   * `budgetMs` is ignored. */
+  samples?: number
+  /** Wall-clock time budget for the sampling loop, ms (default: a
+   * hyperfine-style ~3s min-total-time loop when neither `samples` nor
+   * `budgetMs` is given). */
+  budgetMs?: number
+  /** Hard floor on trials when no exact `samples` count is given. */
+  minSamples?: number
   warmup?: number
   cwd?: string
   env?: Record<string, string>
@@ -68,7 +78,9 @@ const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const cfgFp = configFingerprint({
-    runs: opts.runs ?? null,
+    samples: opts.samples ?? opts.runs ?? null,
+    budgetMs: opts.budgetMs ?? null,
+    minSamples: opts.minSamples ?? null,
     warmup: opts.warmup ?? null,
     cpu: opts.cpu ?? false,
     heap: opts.heap ?? false,
@@ -97,7 +109,9 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       argv,
       cwd: opts.cwd,
       env: opts.env,
-      runs: opts.runs,
+      samples: opts.samples ?? opts.runs,
+      budgetMs: opts.budgetMs,
+      minSamples: opts.minSamples,
       warmup: opts.warmup,
     })
 

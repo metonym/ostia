@@ -99,15 +99,25 @@ describe("resolveBenchOptions", () => {
       config,
       "/tmp",
     )
-    expect(resolved.timeBudgetMs).toBe(5000)
+    expect(resolved.budgetMs).toBe(5000)
     expect(resolved.minSamples).toBe(20)
     expect(resolved.filter).toBe("parse")
     expect(resolved.outDir).toBe(".config-out")
 
     const unset = await resolveBenchOptions(cli(), undefined, "/tmp")
-    expect(unset.timeBudgetMs).toBeUndefined()
+    expect(unset.budgetMs).toBeUndefined()
     expect(unset.minSamples).toBeUndefined()
     expect(unset.outDir).toBeUndefined()
+  })
+
+  test("new-name (budgetMs/samples) CLI and config fields resolve the same way as the deprecated names", async () => {
+    const resolved = await resolveBenchOptions(
+      cli({ samples: 42 }),
+      { budgetMs: 750 },
+      "/tmp",
+    )
+    expect(resolved.budgetMs).toBe(750)
+    expect(resolved.samples).toBe(42)
   })
 
   test(`config jobs: "auto" resolves to the machine's available job count`, async () => {

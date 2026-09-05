@@ -523,3 +523,45 @@ describe("bench() - before/after hooks (item 9)", () => {
     await Bun.spawn(["rm", "-rf", markerPath, `${OUT_DIR}-hooks`]).exited
   }, 20_000)
 })
+
+describe("bench() - unified timing vocabulary (item 11)", () => {
+  test("samples produces an exact per-task trial count, ignoring the budget", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      samples: 4,
+      budgetMs: 1, // would otherwise be far too small to reach 4 trials
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-vocab-samples`,
+    })
+    for (const m of doc.measurements) {
+      expect(m.trials).toHaveLength(4)
+    }
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-vocab-samples`]).exited
+  }, 20_000)
+
+  test("configFingerprint is identical for an old-name (timeBudgetMs) and new-name (budgetMs) call with the same effective settings", async () => {
+    const withOldName = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 20,
+      minSamples: 3,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-vocab-old`,
+    })
+    const withNewName = await bench({
+      suites: [SUITE],
+      budgetMs: 20,
+      minSamples: 3,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-vocab-new`,
+    })
+    expect(withNewName.measurements.map((m) => m.configFingerprint)).toEqual(
+      withOldName.measurements.map((m) => m.configFingerprint),
+    )
+    await Bun.spawn([
+      "rm",
+      "-rf",
+      `${OUT_DIR}-vocab-old`,
+      `${OUT_DIR}-vocab-new`,
+    ]).exited
+  }, 20_000)
+})

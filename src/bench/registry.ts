@@ -4,8 +4,14 @@ export interface TaskOptions {
   /** Marks this task as the Relative reference for its group in the table
    * renderer, mirroring mitata's `baseline()`. At most one per group. */
   baseline?: boolean
-  /** Per-task time budget; overrides the suite-wide `--time-budget` / `timeBudgetMs`. */
+  /** @deprecated Use `budgetMs`. */
   timeBudgetMs?: number
+  /** Per-task time budget; overrides the suite-wide `--budget` / `budgetMs`
+   * (`--time-budget` / `timeBudgetMs` still work as deprecated aliases). */
+  budgetMs?: number
+  /** Per-task exact trial count; overrides the suite-wide `--samples` /
+   * `samples`. When set, the budget is ignored for this task. */
+  samples?: number
   /** Per-task hard floor on trials; overrides the suite-wide `--min-samples` /
    * `minSamples`. */
   minSamples?: number

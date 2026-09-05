@@ -3,14 +3,27 @@ import { runTrial, type SpawnTrialOptions } from "../spawn/index.ts"
 import { computeTimingStats, timingWarnings } from "../stats/index.ts"
 
 export interface TimingPhaseOptions extends SpawnTrialOptions {
+  /** @deprecated Use `samples`. */
   runs?: number
+  /** Exact trial count. Same concept as the deprecated `runs`; when set, the
+   * budget (`budgetMs`/`minTotalNs`) is ignored and the loop runs exactly
+   * this many trials. */
+  samples?: number
+  /** Warmup trial count, discarded before sampling starts. */
   warmup?: number
+  /** @deprecated Use `minSamples`. */
   minRuns?: number
+  /** Hard floor on trials when no exact `samples` count is given. */
+  minSamples?: number
+  /** @deprecated Use `budgetMs` (same value, in ms instead of ns). */
   minTotalNs?: number
+  /** Wall-clock time budget for the sampling loop, ms. Same concept as the
+   * deprecated `minTotalNs`. */
+  budgetMs?: number
 }
 
-const DEFAULT_MIN_RUNS = 10
-const DEFAULT_MIN_TOTAL_NS = 3_000_000_000
+const DEFAULT_MIN_SAMPLES = 10
+const DEFAULT_BUDGET_NS = 3_000_000_000
 const DEFAULT_WARMUP = 3
 
 export interface TimingPhaseResult {
@@ -27,14 +40,22 @@ export async function runTimingPhase(
     await runTrial(opts)
   }
 
-  const trials: Trial[] = []
-  const minRuns = opts.runs ?? opts.minRuns ?? DEFAULT_MIN_RUNS
-  const minTotalNs =
-    opts.runs !== undefined ? 0 : (opts.minTotalNs ?? DEFAULT_MIN_TOTAL_NS)
+  const samples = opts.samples ?? opts.runs
+  const minSamples = opts.minSamples ?? opts.minRuns ?? DEFAULT_MIN_SAMPLES
+  const minSamplesFloor = samples ?? minSamples
+  // An exact sample count ignores the budget entirely, same as it always has
+  // under the `runs` name.
+  const budgetNs =
+    samples !== undefined
+      ? 0
+      : opts.budgetMs !== undefined
+        ? opts.budgetMs * 1e6
+        : (opts.minTotalNs ?? DEFAULT_BUDGET_NS)
 
+  const trials: Trial[] = []
   let totalNs = 0
   let i = 0
-  while (i < minRuns || totalNs < minTotalNs) {
+  while (i < minSamplesFloor || totalNs < budgetNs) {
     const result = await runTrial(opts)
     trials.push({
       i,
@@ -46,11 +67,11 @@ export async function runTimingPhase(
     })
     totalNs += result.wallNs
     i++
-    if (opts.runs !== undefined && i >= opts.runs) break
+    if (samples !== undefined && i >= samples) break
   }
 
-  const samples = trials.map((t) => t.wallNs)
-  const timing = computeTimingStats(samples)
+  const timingSamples = trials.map((t) => t.wallNs)
+  const timing = computeTimingStats(timingSamples)
   const warnings = timingWarnings(
     timing,
     trials.map((t) => t.exitCode),

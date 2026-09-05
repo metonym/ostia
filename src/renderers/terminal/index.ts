@@ -1,5 +1,9 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
-import { formatDuration, pickDurationUnit } from "../format.ts"
+import {
+  formatDuration,
+  formatEnvironmentLine,
+  pickDurationUnit,
+} from "../format.ts"
 import { relativeReferences } from "../relative.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
@@ -36,12 +40,16 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     )
     const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
 
+    const envLine = doc.environment
+      ? [formatEnvironmentLine(doc.environment), ""]
+      : []
+
     if (timingRuns.length === 0) {
       const comparisonLines = renderComparisons(doc, byWorkload)
       return {
         text:
           comparisonLines.length > 0
-            ? `${comparisonLines.join("\n")}\n`
+            ? `${[...envLine, ...comparisonLines].join("\n")}\n`
             : "(no timing runs)\n",
       }
     }
@@ -82,7 +90,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const spreadWidth = 18
     const rangeWidth = 18
 
-    const lines: string[] = []
+    const lines: string[] = [...envLine]
     const header = showRelative
       ? `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)} Relative`
       : `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}`

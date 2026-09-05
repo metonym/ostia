@@ -1,5 +1,9 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
-import { formatDuration, pickDurationUnit } from "../format.ts"
+import {
+  formatDuration,
+  formatEnvironmentLine,
+  pickDurationUnit,
+} from "../format.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -26,6 +30,9 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
       `Bun ${doc.bunVersion} · ostia ${doc.toolVersion} · ${doc.platform.os}/${doc.platform.arch} · ${doc.createdAt}`,
       "",
     )
+    if (doc.environment) {
+      lines.push(formatEnvironmentLine(doc.environment), "")
+    }
 
     const timingRuns = doc.measurements.filter(
       (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>

@@ -5,7 +5,12 @@ const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 
 describe("time() - timing phase, real spawned trials", () => {
   test("produces a well-formed ProfileDocument for a single workload", async () => {
-    const doc = await time({ commands: [`bun ${FIXTURE}`], runs: 5, warmup: 1 })
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 5,
+      warmup: 1,
+      noiseCheck: false,
+    })
 
     expect(doc.schemaVersion).toBe(2)
     expect(doc.bunVersion).toBe(Bun.version)
@@ -40,6 +45,7 @@ describe("time() - timing phase, real spawned trials", () => {
       commands: [`bun ${FIXTURE}`, `bun -e "1+1"`],
       runs: 3,
       warmup: 0,
+      noiseCheck: false,
     })
 
     expect(doc.workloads).toHaveLength(2)
@@ -54,6 +60,7 @@ describe("time() - timing phase, real spawned trials", () => {
       commands: [`bun ${FIXTURE}`],
       runs: 1,
       warmup: 0,
+      noiseCheck: false,
     })
     expect(docAgain.workloads[0]!.id).toBe(wa.id)
   }, 20_000)
@@ -63,13 +70,42 @@ describe("time() - timing phase, real spawned trials", () => {
       commands: [["bun", "-e", "process.exit(1)"]],
       runs: 2,
       warmup: 0,
+      noiseCheck: false,
     })
     const run0 = doc.measurements[0]!
     expect(run0.trials.every((t) => t.exitCode === 1)).toBe(true)
   }, 20_000)
 
   test("the deprecated run() alias still works", async () => {
-    const doc = await run({ commands: [`bun ${FIXTURE}`], runs: 1, warmup: 0 })
+    const doc = await run({
+      commands: [`bun ${FIXTURE}`],
+      runs: 1,
+      warmup: 0,
+      noiseCheck: false,
+    })
     expect(doc.measurements).toHaveLength(1)
+  }, 20_000)
+})
+
+describe("time() - noise floor (item 7)", () => {
+  test("stamps environment.noise by default", async () => {
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 2,
+      warmup: 0,
+    })
+    expect(doc.environment).toBeDefined()
+    expect(doc.environment!.noise.floorPct).toBeGreaterThanOrEqual(0)
+    expect(doc.environment!.cores).toBeGreaterThan(0)
+  }, 20_000)
+
+  test("noiseCheck: false skips the reference measurement", async () => {
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 2,
+      warmup: 0,
+      noiseCheck: false,
+    })
+    expect(doc.environment).toBeUndefined()
   }, 20_000)
 })

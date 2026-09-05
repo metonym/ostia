@@ -3,6 +3,7 @@ import type {
   ArtifactRef,
   Comparison,
   CpuEvidence,
+  Environment,
   HeapEvidence,
   JitTierBreakdown,
   Measurement,
@@ -20,6 +21,7 @@ export const TOOL_VERSION = "0.1.0"
 export function newDocument(
   workloads: Workload[],
   measurements: Measurement[],
+  environment?: Environment,
 ): ProfileDocument {
   return {
     schemaVersion: 2,
@@ -29,6 +31,7 @@ export function newDocument(
     createdAt: new Date().toISOString(),
     workloads,
     measurements,
+    ...(environment !== undefined && { environment }),
   }
 }
 

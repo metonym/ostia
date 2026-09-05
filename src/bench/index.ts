@@ -42,6 +42,10 @@ export interface BenchOptions {
    * resolution condition Bun doesn't set by default (e.g. Svelte/Vue's
    * `browser` vs `default` builds). */
   bunFlags?: string[]
+  /** Measure this machine's noise floor before the first task per suite
+   * subprocess (default: true) and stamp it on the document as
+   * `environment`. Set false to skip the ~200ms reference measurement. */
+  noiseCheck?: boolean
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -81,6 +85,7 @@ export interface BenchCliOverrides {
   preload: string[]
   bunFlags?: string[]
   outDir?: string
+  noiseCheck: boolean
 }
 
 function resolveConfigJobs(
@@ -118,6 +123,7 @@ export async function resolveBenchOptions(
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
     bunFlags: cli.bunFlags,
     outDir: cli.outDir ?? config?.outDir,
+    noiseCheck: cli.noiseCheck,
     cwd,
   }
 }
@@ -143,6 +149,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     timeBudgetMs: opts.timeBudgetMs,
     minSamples: opts.minSamples,
     gc: opts.gc,
+    noiseCheck: opts.noiseCheck,
   }
 
   const resolvedSuites = opts.suites.map((suiteFile) =>
@@ -296,7 +303,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       }
     }
 
-    return newDocument(workloads, measurements)
+    return newDocument(workloads, measurements, primaryDocs[0]?.environment)
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited
   }

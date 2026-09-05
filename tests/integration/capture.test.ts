@@ -17,6 +17,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
       cpu: true,
       cpuIntervalUs: 100,
       outDir: OUT_DIR,
+      noiseCheck: false,
     })
 
     const timingRun = doc.measurements.find((r) => r.phase === "timing")!
@@ -53,6 +54,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
       warmup: 0,
       heap: true,
       outDir: OUT_DIR,
+      noiseCheck: false,
     })
 
     const heapRun = doc.measurements.find((r) => r.phase === "heap")!
@@ -69,7 +71,12 @@ describe("capture - real subprocess CPU/heap trials", () => {
   }, 20_000)
 
   test("timing run carries free per-trial memory evidence from resourceUsage()", async () => {
-    const doc = await time({ commands: [`bun ${FIXTURE}`], runs: 3, warmup: 0 })
+    const doc = await time({
+      commands: [`bun ${FIXTURE}`],
+      runs: 3,
+      warmup: 0,
+      noiseCheck: false,
+    })
     const timingRun = doc.measurements.find((r) => r.phase === "timing")!
     expect(timingRun.memory).toBeDefined()
     expect(timingRun.memory!.origin).toBe("resourceUsage")
@@ -83,6 +90,7 @@ describe("capture - real subprocess CPU/heap trials", () => {
       warmup: 0,
       cpu: true,
       outDir: OUT_DIR,
+      noiseCheck: false,
     })
     const cpuRun = doc.measurements.find((r) => r.phase === "cpu")!
     expect(cpuRun.cpu).toBeUndefined()

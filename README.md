@@ -24,11 +24,25 @@ ostia time --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```
+Apple M2 · 8 cores · load 5.2 · noise floor 0.5%
+
 Task                   Median     Spread             Range              Relative
 --------------------------------------------------------------------------------
-bun fixtures/fast.ts   15.0 ms    14.0 ms…19.3 ms    12.4 ms…23.7 ms    1.00×
-bun fixtures/slow.ts   37.3 ms    34.9 ms…40.7 ms    31.3 ms…48.2 ms    2.49× slower
+bun fixtures/fast.ts   7.47 ms    7.56 ms…7.77 ms    7.39 ms…7.78 ms    1.00×
+  ! outliers-detected
+bun fixtures/slow.ts   20.7 ms    20.9 ms…21.1 ms    20.6 ms…21.1 ms    2.77× slower
+
+Warnings:
+  bun fixtures/fast.ts: 1 outlier(s) detected (0 severe, 1 mild).
 ```
+
+The header line (machine, cores, load, noise floor) prints whenever a document
+carries an `environment` - on by default; skip the ~200ms reference
+measurement with `--no-noise-check`. `compare`/`ci` widen the regression
+threshold to at least the noise floor, so a change smaller than the machine's
+own jitter is never called a regression - see
+[Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)
+below.
 
 Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into the
 timing numbers above):
@@ -284,6 +298,16 @@ mirror. Otherwise `unchanged`. This is why the earlier example (`+50.2%
 median, 95% CI [+45.9%, +54.4%]`) is a clean regression: even the low end of
 the interval is well past `timingPct`.
 
+Both `time()` and `bench()` also stamp `environment` on every document (a
+fixed-cost, deterministic, allocation-free hash loop sampled for ~200ms,
+`noise.floorPct = mad / median`) unless `noiseCheck: false` / `--no-noise-check`
+skips it. `compare` widens the effective threshold to
+`max(thresholds.timingPct, base.environment.noise.floorPct,
+cand.environment.noise.floorPct)` (`Comparison.thresholds.effectiveTimingPct`),
+so a delta smaller than the machine's own jitter right now is never called a
+regression. A `noisy-machine` warning fires when the 1-minute load average is
+already past 75% of available cores at measurement time.
+
 ### `ostia report`
 
 Render a saved `ProfileDocument` without re-running anything. `--format` covers
@@ -483,6 +507,7 @@ const doc = await time({
   heap: false,
   cpuIntervalUs: 200,
   outDir: "node_modules/.cache/ostia", // default; artifacts land under here
+  noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
 })
 ```
 
@@ -619,6 +644,7 @@ const doc = await bench({
   timeBudgetMs: 500,
   minSamples: 50,
   jobs: 1, // suite files at once; > 1 trades fidelity for wall time
+  noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
 })
 ```
 

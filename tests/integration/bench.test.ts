@@ -11,6 +11,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("registers group()/task() calls and measures each task independently", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 50,
       minSamples: 5,
@@ -49,12 +50,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("workload id is stable across separate bench() invocations of the same suite", async () => {
     const a = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 20,
       minSamples: 5,
       outDir: `${OUT_DIR}-a`,
     })
     const b = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 20,
       minSamples: 5,
@@ -70,6 +73,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("per-task options override the suite-wide budget and sample floor", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-overrides.ts`],
       timeBudgetMs: 5,
       minSamples: 5,
@@ -103,6 +107,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("--filter runs only tasks whose group/name id matches the regex", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 20,
       minSamples: 5,
@@ -133,6 +138,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("group()/task() descriptions flow into the document as workload annotations", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-described.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -155,6 +161,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
     // Annotations never change the workload id, so existing baselines still match.
     const bare = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -177,12 +184,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
       `${import.meta.dir}/../fixtures/bench-suite-described.ts`,
     ]
     const sequential = await bench({
+      noiseCheck: false,
       suites,
       timeBudgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-jobs-1`,
     })
     const concurrent = await bench({
+      noiseCheck: false,
       suites,
       timeBudgetMs: 10,
       minSamples: 3,
@@ -217,12 +226,14 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("isolate: true marks every task's workload as isolated and preserves registration order", async () => {
     const bare = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 10,
       minSamples: 3,
       outDir: `${OUT_DIR}-isolate-bare`,
     })
     const isolated = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -246,6 +257,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("per-task/group isolate overrides work without a suite-wide isolate flag", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-isolate.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -272,6 +284,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("--filter narrows correctly under isolate: true - unmatched tasks are never spawned", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -290,6 +303,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("isolate: true + jobs still produces one document with correct per-task attribution", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -311,6 +325,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("per-task/group gc overrides resolve independently of the suite-wide flag", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-gc.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -347,6 +362,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("--preload runs before the suite file loads, in the same subprocess", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-dom.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -361,6 +377,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("multiple --preload scripts run in order, sharing state with each other and the suite", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-preload-order.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -393,6 +410,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
 
   test("--bun-flags passes extra flags through to the bun invocation", async () => {
     const doc = await bench({
+      noiseCheck: false,
       suites: [`${import.meta.dir}/../fixtures/bench-suite-needs-bun-flag.ts`],
       timeBudgetMs: 10,
       minSamples: 3,
@@ -408,6 +426,7 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
   test("scratch IPC directory is cleaned up after a successful run", async () => {
     const runOutDir = `${OUT_DIR}-cleanup`
     await bench({
+      noiseCheck: false,
       suites: [SUITE],
       timeBudgetMs: 20,
       minSamples: 5,
@@ -418,5 +437,35 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     expect(stillExists).toBe(false)
 
     await Bun.spawn(["rm", "-rf", runOutDir]).exited
+  }, 20_000)
+})
+
+describe("bench() - noise floor (item 7)", () => {
+  afterAll(async () => {
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-noise`, `${OUT_DIR}-no-noise`])
+      .exited
+  })
+
+  test("stamps environment.noise by default", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      outDir: `${OUT_DIR}-noise`,
+    })
+    expect(doc.environment).toBeDefined()
+    expect(doc.environment!.noise.floorPct).toBeGreaterThanOrEqual(0)
+    expect(doc.environment!.cores).toBeGreaterThan(0)
+  }, 20_000)
+
+  test("noiseCheck: false skips the reference measurement", async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 10,
+      minSamples: 3,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-no-noise`,
+    })
+    expect(doc.environment).toBeUndefined()
   }, 20_000)
 })

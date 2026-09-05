@@ -47,6 +47,7 @@ describe("runCi", () => {
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
+      noiseCheck: false,
     })
     await saveDocument(baseline, baselinePath(cfg))
 
@@ -73,6 +74,7 @@ describe("runCi", () => {
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
+      noiseCheck: false,
     })
     await saveDocument(baseline, baselinePath(cfg))
 
@@ -100,6 +102,7 @@ describe("runCi", () => {
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
+      noiseCheck: false,
     })
     await saveDocument(baseline, baselinePath(cfg))
 
@@ -123,6 +126,7 @@ describe("runCi", () => {
       commands: [["bun", FIXTURE]],
       runs: 3,
       warmup: 1,
+      noiseCheck: false,
     })
     await saveDocument(baseline, baselinePath(cfg))
     const outcome = await runCi({ config: cfg, full: false })

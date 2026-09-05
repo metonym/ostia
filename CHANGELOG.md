@@ -23,6 +23,10 @@
 - `formatDuration(ns)` in `src/renderers/format.ts`, also used by the
   markdown renderer's Timing table
 
+- `ostia report --format` now covers `collapsed`/`mermaid`/`speedscope`/
+  `cpuprofile` too (`--measurement <id>`, `--out-dir PATH`), folding in what
+  was `ostia viz`. `ostia viz` is a hidden, deprecated alias for one release.
+
 **Fixes**
 
 - microbenchmarks under 1ms (e.g. `task("add", () => 1 + 2)`) render a

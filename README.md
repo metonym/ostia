@@ -87,8 +87,7 @@ Profile CI: ✓
 ostia time <command...>      time commands; optional --cpu / --heap capture (alias: run)
 ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
 ostia compare <a> <b>        diff two ProfileDocuments
-ostia report <document.json> render a saved document
-ostia viz <document.json>    render CPU evidence to a file format
+ostia report <document.json> render a saved document (table/json/markdown/collapsed/...)
 ostia ci                     run configured workloads vs a baseline, gate regressions
 ```
 
@@ -260,7 +259,11 @@ ostia compare after.json --baseline .ostia/baselines/main.json
 
 ### `ostia report`
 
-Render a saved `ProfileDocument` without re-running anything.
+Render a saved `ProfileDocument` without re-running anything. `--format` covers
+both the data formats (`table`/`json`/`jsonl`/`markdown`/`minimal`) and the CPU
+visualization formats (`collapsed`/`mermaid`/`speedscope`/`cpuprofile`) - one
+command instead of two (`ostia viz` still works as a deprecated alias for one
+release).
 
 ```sh
 ostia report out.json                 # table (default)
@@ -297,15 +300,18 @@ Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T03:44:08.196Z
 | bun -e 1 | 5.46 ms | 5.54 ms ± 0.48 ms | 5.19 ms…13.3 ms |
 ```
 
-### `ostia viz`
+#### CPU visualization formats
 
 Turn CPU evidence into files for other tools. Formats: `collapsed`, `mermaid`,
 `speedscope`, `cpuprofile` (pass-through of a real CDP artifact when present).
+`--measurement <id>` renders only that measurement (default: every CPU
+measurement in the document); `--out-dir PATH` writes files there instead of
+stdout.
 
 ```sh
-ostia viz doc.json --format collapsed
-ostia viz doc.json --format mermaid
-ostia viz doc.json --format speedscope > flame.json
+ostia report doc.json --format collapsed
+ostia report doc.json --format mermaid
+ostia report doc.json --format speedscope > flame.json
 ```
 
 Collapsed stacks (one line per stack; feeds `flamegraph.pl` and friends):

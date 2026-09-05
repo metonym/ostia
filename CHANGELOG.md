@@ -137,6 +137,11 @@
   the markdown report's header line, `ostia baseline list`, and as a
   `base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)` summary line above
   `ostia compare`'s verdicts when both documents carry it.
+- `loadConfig` looks for `ostia.config.ts` first (Bun imports TypeScript
+  natively), falling back to `ostia.config.json`. `defineConfig(config)`
+  (exported from `src/index.ts`) is an identity function purely for typing,
+  the same pattern as Vite/Vitest/ESLint's `defineConfig` helpers. Both
+  forms are fully supported; the `.ts` file's default export is the config.
 
 **Fixes**
 

@@ -8,11 +8,101 @@ import {
   loadConfig,
 } from "../../src/config/index.ts"
 
+const INDEX_MODULE = `${import.meta.dir}/../../src/index.ts`
+const CONFIG_MODULE = `${import.meta.dir}/../../src/config/index.ts`
+
+/** `loadConfig()`'s no-arg discovery reads the CURRENT process's cwd, so
+ * exercising it against a scratch directory needs a real subprocess rather
+ * than `process.chdir()` (a global mutation that could race other test
+ * files sharing this same `bun test` process). */
+async function loadConfigIn(cwd: string): Promise<unknown> {
+  const proc = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `import { loadConfig } from "${CONFIG_MODULE}"; console.log(JSON.stringify((await loadConfig()) ?? null))`,
+    ],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  )
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  expect(exitCode).toBe(0)
+  if (stderr) throw new Error(stderr)
+  return JSON.parse(stdout.trim())
+}
+
 describe("loadConfig", () => {
   test("returns undefined for non-existent config file", async () => {
     const result = await loadConfig("/some/path/that/does/not/exist.json")
     expect(result).toBeUndefined()
   })
+
+  test("an explicit .ts path loads the file's default export", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-ts-test-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.ts")
+      await Bun.write(
+        configPath,
+        `import { defineConfig } from "${INDEX_MODULE}"\n` +
+          `export default defineConfig({ baseline: "from-ts", workloads: [{ command: ["bun", "x.ts"] }] })\n`,
+      )
+
+      const result = await loadConfig(configPath)
+      expect(result).toBeDefined()
+      expect(result!.baseline).toBe("from-ts")
+      expect(result!.workloads).toEqual([{ command: ["bun", "x.ts"] }])
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+
+  test("no-arg discovery prefers ostia.config.ts over ostia.config.json in the same directory (item 18)", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-discovery-ts-"))
+    try {
+      await Bun.write(
+        join(tmpDir, "ostia.config.ts"),
+        `import { defineConfig } from "${INDEX_MODULE}"\n` +
+          `export default defineConfig({ baseline: "from-ts" })\n`,
+      )
+      await Bun.write(
+        join(tmpDir, "ostia.config.json"),
+        JSON.stringify({ baseline: "from-json" }),
+      )
+
+      const result = (await loadConfigIn(tmpDir)) as { baseline: string }
+      expect(result.baseline).toBe("from-ts")
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
+
+  test("no-arg discovery falls back to ostia.config.json when no .ts config exists", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-discovery-json-"))
+    try {
+      await Bun.write(
+        join(tmpDir, "ostia.config.json"),
+        JSON.stringify({ baseline: "from-json" }),
+      )
+
+      const result = (await loadConfigIn(tmpDir)) as { baseline: string }
+      expect(result.baseline).toBe("from-json")
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
+
+  test("no-arg discovery returns undefined when neither config file exists", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-discovery-none-"))
+    try {
+      const result = await loadConfigIn(tmpDir)
+      expect(result).toBeNull()
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
 
   test("merges minimal config with DEFAULT_CONFIG", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "config-test-"))

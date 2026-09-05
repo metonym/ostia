@@ -485,6 +485,7 @@ import {
   group,
   task,
   range,
+  sweep,
   compareDocuments,
   createDocument,
   renderers,
@@ -612,23 +613,42 @@ group("parse", () => {
 })
 ```
 
-### `range(start, end, multiplier?)` → `number[]`
+### `sweep(dims, fn)` → `void`
 
-Geometric sweep points for parameterizing `task()` over a size dimension - mitata's
-`.range(name, start, end, multiplier)` point generation (default multiplier `8`, always
-ending on `end` even if the last step overshot it), without the name templating: build
-the task name yourself in the loop.
+Cartesian product over one or more named dimensions, calling `fn` once per point.
+`task()` calls inside `fn` automatically inherit that point as `Workload.params` -
+a structured alternative to baking the point into the task name, so renderers can
+pivot on it and `compare` matches on the same point across runs instead of just a name:
 
 ```ts
-import { group, task, range } from "ostia"
+import { group, task, range, sweep } from "ostia"
 
 group("parse", () => {
-  for (const size of range(100, 10_000)) {
+  sweep({ size: range(100, 10_000), impl: ["current", "fast"] }, ({ size, impl }) => {
     const input = buildInput(size) // setup, runs once per point, unmeasured
-    task(`${size} items`, () => parse(input))
-  }
+    task(`${impl}`, () => impls[impl](input))
+  })
 })
 ```
+
+An explicit `{ params }` on a particular `task()` call merges over (and wins
+against) the current sweep point:
+
+```ts
+task(`${impl}`, () => impls[impl](input), { params: { size, impl, variant: "warm" } })
+```
+
+`--format minimal` includes `params` on every line. The markdown renderer pivots a
+group into a table (rows = first dimension, columns = second) when every task in
+it shares the same two param keys - exactly what the example above produces - and
+otherwise renders params as a `key=value` suffix on the task name.
+
+### `range(start, end, multiplier?)` → `number[]`
+
+Geometric point generator that feeds `sweep()` (and works standalone) - mitata's
+`.range(name, start, end, multiplier)` point generation (default multiplier `8`,
+always ending on `end` even if the last step overshot it), without the name
+templating: build the task name yourself.
 
 ```ts
 range(100, 10_000)   // -> [100, 800, 6400, 10000]

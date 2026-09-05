@@ -106,9 +106,9 @@ Flags:
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
                        "minimal" is one compact JSON object per task with no raw sample
-                       array: {task, group, description, samples, mean, median, stddevPct,
-                       relative, warnings[{code,data}]} in ns - built to pipe into an LLM
-                       agent's context.
+                       array: {task, group, description, params, samples, mean, median,
+                       stddevPct, relative, warnings[{code,data}]} in ns - built to pipe
+                       into an LLM agent's context.
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
 
@@ -123,15 +123,18 @@ only; per-group { gc } / { isolate } set the default for every task in that grou
 Optional { description } on group() and task() flows into the document (Workload.description
 / Workload.groupDescription) so the intent travels with the numbers.
 
-Sweep a size dimension with range(start, end, multiplier?) (mitata's .range() point
-generation, default multiplier 8, always ending on the end value):
-  import { group, task, range } from "<pkg>"
+Sweep one or more dimensions with sweep(dims, fn): a cartesian product over the
+dimensions, calling fn once per point. task() calls inside automatically inherit the
+point as Workload.params (an explicit { params } on a task merges over it):
+  import { group, task, range, sweep } from "<pkg>"
   group("parse", () => {
-    for (const size of range(100, 10_000)) {
+    sweep({ size: range(100, 10_000), impl: ["current", "fast"] }, ({ size, impl }) => {
       const input = buildInput(size) // setup, runs once per point, unmeasured
-      task(\`\${size} items\`, () => parse(input))
-    }
+      task(\`\${impl}\`, () => impls[impl](input))
+    })
   })
+range(start, end, multiplier?) is the geometric point generator that feeds sweep()
+(mitata's .range(), default multiplier 8, always ending on the end value).
 
 Project defaults: with no suite files given on the command line, ostia falls back to
 ostia.config.json's "bench" section in the current directory - suites is a list of globs

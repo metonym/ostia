@@ -18,6 +18,12 @@ export interface TaskOptions {
   /** Overrides the suite-wide `bench({ gc })` / `--gc` (and any
    * `GroupOptions.gc`) for this task only. */
   gc?: boolean
+  /** Structured parameters this task represents (e.g. `{ size: 800, impl:
+   * "fast" }`), written to `Workload.params` and folded into the workload id
+   * so points with the same task name don't collide. Inside `sweep()`, the
+   * current point is inherited automatically; an explicit `params` here
+   * merges over it (explicit keys win). */
+  params?: Record<string, string | number | boolean>
 }
 
 export interface GroupOptions {
@@ -40,6 +46,7 @@ export interface RegisteredTask {
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
+  params?: Record<string, string | number | boolean>
   opts?: TaskOptions
 }
 
@@ -47,6 +54,7 @@ const tasks: RegisteredTask[] = []
 let currentGroup:
   | { name: string; description?: string; isolate?: boolean; gc?: boolean }
   | undefined
+let currentParams: Record<string, string | number | boolean> | undefined
 
 export function group(name: string, fn: () => void, opts?: GroupOptions): void {
   const previous = currentGroup
@@ -68,6 +76,10 @@ export function task(
   fn: () => unknown | Promise<unknown>,
   opts?: TaskOptions,
 ): void {
+  const params =
+    currentParams !== undefined || opts?.params !== undefined
+      ? { ...currentParams, ...opts?.params }
+      : undefined
   tasks.push({
     groupName: currentGroup?.name,
     groupDescription: currentGroup?.description,
@@ -76,6 +88,7 @@ export function task(
     name,
     fn,
     baseline: opts?.baseline,
+    params,
     opts,
   })
 }
@@ -87,6 +100,25 @@ export function getRegisteredTasks(): readonly RegisteredTask[] {
 export function resetRegistry(): void {
   tasks.length = 0
   currentGroup = undefined
+  currentParams = undefined
+}
+
+/** Runs `fn` with `params` as the current sweep point, so `task()` calls
+ * inside it automatically inherit those as their params (an explicit
+ * `TaskOptions.params` still merges over it, explicit keys win). Used by
+ * `sweep()`, kept here so it shares the registry's internal state stack
+ * instead of duplicating it. */
+export function withCurrentParams<T>(
+  params: Record<string, string | number | boolean>,
+  fn: () => T,
+): T {
+  const previous = currentParams
+  currentParams = params
+  try {
+    return fn()
+  } finally {
+    currentParams = previous
+  }
 }
 
 export function taskId(t: RegisteredTask): string {

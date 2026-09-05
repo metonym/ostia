@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { loadDocument } from "../../src/ir/document.ts"
+import { loadDocument, makeEntryWorkload } from "../../src/ir/document.ts"
 import type { ProfileDocument } from "../../src/ir/types.ts"
 
 const V1_FIXTURE_PATH = `${import.meta.dir}/../../.ostia-test-v1-fixture.json`
@@ -88,5 +88,42 @@ describe("loadDocument - v1 -> v2 upgrade", () => {
     } finally {
       await Bun.spawn(["rm", "-f", path]).exited
     }
+  })
+})
+
+describe("makeEntryWorkload - params fold into the workload id (item 8)", () => {
+  test("no params: id matches the pre-existing (params-less) hash exactly", () => {
+    const withoutOpts = makeEntryWorkload("suite.ts", "parse/small")
+    const withEmptyOpts = makeEntryWorkload("suite.ts", "parse/small", {})
+    expect(withoutOpts.id).toBe(withEmptyOpts.id)
+    expect(withoutOpts.params).toBeUndefined()
+  })
+
+  test("two points sharing a task name but different params get distinct ids", () => {
+    const a = makeEntryWorkload("suite.ts", "current", {
+      params: { size: 100 },
+    })
+    const b = makeEntryWorkload("suite.ts", "current", {
+      params: { size: 200 },
+    })
+    expect(a.id).not.toBe(b.id)
+    expect(a.params).toEqual({ size: 100 })
+    expect(b.params).toEqual({ size: 200 })
+  })
+
+  test("the same task name and params reproduce the same id", () => {
+    const a = makeEntryWorkload("suite.ts", "current", {
+      params: { size: 100 },
+    })
+    const b = makeEntryWorkload("suite.ts", "current", {
+      params: { size: 100 },
+    })
+    expect(a.id).toBe(b.id)
+  })
+
+  test("adding params to a previously params-less task changes its id (expected: it's a different point now)", () => {
+    const before = makeEntryWorkload("suite.ts", "t")
+    const after = makeEntryWorkload("suite.ts", "t", { params: { size: 100 } })
+    expect(before.id).not.toBe(after.id)
   })
 })

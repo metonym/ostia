@@ -469,3 +469,30 @@ describe("bench() - noise floor (item 7)", () => {
     expect(doc.environment).toBeUndefined()
   }, 20_000)
 })
+
+describe("bench() - sweep() and structured params (item 8)", () => {
+  test("registers one workload per cartesian point, each with distinct params and id", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-sweep.ts`],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-sweep`,
+    })
+
+    expect(doc.workloads).toHaveLength(4)
+    const paramsList = doc.workloads.map((w) => w.params)
+    expect(paramsList).toEqual(
+      expect.arrayContaining([
+        { size: 100, impl: "current" },
+        { size: 100, impl: "fast" },
+        { size: 800, impl: "current" },
+        { size: 800, impl: "fast" },
+      ]),
+    )
+    const ids = new Set(doc.workloads.map((w) => w.id))
+    expect(ids.size).toBe(4)
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-sweep`]).exited
+  }, 20_000)
+})

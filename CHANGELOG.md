@@ -49,6 +49,14 @@
   `--no-noise-check` (`noiseCheck: false`) skips it. Terminal and markdown
   renderers print one header line, e.g. `Apple M2 Pro · 12 cores · load
   2.1 · noise floor 1.8%`.
+- `Workload.params` (structured `task(name, fn, { params })`, additive) and
+  `sweep(dims, fn)`: a cartesian product over one or more dimensions: `task()`
+  calls inside automatically inherit the current point as params (an
+  explicit `{ params }` merges over it). The workload id folds in `params`
+  when present, so two sweep points sharing a task name don't collide.
+  `minimal` lines gain `params`; the markdown renderer pivots a group into a
+  table when every task in it shares the same two param keys, otherwise
+  renders params as a `key=value` suffix on the task name.
 
 **Fixes**
 

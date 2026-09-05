@@ -5,6 +5,8 @@ import {
   group,
   resetRegistry,
   task,
+  taskAlloc,
+  taskCpu,
   taskGc,
   taskId,
   taskIsolate,
@@ -317,6 +319,68 @@ describe("bench/registry - taskGc", () => {
     )
     const [t] = getRegisteredTasks()
     expect(taskGc(t!, true)).toBe(false)
+  })
+})
+
+describe("bench/registry - taskCpu", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("falls back to the suite-wide default when neither task nor group set cpu", () => {
+    task("solo", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(taskCpu(t!, false)).toBe(false)
+    expect(taskCpu(t!, true)).toBe(true)
+  })
+
+  test("group cpu wins over the suite-wide default", () => {
+    group("g", () => task("a", () => 1), { cpu: true })
+    const [t] = getRegisteredTasks()
+    expect(taskCpu(t!, false)).toBe(true)
+  })
+
+  test("task cpu wins over its group's and the suite-wide default", () => {
+    group(
+      "g",
+      () => {
+        task("a", () => 1, { cpu: false })
+      },
+      { cpu: true },
+    )
+    const [t] = getRegisteredTasks()
+    expect(taskCpu(t!, true)).toBe(false)
+  })
+})
+
+describe("bench/registry - taskAlloc", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("falls back to the suite-wide default when neither task nor group set alloc", () => {
+    task("solo", () => 1)
+    const [t] = getRegisteredTasks()
+    expect(taskAlloc(t!, false)).toBe(false)
+    expect(taskAlloc(t!, true)).toBe(true)
+  })
+
+  test("group alloc wins over the suite-wide default", () => {
+    group("g", () => task("a", () => 1), { alloc: true })
+    const [t] = getRegisteredTasks()
+    expect(taskAlloc(t!, false)).toBe(true)
+  })
+
+  test("task alloc wins over its group's and the suite-wide default", () => {
+    group(
+      "g",
+      () => {
+        task("a", () => 1, { alloc: false })
+      },
+      { alloc: true },
+    )
+    const [t] = getRegisteredTasks()
+    expect(taskAlloc(t!, true)).toBe(false)
   })
 })
 

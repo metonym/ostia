@@ -211,6 +211,16 @@ Bun/V8 batch calls together and amortize it away). `task(name, fn, { gc })` /
 override pattern as `isolate` - useful when a few allocation-heavy tasks need GC settled
 between trials but the rest of the suite doesn't.
 
+`--cpu` captures one extra `phase: "cpu"` measurement per task on top of its timing
+numbers: the task looped for a fixed 200ms window under the JSC sampling profiler
+(JIT tiers included), never mixed into the timing numbers themselves. `--alloc` captures
+an extra `phase: "memstats"` measurement: bytes allocated per call, from a
+`Bun.gc(true)`-bracketed batch of 100 calls (`MemoryEvidence.bytesPerOp`). Both follow the
+same per-task/per-group override pattern as `isolate`/`gc`: `task(name, fn, { cpu, alloc })`
+/ `group(name, fn, { cpu, alloc })`. The terminal table prints an `Alloc/op` column when a
+`memstats` measurement is present. With `--cpu` on, `ostia compare` reports per-frame CPU
+deltas for bench tasks the same way it already does for `ostia time --cpu`.
+
 `--preload PATH` (repeatable) imports a script before each suite file loads, in the same
 subprocess - the same shape as Bun's own `--preload` / `bunfig.toml`'s `preload` array. Use
 it to install globals a suite needs at import time (jsdom's `document`/`window`) or register
@@ -686,6 +696,20 @@ group("parse", () => {
   task.only("fast path", () => parse(buf)) // only this task runs this time
   task("slow path", () => parseSlow(buf))
   task.skip("flaky on CI", () => parseFlaky(buf))
+})
+```
+
+`{ cpu }` / `{ alloc }` on `task()` or `group()` override the suite-wide `bench({ cpu, alloc })`
+/ `--cpu` / `--alloc` default for that task or group, the same pattern as `isolate`/`gc`:
+one extra `phase: "cpu"` measurement (JIT tiers included, from a fixed 200ms window under
+the JSC sampling profiler) and/or one extra `phase: "memstats"` measurement
+(`MemoryEvidence.bytesPerOp`, from a `Bun.gc(true)`-bracketed batch of 100 calls) alongside
+the task's timing numbers, never mixed into them:
+
+```ts
+group("parse", () => {
+  task("current impl", () => parse(buf))
+  task("candidate impl", () => parseFast(buf), { cpu: true, alloc: true })
 })
 ```
 

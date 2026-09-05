@@ -20,6 +20,8 @@ export interface BenchConfig {
   samples?: number
   minSamples?: number
   gc?: boolean
+  cpu?: boolean
+  alloc?: boolean
   filter?: string
   isolate?: boolean
   outDir?: string

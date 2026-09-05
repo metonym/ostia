@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
-import { bench } from "../../src/index.ts"
+import { bench, compareDocuments } from "../../src/index.ts"
 
 const SUITE = `${import.meta.dir}/../fixtures/bench-suite.ts`
 const OUT_DIR = `${import.meta.dir}/../../.ostia-test-bench`
@@ -562,6 +562,105 @@ describe("bench() - unified timing vocabulary (item 11)", () => {
       "-rf",
       `${OUT_DIR}-vocab-old`,
       `${OUT_DIR}-vocab-new`,
+    ]).exited
+  }, 20_000)
+})
+
+describe("bench() - --cpu and --alloc (item 12)", () => {
+  test('--cpu adds an extra phase: "cpu" measurement per task without touching timing', async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      cpu: true,
+      outDir: `${OUT_DIR}-cpu`,
+    })
+
+    const timingRuns = doc.measurements.filter((m) => m.phase === "timing")
+    const cpuRuns = doc.measurements.filter((m) => m.phase === "cpu")
+    expect(timingRuns).toHaveLength(3)
+    expect(cpuRuns).toHaveLength(3)
+    for (const cpuRun of cpuRuns) {
+      expect(cpuRun.instrumented).toBe(true)
+      expect(cpuRun.cpu).toBeDefined()
+      expect(cpuRun.jit).toBeDefined()
+      const timingRun = timingRuns.find(
+        (m) => m.workloadId === cpuRun.workloadId,
+      )!
+      expect(timingRun.timing).toBeDefined()
+    }
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-cpu`]).exited
+  }, 20_000)
+
+  test('--alloc adds an extra phase: "memstats" measurement with bytesPerOp', async () => {
+    const doc = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      alloc: true,
+      outDir: `${OUT_DIR}-alloc`,
+    })
+
+    const memstatsRuns = doc.measurements.filter((m) => m.phase === "memstats")
+    expect(memstatsRuns).toHaveLength(3)
+    for (const run of memstatsRuns) {
+      expect(run.instrumented).toBe(true)
+      expect(run.memory?.origin).toBe("heapStats")
+      expect(run.memory?.bytesPerOp).toBeGreaterThanOrEqual(0)
+    }
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-alloc`]).exited
+  }, 20_000)
+
+  test("TaskOptions.cpu overrides the suite-wide default for one task", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-cpu-override.ts`],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      cpu: false,
+      outDir: `${OUT_DIR}-cpu-override`,
+    })
+
+    const cpuRuns = doc.measurements.filter((m) => m.phase === "cpu")
+    expect(cpuRuns).toHaveLength(1)
+    const workload = doc.workloads.find((w) => w.id === cpuRuns[0]!.workloadId)
+    expect(workload?.label).toBe("with-cpu")
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-cpu-override`]).exited
+  }, 20_000)
+
+  test("with --cpu on both sides, compareDocuments reports frame deltas for bench tasks", async () => {
+    const base = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      cpu: true,
+      outDir: `${OUT_DIR}-cpu-cmp-base`,
+    })
+    const cand = await bench({
+      suites: [SUITE],
+      timeBudgetMs: 5,
+      minSamples: 3,
+      noiseCheck: false,
+      cpu: true,
+      outDir: `${OUT_DIR}-cpu-cmp-cand`,
+    })
+
+    const comparisons = compareDocuments(base, cand)
+    expect(comparisons.length).toBeGreaterThan(0)
+    const withFrames = comparisons.filter((c) => c.frames !== undefined)
+    expect(withFrames.length).toBeGreaterThan(0)
+
+    await Bun.spawn([
+      "rm",
+      "-rf",
+      `${OUT_DIR}-cpu-cmp-base`,
+      `${OUT_DIR}-cpu-cmp-cand`,
     ]).exited
   }, 20_000)
 })

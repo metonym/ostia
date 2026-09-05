@@ -164,6 +164,11 @@ export interface MemoryEvidence {
   maxRssBytes?: number
   peakCommitBytes?: number
   pageFaults?: number
+  /** Bytes allocated per call, from `ostia bench --alloc`: heap size delta
+   * (`bun:jsc`'s `heapStats().heapSize`, falling back to
+   * `process.memoryUsage().heapUsed`) around one `Bun.gc(true)`-bracketed
+   * batch, divided by the batch size. */
+  bytesPerOp?: number
 }
 
 export interface JitTierBreakdown {

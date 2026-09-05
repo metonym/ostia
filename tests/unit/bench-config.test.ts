@@ -13,6 +13,8 @@ function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
   return {
     suites: [],
     gc: false,
+    cpu: false,
+    alloc: false,
     isolate: false,
     preload: [],
     noiseCheck: true,

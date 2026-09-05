@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   makeEntryWorkload,
+  makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
   newDocument,
@@ -419,6 +420,30 @@ describe("renderers - golden output on fixed fake data", () => {
       expect(run.id).toBe(doc.measurements[i]!.id)
       expect(run.phase).toBe("timing")
     }
+  })
+})
+
+describe("table renderer - Alloc/op column (item 12)", () => {
+  test("prints an Alloc/op column only when a memstats measurement is present", async () => {
+    const doc = fixedDoc()
+    const withoutAlloc = await renderers.table.render(doc, {})
+    expect(withoutAlloc.text).not.toContain("Alloc/op")
+
+    const workload = doc.workloads[0]!
+    const allocRun = makeInstrumentedMeasurement({
+      workload,
+      phase: "memstats",
+      configFingerprint: "cfg_alloc",
+      diagnosticWallNs: 1_000_000,
+      memory: { origin: "heapStats", bytesPerOp: 2048 },
+      warnings: [],
+      artifacts: [],
+    })
+    doc.measurements.push(allocRun)
+
+    const withAlloc = await renderers.table.render(doc, {})
+    expect(withAlloc.text).toContain("Alloc/op")
+    expect(withAlloc.text).toContain("2.00KB")
   })
 })
 

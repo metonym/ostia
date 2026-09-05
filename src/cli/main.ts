@@ -90,6 +90,14 @@ Flags:
                        like-for-like with a baseline measured at 1. "auto" = CPU count.
   --gc                Bun.gc(true) between trials (default: off - hides allocation cost).
                        Per-task { gc } / per-group { gc } override this default.
+  --cpu               capture an extra phase: "cpu" measurement per task (200ms of the
+                       task looped under the JSC sampling profiler, JIT tiers included) on
+                       top of its timing numbers. Per-task { cpu } / per-group { cpu }
+                       override this default. Once captured, "ostia compare" reports
+                       per-frame CPU deltas the same way it already does for "ostia time --cpu".
+  --alloc             capture an extra phase: "memstats" measurement per task: bytes
+                       allocated per call, from a Bun.gc(true)-bracketed batch of 100 calls.
+                       Per-task { alloc } / per-group { alloc } override this default.
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
   --isolate           give every task its own subprocess instead of sharing its suite
@@ -125,8 +133,9 @@ Suite files register tasks like:
     task("small input", () => parse(smallBuf))
     task("full pipeline", () => build(), { timeBudgetMs: 2000, minSamples: 10 })
   }, { description: "parser throughput on representative inputs" })
-Per-task options override --time-budget / --min-samples / --gc / --isolate for that task
-only; per-group { gc } / { isolate } set the default for every task in that group.
+Per-task options override --time-budget / --min-samples / --gc / --isolate / --cpu / --alloc
+for that task only; per-group { gc } / { isolate } / { cpu } / { alloc } set the default for
+every task in that group.
 Optional { description } on group() and task() flows into the document (Workload.description
 / Workload.groupDescription) so the intent travels with the numbers.
 
@@ -163,6 +172,7 @@ Examples:
   ostia bench --time-budget 1000 --min-samples 50 benches/*.ts
   ostia bench benches/*.ts --filter parse
   ostia bench benches/*.ts --jobs auto --format minimal
+  ostia bench benches/*.ts --cpu --alloc
   ostia bench --preload ./bench/jsdom-setup.ts benches/*.dom.bench.ts
   ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
   ostia bench                 # picks up suites/preload/jobs from ostia.config.json
@@ -395,6 +405,8 @@ interface BenchArgs {
   minSamples?: number
   jobs?: number
   gc: boolean
+  cpu: boolean
+  alloc: boolean
   filter?: string
   isolate: boolean
   preload: string[]
@@ -415,6 +427,8 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   let minSamples: number | undefined
   let jobs: number | undefined
   let gc = false
+  let cpu = false
+  let alloc = false
   let filter: string | undefined
   let isolate = false
   const preload: string[] = []
@@ -455,6 +469,12 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       }
       case "--gc":
         gc = true
+        break
+      case "--cpu":
+        cpu = true
+        break
+      case "--alloc":
+        alloc = true
         break
       case "--filter":
         filter = argv[++i]
@@ -497,6 +517,8 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     minSamples,
     jobs,
     gc,
+    cpu,
+    alloc,
     filter,
     isolate,
     preload,

@@ -144,12 +144,13 @@ function memoryFromTrials(trials: Trial[]): MemoryEvidence | undefined {
 
 export interface InstrumentedMeasurementInput {
   workload: Workload
-  phase: Extract<Phase, "cpu" | "heap">
+  phase: Extract<Phase, "cpu" | "heap" | "memstats">
   configFingerprint: string
   diagnosticWallNs: number
   exitCode?: number
   cpu?: CpuEvidence
   heap?: HeapEvidence
+  memory?: MemoryEvidence
   jit?: JitTierBreakdown
   warnings: Warning[]
   artifacts: ArtifactRef[]
@@ -178,6 +179,7 @@ export function makeInstrumentedMeasurement(
     diagnosticWallNs: input.diagnosticWallNs,
     cpu: input.cpu,
     heap: input.heap,
+    memory: input.memory,
     jit: input.jit,
     warnings: input.warnings,
     artifacts: input.artifacts,

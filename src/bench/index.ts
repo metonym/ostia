@@ -16,6 +16,16 @@ export interface BenchOptions {
   samples?: number
   minSamples?: number
   gc?: boolean
+  /** Capture one extra `phase: "cpu"` measurement per task (200ms of the
+   * task looped under the JSC sampling profiler, JIT tiers included), never
+   * mixed into the timing numbers. `TaskOptions.cpu` / `GroupOptions.cpu`
+   * override this per task or group. */
+  cpu?: boolean
+  /** Capture one extra `phase: "memstats"` measurement per task: bytes
+   * allocated per call, from a `Bun.gc(true)`-bracketed batch.
+   * `TaskOptions.alloc` / `GroupOptions.alloc` override this per task or
+   * group. */
+  alloc?: boolean
   filter?: string
   /** Suite files to run at once, each still in its own child process (default:
    * 1). Files are independent by design, so this is a wall-clock win for
@@ -89,6 +99,8 @@ export interface BenchCliOverrides {
   minSamples?: number
   jobs?: number
   gc: boolean
+  cpu: boolean
+  alloc: boolean
   filter?: string
   isolate: boolean
   preload: string[]
@@ -132,6 +144,8 @@ export async function resolveBenchOptions(
     minSamples: cli.minSamples ?? config?.minSamples,
     jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
     gc: cli.gc || (config?.gc ?? false),
+    cpu: cli.cpu || (config?.cpu ?? false),
+    alloc: cli.alloc || (config?.alloc ?? false),
     filter: cli.filter ?? config?.filter,
     isolate: cli.isolate || (config?.isolate ?? false),
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
@@ -164,6 +178,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     samples: opts.samples,
     minSamples: opts.minSamples,
     gc: opts.gc,
+    cpu: opts.cpu,
+    alloc: opts.alloc,
     noiseCheck: opts.noiseCheck,
   }
 
@@ -300,9 +316,12 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     const measurements: Measurement[] = []
     for (let s = 0; s < plans.length; s++) {
       const sharedDoc = primaryDocs[s]!
-      const sharedMeasurementByWorkloadId = new Map(
-        sharedDoc.measurements.map((m) => [m.workloadId, m]),
-      )
+      const sharedMeasurementsByWorkloadId = new Map<string, Measurement[]>()
+      for (const m of sharedDoc.measurements) {
+        const list = sharedMeasurementsByWorkloadId.get(m.workloadId) ?? []
+        list.push(m)
+        sharedMeasurementsByWorkloadId.set(m.workloadId, list)
+      }
       let sharedPtr = 0
       const isolatedDocById = new Map<string, ProfileDocument>()
       items.forEach((it, i) => {
@@ -316,16 +335,17 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           const doc = isolatedDocById.get(t.id)!
           const workload = doc.workloads[0]!
           workloads.push(workload)
-          const measurement = doc.measurements.find(
-            (m) => m.workloadId === workload.id,
-          )
-          if (measurement) measurements.push(measurement)
+          for (const m of doc.measurements) {
+            if (m.workloadId === workload.id) measurements.push(m)
+          }
         } else {
           const workload = sharedDoc.workloads[sharedPtr]!
           workloads.push(workload)
           sharedPtr++
-          const measurement = sharedMeasurementByWorkloadId.get(workload.id)
-          if (measurement) measurements.push(measurement)
+          for (const m of sharedMeasurementsByWorkloadId.get(workload.id) ??
+            []) {
+            measurements.push(m)
+          }
         }
       }
     }

@@ -82,6 +82,18 @@
   `configFingerprint` resolves old and new names to the same canonical
   value, so an old-name and new-name call with the same effective settings
   produce the same fingerprint and don't orphan a baseline.
+- `ostia bench --cpu` captures an extra `phase: "cpu"` measurement per task
+  (200ms of the task looped under the JSC sampling profiler, JIT tiers
+  included) on top of its timing numbers; `ostia bench --alloc` captures an
+  extra `phase: "memstats"` measurement with bytes allocated per call
+  (`MemoryEvidence.bytesPerOp`, from a `Bun.gc(true)`-bracketed batch of 100
+  calls). Neither ever feeds the task's timing stats. `TaskOptions.cpu` /
+  `TaskOptions.alloc` and `GroupOptions.cpu` / `GroupOptions.alloc` override
+  the suite-wide default per task or group, mirroring `isolate`/`gc`. The
+  terminal table prints an `Alloc/op` column when a `memstats` measurement is
+  present. With `--cpu` on, `ostia compare`'s per-frame CPU deltas now work
+  for bench tasks with no changes to `compare/index.ts` itself, since it
+  already matches any `phase: "cpu"` measurement by workload id.
 
 **Fixes**
 

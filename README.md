@@ -72,8 +72,8 @@ they need to survive `node_modules` reinstalls between branches and CI jobs, so 
 Gate a change against a local baseline:
 
 ```sh
-bun run baseline   # on known-good: measure ostia.config.json -> .ostia/baselines/main.json
-ostia ci           # on your branch: rerun changed workloads, exit 1 on regression
+ostia baseline save   # on known-good: measure ostia.config.json -> .ostia/baselines/main.json
+ostia ci              # on your branch: rerun changed workloads, exit 1 on regression
 ```
 
 ```
@@ -103,6 +103,7 @@ ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
 ostia compare <a> <b>        diff two ProfileDocuments
 ostia report <document.json> render a saved document (table/json/markdown/collapsed/...)
 ostia ci                     run configured workloads vs a baseline, gate regressions
+ostia baseline save|list|show  manage baseline ProfileDocuments
 ```
 
 Every subcommand takes `--help` for its full flag list.
@@ -425,6 +426,7 @@ ostia ci
 ostia ci --full                  # ignore cache
 ostia ci --baseline main
 ostia ci --export-json out.json
+ostia ci --save-baseline         # after a pass, promote today's numbers to the baseline
 ```
 
 Pass:
@@ -494,11 +496,17 @@ independent - `baselineDir` doesn't move just because you override `outDir`.
 Baselines are JSON under `.ostia/baselines/` (gitignored). `ostia ci` only needs the file
 on disk; it does not need to be committed.
 
+`ostia baseline save [name]` measures every configured workload (the same code path
+`ostia ci` gates against, no comparison) and writes it to `<baselineDir>/<name>.json`
+(default name: config's `"baseline"` field, or `"main"`). `ostia baseline list` shows every
+saved baseline (name, created date, workload count); `ostia baseline show <name> [--format]`
+renders one (delegates to `ostia report`).
+
 Local branch workflow:
 
 ```sh
 git checkout master          # known-good tip
-bun run baseline             # -> .ostia/baselines/main.json
+ostia baseline save          # -> .ostia/baselines/main.json
 
 git checkout -b my-opt
 # ... change code ...
@@ -508,6 +516,11 @@ ostia ci                     # or: bun run dogfood
 The baseline survives branch switches because it is not tracked. Re-seed only when you
 intentionally accept a new floor. Seeding on the branch you are guarding compares that
 branch to itself.
+
+`ostia ci --save-baseline` folds that re-seed into the gate itself: after a pass (no
+regressions), it writes the just-measured document as the new baseline at the same path
+it just compared against - useful in a CI job that gates every merge to a trunk branch,
+so each green run becomes the next run's floor with no separate step.
 
 One-off outside this repo's config:
 

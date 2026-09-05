@@ -7,8 +7,10 @@ const DOC_PATH = `${import.meta.dir}/../../.ostia-test-cli-doc.json`
 
 async function runCli(
   args: string[],
+  opts: { cwd?: string } = {},
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   const proc = Bun.spawn(["bun", CLI, ...args], {
+    cwd: opts.cwd,
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -143,4 +145,53 @@ describe("ostia bench - task.skip/.only (item 10)", () => {
 
     await Bun.spawn(["rm", "-f", docPath]).exited
   }, 20_000)
+})
+
+describe("ostia baseline save | list | show (item 16)", () => {
+  test("save writes a baseline, list shows it, show renders it, and ci --save-baseline promotes a pass", async () => {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(join(tmpdir(), "ostia-cli-baseline-test-"))
+
+    try {
+      await Bun.write(
+        join(cwd, "ostia.config.json"),
+        JSON.stringify({
+          baseline: "main",
+          runs: 3,
+          warmup: 0,
+          workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
+        }),
+      )
+
+      const noConfig = await runCli(["baseline", "list"], { cwd })
+      expect(noConfig.stdout).toContain("No baselines found")
+
+      const save = await runCli(["baseline", "save"], { cwd })
+      expect(save.exitCode).toBe(0)
+      expect(save.stdout).toContain(".ostia/baselines/main.json")
+
+      const list = await runCli(["baseline", "list"], { cwd })
+      expect(list.exitCode).toBe(0)
+      expect(list.stdout).toContain("main")
+      expect(list.stdout).toContain("1 workloads")
+
+      const show = await runCli(["baseline", "show", "main"], { cwd })
+      expect(show.exitCode).toBe(0)
+      expect(show.stdout).toContain("spawn")
+
+      const showMissing = await runCli(["baseline", "show", "nope"], { cwd })
+      expect(showMissing.exitCode).toBe(2)
+
+      const ci = await runCli(["ci", "--save-baseline"], { cwd })
+      expect(ci.exitCode).toBe(0)
+      expect(ci.stdout).toContain("Profile CI: ✓")
+
+      const listAfterCi = await runCli(["baseline", "list"], { cwd })
+      expect(listAfterCi.stdout).toContain("main")
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 30_000)
 })

@@ -52,9 +52,9 @@ jobs:
              git cat-file -e "$BASE_SHA:ostia.config.json" 2>/dev/null; then
             git checkout --force "$BASE_SHA"
             bun ci
-            # Seeder may not exist on base yet; take it from the PR tip and measure base's tree.
-            git show "$HEAD_SHA:scripts/seed-baseline.ts" > scripts/seed-baseline.ts
-            bun scripts/seed-baseline.ts
+            # Base's own "baseline" script measures base's tree with base's own
+            # tooling, whatever that resolves to at that commit.
+            bun run baseline
             cp .ostia/baselines/main.json /tmp/ostia-baseline/main.json
             git checkout --force "$HEAD_SHA"
             bun ci

@@ -119,6 +119,17 @@
   workload always executes (no per-task cache skipping yet - there's no
   cheap way to know a suite file's task ids without importing it first).
   This repo's own `ostia.config.json` gates `bench/*.ts` this way.
+- `ostia baseline save [name]` / `list` / `show <name>` manage baseline
+  `ProfileDocument`s from the CLI: `save` measures every configured workload
+  (the same code path `ostia ci` gates against, no comparison) and writes it
+  to `<baselineDir>/<name>.json`; `list` shows every saved baseline (name,
+  created date, workload count); `show` delegates to `ostia report`.
+  `ostia ci --save-baseline` writes the candidate document as the new
+  baseline after a pass, so a green CI run can promote itself to be the next
+  run's floor with no separate step. Replaces the repo-local
+  `scripts/seed-baseline.ts` / `bun run baseline` (now `ostia baseline save`
+  under the hood) - package users previously had no way to seed a baseline
+  except a manual `--export-json`.
 
 **Fixes**
 

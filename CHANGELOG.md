@@ -130,6 +130,13 @@
   `scripts/seed-baseline.ts` / `bun run baseline` (now `ostia baseline save`
   under the hood) - package users previously had no way to seed a baseline
   except a manual `--export-json`.
+- `ProfileDocument` gains `git?: { sha, branch, dirty }`, additive with no
+  schema bump: `git rev-parse` / `git status --porcelain` in the process's
+  cwd, 200ms timeout, silently absent outside a repo or without `git`
+  installed. Metadata only, never part of any fingerprint or id. Printed in
+  the markdown report's header line, `ostia baseline list`, and as a
+  `base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)` summary line above
+  `ostia compare`'s verdicts when both documents carry it.
 
 **Fixes**
 

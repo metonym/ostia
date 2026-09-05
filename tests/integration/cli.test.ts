@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { profile } from "../../src/index.ts"
+import { profile, time } from "../../src/index.ts"
 import { saveDocument } from "../../src/ir/document.ts"
 
 const CLI = `${import.meta.dir}/../../src/cli/main.ts`
@@ -194,4 +194,37 @@ describe("ostia baseline save | list | show (item 16)", () => {
       await Bun.spawn(["rm", "-rf", cwd]).exited
     }
   }, 30_000)
+})
+
+describe("ostia compare - git metadata line (item 17)", () => {
+  test("prints base sha (branch) -> cand sha (branch) above the verdicts when both documents carry git", async () => {
+    const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-base.json`
+    const candPath = `${import.meta.dir}/../../.ostia-test-cli-compare-cand.json`
+    try {
+      const base = await time({
+        commands: [["bun", "-e", "1"]],
+        runs: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      const cand = await time({
+        commands: [["bun", "-e", "1"]],
+        runs: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      // This repo is a git checkout, so both real documents carry git.
+      expect(base.git).toBeDefined()
+      expect(cand.git).toBeDefined()
+      await saveDocument(base, basePath)
+      await saveDocument(cand, candPath)
+
+      const { stdout, exitCode } = await runCli(["compare", basePath, candPath])
+      expect(exitCode).toBeLessThan(2)
+      expect(stdout).toContain(`base ${base.git!.sha} (${base.git!.branch}`)
+      expect(stdout).toContain(`cand ${cand.git!.sha} (${cand.git!.branch}`)
+    } finally {
+      await Bun.spawn(["rm", "-f", basePath, candPath]).exited
+    }
+  }, 20_000)
 })

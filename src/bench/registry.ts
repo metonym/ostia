@@ -26,6 +26,16 @@ export interface TaskOptions {
   /** Overrides the suite-wide `bench({ gc })` / `--gc` (and any
    * `GroupOptions.gc`) for this task only. */
   gc?: boolean
+  /** Overrides the suite-wide `bench({ cpu })` / `--cpu` (and any
+   * `GroupOptions.cpu`) for this task only: after the timing measurement,
+   * capture one extra `phase: "cpu"` measurement (JIT tiers included) on
+   * the same workload, never mixed into the timing numbers. */
+  cpu?: boolean
+  /** Overrides the suite-wide `bench({ alloc })` / `--alloc` (and any
+   * `GroupOptions.alloc`) for this task only: after the timing measurement,
+   * capture one extra `phase: "memstats"` measurement with bytes
+   * allocated per call. */
+  alloc?: boolean
   /** Structured parameters this task represents (e.g. `{ size: 800, impl:
    * "fast" }`), written to `Workload.params` and folded into the workload id
    * so points with the same task name don't collide. Inside `sweep()`, the
@@ -52,6 +62,12 @@ export interface GroupOptions {
   /** Default `gc` for every task in this group, unless a task overrides it
    * with its own `TaskOptions.gc`. */
   gc?: boolean
+  /** Default `cpu` for every task in this group, unless a task overrides it
+   * with its own `TaskOptions.cpu`. */
+  cpu?: boolean
+  /** Default `alloc` for every task in this group, unless a task overrides
+   * it with its own `TaskOptions.alloc`. */
+  alloc?: boolean
   /** Runs once, unmeasured, before the group's first task's warmup (not
    * before every task) - in whichever process runs that task, so it works
    * with `isolate`. */
@@ -65,6 +81,8 @@ export interface RegisteredTask {
   groupDescription?: string
   groupIsolate?: boolean
   groupGc?: boolean
+  groupCpu?: boolean
+  groupAlloc?: boolean
   groupBefore?: Hook
   groupAfter?: Hook
   name: string
@@ -89,6 +107,8 @@ let currentGroup:
       description?: string
       isolate?: boolean
       gc?: boolean
+      cpu?: boolean
+      alloc?: boolean
       before?: Hook
       after?: Hook
       skip?: boolean
@@ -109,6 +129,8 @@ function registerGroup(
     description: opts?.description,
     isolate: opts?.isolate,
     gc: opts?.gc,
+    cpu: opts?.cpu,
+    alloc: opts?.alloc,
     before: opts?.before,
     after: opts?.after,
     skip: flags.skip,
@@ -159,6 +181,8 @@ function registerTask(
     groupDescription: currentGroup?.description,
     groupIsolate: currentGroup?.isolate,
     groupGc: currentGroup?.gc,
+    groupCpu: currentGroup?.cpu,
+    groupAlloc: currentGroup?.alloc,
     groupBefore: currentGroup?.before,
     groupAfter: currentGroup?.after,
     name,
@@ -254,6 +278,18 @@ export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
  * passed to `bench()`. */
 export function taskGc(t: RegisteredTask, suiteGc: boolean): boolean {
   return t.opts?.gc ?? t.groupGc ?? suiteGc
+}
+
+/** A task's own `cpu` wins, then its group's, then the suite-wide default
+ * passed to `bench()`. */
+export function taskCpu(t: RegisteredTask, suiteCpu: boolean): boolean {
+  return t.opts?.cpu ?? t.groupCpu ?? suiteCpu
+}
+
+/** A task's own `alloc` wins, then its group's, then the suite-wide default
+ * passed to `bench()`. */
+export function taskAlloc(t: RegisteredTask, suiteAlloc: boolean): boolean {
+  return t.opts?.alloc ?? t.groupAlloc ?? suiteAlloc
 }
 
 /** mitata-compatible: filter value is a JS regex source, substring-matched (no

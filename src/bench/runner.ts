@@ -3,10 +3,13 @@
 import {
   configFingerprint,
   makeEntryWorkload,
+  makeInstrumentedMeasurement,
   makeTimingMeasurement,
   newDocument,
   saveDocument,
 } from "../ir/document.ts"
+import { measureAllocPerOp } from "../measure/alloc.ts"
+import { captureTaskCpuProfile } from "../measure/cpu.ts"
 import {
   captureEnvironment,
   noisyMachineWarning,
@@ -19,6 +22,8 @@ import {
   filterTasks,
   getRegisteredTasks,
   resetRegistry,
+  taskAlloc,
+  taskCpu,
   taskGc,
   taskId as taskIdOf,
   taskIsolate,
@@ -34,6 +39,13 @@ export interface RunnerOpts extends InprocessTimingOptions {
   /** Suite-wide isolate default, consulted to compute each task's effective
    * isolate (task/group overrides still win). */
   isolate?: boolean
+  /** Suite-wide default for capturing an extra `phase: "cpu"` measurement
+   * per task (task/group `TaskOptions.cpu`/`GroupOptions.cpu` still win). */
+  cpu?: boolean
+  /** Suite-wide default for capturing an extra `phase: "memstats"`
+   * measurement per task (task/group `TaskOptions.alloc`/`GroupOptions.alloc`
+   * still win). */
+  alloc?: boolean
   /** Stamped onto every workload this invocation produces, recording whether
    * it ran in a subprocess dedicated to it alone. */
   markIsolated?: boolean
@@ -201,6 +213,38 @@ async function main(): Promise<number> {
             : result.warnings,
       }),
     )
+
+    // Extra instrumented measurements on the same workload, never mixed into
+    // the timing numbers above.
+    if (taskCpu(t, opts.cpu ?? false)) {
+      const cpuResult = await captureTaskCpuProfile(t.fn)
+      measurements.push(
+        makeInstrumentedMeasurement({
+          workload,
+          phase: "cpu",
+          configFingerprint: configFingerprint({ cpu: true }),
+          diagnosticWallNs: cpuResult.diagnosticWallNs,
+          cpu: cpuResult.cpu,
+          jit: cpuResult.jit,
+          warnings: [],
+          artifacts: [],
+        }),
+      )
+    }
+    if (taskAlloc(t, opts.alloc ?? false)) {
+      const allocResult = await measureAllocPerOp(t.fn)
+      measurements.push(
+        makeInstrumentedMeasurement({
+          workload,
+          phase: "memstats",
+          configFingerprint: configFingerprint({ alloc: true }),
+          diagnosticWallNs: allocResult.diagnosticWallNs,
+          memory: allocResult.memory,
+          warnings: [],
+          artifacts: [],
+        }),
+      )
+    }
 
     if (t.opts?.after) await t.opts.after()
     if (isGroupLast && t.groupAfter) await t.groupAfter()

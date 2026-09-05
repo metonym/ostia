@@ -11,6 +11,12 @@ function fmtMs(ns: number): string {
   return (ns / 1e6).toFixed(3)
 }
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes.toFixed(0)}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
+}
+
 function commandLabel(w: Workload): string {
   return w.label ?? w.command?.join(" ") ?? w.entry?.task ?? w.id
 }
@@ -90,6 +96,16 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       (r): r is { kind: "measured" } & TimingRow => r.kind === "measured",
     )
 
+    const allocByWorkloadId = new Map(
+      doc.measurements
+        .filter(
+          (m): m is Measurement & { memory: { bytesPerOp: number } } =>
+            m.phase === "memstats" && m.memory?.bytesPerOp !== undefined,
+        )
+        .map((m) => [m.workloadId, m.memory.bytesPerOp]),
+    )
+    const showAlloc = allocByWorkloadId.size > 0
+
     const showRelative = measuredRows.length > 1
     // Grouped tasks get their own Relative baseline (see relative.ts);
     // ungrouped tasks fall back to the whole-run fastest.
@@ -117,11 +133,11 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const medianWidth = 10
     const spreadWidth = 18
     const rangeWidth = 18
+    const allocWidth = 10
 
     const lines: string[] = [...envLine]
-    const header = showRelative
-      ? `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)} Relative`
-      : `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}`
+    const allocHeader = showAlloc ? ` ${"Alloc/op".padEnd(allocWidth)}` : ""
+    const header = `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}${allocHeader}${showRelative ? " Relative" : ""}`
     lines.push(header)
     lines.push("-".repeat(header.length))
 
@@ -149,6 +165,14 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       const rangeCell = `${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)}`
 
       let line = `${(indent + label).padEnd(labelWidth)}   ${medianCell.padEnd(medianWidth)} ${spreadCell.padEnd(spreadWidth)} ${rangeCell.padEnd(rangeWidth)}`
+      if (showAlloc) {
+        const bytesPerOp = workload
+          ? allocByWorkloadId.get(workload.id)
+          : undefined
+        const allocCell =
+          bytesPerOp !== undefined ? formatBytes(bytesPerOp) : ""
+        line += ` ${allocCell.padEnd(allocWidth)}`
+      }
       if (showRelative) {
         const relative = t.median / (references.get(row) ?? t.median)
         if (relative === 1) {

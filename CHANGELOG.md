@@ -110,6 +110,15 @@
   `Measurement.interleaved: true`. `runTimingPhase` is now built on top of a
   `createTimingPhase` per-trial iterator (`warmup()`/`step()`/`done()`/
   `result()`), which `time()` drives round-robin across commands.
+- `ostia.config.json` workloads gain a `suites` alternative to `command`:
+  glob patterns (same resolution as `bench`'s own `suites` config) run via
+  `bench()`, gating every task in those files individually - one
+  candidate-vs-baseline comparison per task, matched by workload id the same
+  way a `command` workload already is. `ostia ci` now covers in-process
+  microbenchmark regressions, not only subprocess commands. A `suites`
+  workload always executes (no per-task cache skipping yet - there's no
+  cheap way to know a suite file's task ids without importing it first).
+  This repo's own `ostia.config.json` gates `bench/*.ts` this way.
 
 **Fixes**
 

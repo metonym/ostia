@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import {
   defaultSampleFloor,
+  keep,
   measureTask,
   rigorFloor,
 } from "../../src/measure/inprocess"
@@ -202,5 +203,15 @@ describe("measure/inprocess", () => {
       minSamples: 5,
     })
     expect(Array.isArray(result.warnings)).toBe(true)
+  })
+
+  test("keep() accepts numbers, objects, and nullish values without throwing", () => {
+    expect(() => {
+      keep(42)
+      keep({ some: "object" })
+      keep("a string")
+      keep(undefined)
+      keep(null)
+    }).not.toThrow()
   })
 })

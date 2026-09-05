@@ -22,6 +22,7 @@ import {
   captureEnvironment,
   noisyMachineWarning,
 } from "./measure/environment.ts"
+import { keep } from "./measure/inprocess.ts"
 import { runTimingPhase } from "./measure/timing.ts"
 import { splitCommand } from "./spawn/index.ts"
 
@@ -44,6 +45,7 @@ export type {
 } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
 export type { MinimalLine } from "./renderers/minimal/index.ts"
+export { keep }
 
 interface TimeOptions {
   commands: (string | string[])[]

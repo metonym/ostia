@@ -486,6 +486,7 @@ import {
   task,
   range,
   sweep,
+  keep,
   compareDocuments,
   createDocument,
   renderers,
@@ -571,18 +572,65 @@ group("parse", () => {
 That is the whole registration surface: `group()` and `task()`. Presentation lives in
 the renderers (`--format`), not in the suite file.
 
-All module-scope code in a suite file runs up front, before any task is sampled -
-there's no hook that runs a task's own setup immediately before its sampling and
-its teardown immediately after, the way mitata's generator-based `bench()` drove
-one case to completion before starting the next. If a suite builds more than one
-instance of something stateful (a mounted UI component, an open connection, a
-server) at module scope, every instance already exists by the time any task
-samples - so a query has to be scoped to the instance it belongs to, not written
-against a global/ambient lookup that assumes it's the only one alive. Porting a
-mitata suite that opens a component's menu and queries `getByRole(...)`
+All module-scope code in a suite file runs up front, before any task is sampled.
+`{ before, after }` is the hook that runs a task's own setup immediately before its
+sampling and its teardown immediately after - once each, unmeasured, in the task's
+own process (so both work with `isolate`):
+
+```ts
+group(
+  "parse",
+  () => {
+    let doc: Document
+    task("append", () => doc.append(node), {
+      before: () => {
+        doc = mountDocument()
+      },
+      after: () => doc.destroy(),
+    })
+  },
+  {
+    // Runs once around the whole group, outside every task's own before/after.
+    before: () => setupSharedFixture(),
+    after: () => teardownSharedFixture(),
+  },
+)
+```
+
+There is no per-trial hook (no setup/teardown between individual samples the way
+mitata's generator-based `bench()` drives one case to completion before starting
+the next) - that would defeat batching, which is how ostia keeps a sub-microsecond
+task's timer overhead down. Reach for `{ gc }` (`Bun.gc(true)` between trials) or
+`{ isolate }` (a fresh process per task) for per-trial concerns instead. Because
+`before`/`after` run once per task, not once per instance, a suite that builds more
+than one instance of something stateful (a mounted UI component, an open
+connection, a server) still has to scope a query to the instance it belongs to,
+not write it against a global/ambient lookup that assumes it's the only one alive.
+Porting a mitata suite that opens a component's menu and queries `getByRole(...)`
 unscoped, for example, breaks once a second instance of that component exists
 in the document; scope the query with something like `within(instance.container)`
 instead.
+
+Task functions may be async (`() => unknown | Promise<unknown>`, same for
+`before`/`after`); `await` on a plain synchronous value still costs a microtask
+turn, so an `async` task function measures a few nanoseconds slower per call than
+the same body written synchronously - immaterial above microsecond cost, worth
+knowing for a task near the timer's resolution floor.
+
+Call `keep(value)` on an intermediate value inside a task body - a subcomputation
+whose result the task doesn't return - to pin it against dead-code elimination the
+same way ostia already protects a task's own return value:
+
+```ts
+import { keep } from "ostia"
+
+task("parse then validate", () => {
+  const ast = parse(input)
+  keep(ast) // the task returns validate's result; without this, a smart-enough
+  // JIT could in principle prove `ast` is otherwise unused and skip building it
+  return validate(ast)
+})
+```
 
 Both take an optional `description` that flows into the document
 (`Workload.description` / `Workload.groupDescription`) and into `--format minimal`, so

@@ -1,11 +1,20 @@
 # ostia
 
-ostia is a profiling and benchmarking toolkit for Bun.
+ostia is a profiling and benchmarking toolkit for Bun. One schema-versioned JSON
+document (`ProfileDocument`) holds wall-clock timing, CPU hotspots, heap summaries,
+JIT tier data, and allocation counts for a subprocess command or an in-process
+function - the CLI and the library speak the same language, so anything you can do
+with `ostia time`/`ostia bench` you can do with `time()`/`bench()` too.
 
-Use it when you want wall-clock timings, CPU hotspots, heap summaries, or JIT tier
-data in one place, then diff those results or fail CI when something gets slower.
-Everything lands in one schema-versioned JSON document (`ProfileDocument`), so the
-CLI and the library speak the same language.
+Comparing two documents reports a bootstrap confidence interval and a Mann-Whitney
+p-value, not a bare percentage past a threshold, and widens the regression bar to
+the machine's own noise floor so ambient jitter is never mistaken for a real
+regression. `ostia ci` gates a whole `ostia.config.json`/`ostia.config.ts` of
+workloads - subprocess commands and in-process `group()`/`task()` suites alike -
+against a saved baseline, skipping anything whose input fingerprint hasn't changed.
+Any task can run in its own subprocess for clean JIT/heap isolation from its
+suite-mates, and every renderer has a `minimal` JSON-lines mode built for piping
+straight into an LLM agent's context.
 
 Zero runtime dependencies. Requires Bun ≥ 1.4.
 
@@ -24,16 +33,16 @@ ostia time --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```
-Apple M2 · 8 cores · load 5.2 · noise floor 0.5%
+Apple M2 · 8 cores · load 10.1 · noise floor 6.2%
 
 Task                   Median     Spread             Range              Relative
 --------------------------------------------------------------------------------
-bun fixtures/fast.ts   7.47 ms    7.56 ms…7.77 ms    7.39 ms…7.78 ms    1.00×
-  ! outliers-detected
-bun fixtures/slow.ts   20.7 ms    20.9 ms…21.1 ms    20.6 ms…21.1 ms    2.77× slower
+bun fixtures/fast.ts   16.6 ms    25.3 ms…32.8 ms    10.4 ms…33.2 ms    1.00×
+  ! noisy-machine
+bun fixtures/slow.ts   40.2 ms    48.2 ms…63.9 ms    28.6 ms…64.7 ms    2.43× slower
 
 Warnings:
-  bun fixtures/fast.ts: 1 outlier(s) detected (0 severe, 1 mild).
+  bun fixtures/fast.ts: Load average 10.10 exceeds 75% of 8 available core(s); timing noise may be elevated.
 ```
 
 The header line (machine, cores, load, noise floor) prints whenever a document
@@ -52,12 +61,18 @@ ostia time --runs 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/o
 ```
 
 ```
+Apple M2 · 8 cores · load 8.5 · noise floor 0.9%
+
 Task                   Median     Spread             Range
 -----------------------------------------------------------------------
-bun fixtures/work.ts   400.6 ms   393.9 ms…417.8 ms  368.6 ms…430.7 ms
+bun fixtures/work.ts   470.6 ms   478.7 ms…499.3 ms  400.8 ms…500.1 ms
+  ! noisy-machine
 
-CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 433.480ms)
-  100.0%    413.40ms self  hashLoop
+Warnings:
+  bun fixtures/work.ts: Load average 8.48 exceeds 75% of 8 available core(s); timing noise may be elevated.
+
+CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 531.143ms)
+  100.0%    502.67ms self  hashLoop
     0.0%      0.00ms self  (root)
     0.0%      0.00ms self  (module)
   artifact: node_modules/.cache/ostia/artifacts/<run-id>-cpu.cpuprofile
@@ -143,8 +158,12 @@ Timing table (two commands get a Relative column automatically):
 ```
 Task                   Median     Spread             Range              Relative
 --------------------------------------------------------------------------------
-bun fixtures/fast.ts   15.0 ms    14.0 ms…19.3 ms    12.4 ms…23.7 ms    1.00×
-bun fixtures/slow.ts   37.3 ms    34.9 ms…40.7 ms    31.3 ms…48.2 ms    2.49× slower
+bun fixtures/fast.ts   7.94 ms    8.31 ms…8.56 ms    7.68 ms…8.57 ms    1.00×
+bun fixtures/slow.ts   21.3 ms    21.5 ms…22.1 ms    21.1 ms…22.1 ms    2.69× slower
+  ! outliers-detected
+
+Warnings:
+  bun fixtures/slow.ts: 1 outlier(s) detected (1 severe, 0 mild).
 ```
 
 Heap summary (type counts from the snapshot trial):
@@ -152,11 +171,11 @@ Heap summary (type counts from the snapshot trial):
 ```
 Task                       Median     Spread             Range
 ---------------------------------------------------------------------------
-bun fixtures/allocate.ts   32.5 ms    32.0 ms…34.7 ms    30.2 ms…46.2 ms
+bun fixtures/allocate.ts   23.8 ms    24.9 ms…29.4 ms    22.6 ms…30.0 ms
   ! outliers-detected
 
 Warnings:
-  bun fixtures/allocate.ts: 5 outlier(s) detected (4 severe, 1 mild).
+  bun fixtures/allocate.ts: 8 outlier(s) detected (1 severe, 7 mild).
 
 Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
     1369  string
@@ -280,9 +299,17 @@ shell's environment.
 Task                                       Median     Spread             Range              Relative
 ----------------------------------------------------------------------------------------------------
 stats:
-  stats/computeTimingStats (1e3 samples)   13.7 µs    13.3 µs…14.2 µs    13.1 µs…84.3 µs    1.00×
-  stats/computeTimingStats (1e4 samples)   167.3 µs   160.6 µs…168.4 µs  158.3 µs…422.5 µs  12.20× slower
-  stats/timingWarnings (1e3 samples)       40.8 µs    40.7 µs…41.1 µs    38.5 µs…598.3 µs   2.98× slower
+  stats/computeTimingStats (1e3 samples)   24.7 µs    33.8 µs…151.6 µs   22.4 µs…1073.2 µs  1.00×
+    ! outliers-detected
+  stats/computeTimingStats (1e4 samples)   255.2 µs   331.7 µs…1067.6 µs 223.2 µs…20789.4 µs 10.33× slower
+    ! outliers-detected
+  stats/timingWarnings (1e3 samples)       47.3 µs    88.5 µs…510.4 µs   43.0 µs…14383.1 µs 1.91× slower
+    ! outliers-detected
+
+Warnings:
+  stats/computeTimingStats (1e3 samples): 2455 outlier(s) detected (2108 severe, 347 mild).
+  stats/computeTimingStats (1e4 samples): 215 outlier(s) detected (70 severe, 145 mild).
+  stats/timingWarnings (1e3 samples): 541 outlier(s) detected (191 severe, 350 mild).
 ```
 
 Tasks with a `group()` print the group name once, indented; ungrouped tasks and
@@ -299,7 +326,7 @@ ostia compare after.json --baseline .ostia/baselines/main.json
 
 ```
 ✗ bun fixtures/work.ts
-  timing: +50.2% median, 95% CI [+45.9%, +54.4%], p<0.001 (regressed)
+  timing: +11.2% median, 95% CI [+10.0%, +16.4%], p<0.001 (regressed)
 ```
 
 When both documents carry `git` metadata (see below), `ostia compare` prints a summary
@@ -335,8 +362,8 @@ runs two tests instead:
 
 `regressed` requires `ci95[0] > thresholds.timingPct` (the *whole interval*
 clears the threshold) **and** `pValue < thresholds.alpha`; `improved` is the
-mirror. Otherwise `unchanged`. This is why the earlier example (`+50.2%
-median, 95% CI [+45.9%, +54.4%]`) is a clean regression: even the low end of
+mirror. Otherwise `unchanged`. This is why the earlier example (`+11.2%
+median, 95% CI [+10.0%, +16.4%]`) is a clean regression: even the low end of
 the interval is well past `timingPct`.
 
 Both `time()` and `bench()` also stamp `environment` on every document (a
@@ -383,7 +410,7 @@ Markdown:
 ```
 # Profile Report
 
-Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T13:14:50.085Z
+Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T13:14:50.085Z · a1b2c3d (main)
 
 ## Timing
 
@@ -409,16 +436,16 @@ ostia report doc.json --format speedscope > flame.json
 Collapsed stacks (one line per stack; feeds `flamegraph.pl` and friends):
 
 ```
-(root);(module);hashLoop 1055
+(root);(module);hashLoop 209
 ```
 
 Mermaid call tree (top N nodes by self time, never the whole profile):
 
 ```
 graph TD
-  n1["(root) (self 0.00ms, total 284.19ms)"]
-  n2["(module) (self 0.00ms, total 284.19ms)"]
-  n3["hashLoop (self 284.19ms, total 284.19ms)"]
+  n1["(root) (self 0.00ms, total 267.91ms)"]
+  n2["(module) (self 0.00ms, total 267.91ms)"]
+  n3["hashLoop (self 267.91ms, total 267.91ms)"]
   n1 --> n2
   n2 --> n3
 ```
@@ -455,7 +482,7 @@ Fail:
 1 affected by this change
 0 cached
 1 executed
-0 passed  1 regressed (+1249.2% median on work)
+0 passed  1 regressed (+1278.7% median on work)
 
 Profile CI: ✗
 ```
@@ -694,19 +721,17 @@ group(
 )
 ```
 
-There is no per-trial hook (no setup/teardown between individual samples the way
-mitata's generator-based `bench()` drives one case to completion before starting
-the next) - that would defeat batching, which is how ostia keeps a sub-microsecond
-task's timer overhead down. Reach for `{ gc }` (`Bun.gc(true)` between trials) or
-`{ isolate }` (a fresh process per task) for per-trial concerns instead. Because
-`before`/`after` run once per task, not once per instance, a suite that builds more
-than one instance of something stateful (a mounted UI component, an open
-connection, a server) still has to scope a query to the instance it belongs to,
-not write it against a global/ambient lookup that assumes it's the only one alive.
-Porting a mitata suite that opens a component's menu and queries `getByRole(...)`
-unscoped, for example, breaks once a second instance of that component exists
-in the document; scope the query with something like `within(instance.container)`
-instead.
+There is no per-trial hook (no setup/teardown between individual samples) - that
+would defeat batching, which is how ostia keeps a sub-microsecond task's timer
+overhead down. Reach for `{ gc }` (`Bun.gc(true)` between trials) or `{ isolate }`
+(a fresh process per task) for per-trial concerns instead. Because `before`/`after`
+run once per task, not once per instance, a suite that builds more than one instance
+of something stateful (a mounted UI component, an open connection, a server) still
+has to scope a query to the instance it belongs to, not write it against a
+global/ambient lookup that assumes it's the only one alive - a suite that opens a
+component's menu and queries `getByRole(...)` unscoped, for example, breaks once a
+second instance of that component exists in the document; scope the query with
+something like `within(instance.container)` instead.
 
 Task functions may be async (`() => unknown | Promise<unknown>`, same for
 `before`/`after`); `await` on a plain synchronous value still costs a microtask
@@ -747,9 +772,8 @@ group(
 )
 ```
 
-Mark one task per group as the `Relative` reference with `{ baseline: true }`
-(mirrors mitata's `baseline()`); otherwise `Relative` defaults to the fastest
-task in the group:
+Mark one task per group as the `Relative` reference with `{ baseline: true }`;
+otherwise `Relative` defaults to the fastest task in the group:
 
 ```ts
 group("parse", () => {
@@ -821,10 +845,8 @@ otherwise renders params as a `key=value` suffix on the task name.
 
 ### `range(start, end, multiplier?)` → `number[]`
 
-Geometric point generator that feeds `sweep()` (and works standalone) - mitata's
-`.range(name, start, end, multiplier)` point generation (default multiplier `8`,
-always ending on `end` even if the last step overshot it), without the name
-templating: build the task name yourself.
+Geometric point generator that feeds `sweep()` (and works standalone): default
+multiplier `8`, always ending on `end` even if the last step overshot it.
 
 ```ts
 range(100, 10_000)   // -> [100, 800, 6400, 10000]
@@ -896,6 +918,24 @@ const { files } = await renderers.collapsed.render(doc, {
 ```
 
 Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).
+
+## Migrating from mitata or hyperfine
+
+| mitata / hyperfine | ostia |
+|---|---|
+| `bench("name", fn)` | `task("name", fn)` |
+| `baseline()` | `{ baseline: true }` on a `task()` |
+| `.range(name, start, end, mult)` | `sweep({ dim: range(start, end, mult) }, ...)` |
+| generator setup (`function* () { ...; yield () => fn() }`) | `task(name, fn, { before, after })` |
+| `do_not_optimize(value)` | `keep(value)` |
+| `hyperfine -L var a,b,c cmd-{var}` | `sweep({ var: ["a", "b", "c"] }, ...)` or per-command `params` |
+| `hyperfine --runs N --warmup N` | `ostia time --samples N --warmup N` |
+| `hyperfine --export-json` / `--export-markdown` | `ostia time --export-json PATH` / `--format markdown` |
+
+`sweep()`/`range()`/`params` are in-process (`ostia bench`); `hyperfine -L` substitutes into
+a shell command template for a subprocess instead, so a direct port is one literal `ostia time`
+command per substitution value rather than a template - see [`sweep(dims, fn)`](#sweepdims-fn--void)
+and [`ostia.config.ts` / `ostia.config.json`](#ostiaconfigts--ostiaconfigjson) above.
 
 ## Examples
 

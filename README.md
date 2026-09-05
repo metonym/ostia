@@ -461,6 +461,19 @@ group("parse", () => {
 That is the whole registration surface: `group()` and `task()`. Presentation lives in
 the renderers (`--format`), not in the suite file.
 
+All module-scope code in a suite file runs up front, before any task is sampled -
+there's no hook that runs a task's own setup immediately before its sampling and
+its teardown immediately after, the way mitata's generator-based `bench()` drove
+one case to completion before starting the next. If a suite builds more than one
+instance of something stateful (a mounted UI component, an open connection, a
+server) at module scope, every instance already exists by the time any task
+samples - so a query has to be scoped to the instance it belongs to, not written
+against a global/ambient lookup that assumes it's the only one alive. Porting a
+mitata suite that opens a component's menu and queries `getByRole(...)`
+unscoped, for example, breaks once a second instance of that component exists
+in the document; scope the query with something like `within(instance.container)`
+instead.
+
 Both take an optional `description` that flows into the document
 (`Workload.description` / `Workload.groupDescription`) and into `--format minimal`, so
 what a number measures and why travels with the data instead of living only in a

@@ -20,31 +20,32 @@ bun add ostia
 Compare two commands:
 
 ```sh
-ostia run --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
+ostia time --runs 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```
-Command                Mean [ms]        Min…Max [ms]        Relative
---------------------------------------------------------------------
-bun fixtures/fast.ts   8.413 ± 1.340    7.623…12.365        1.00×
-bun fixtures/slow.ts   21.712 ± 1.157   20.831…24.220       2.62× slower
+Task                   Median     Spread             Range              Relative
+--------------------------------------------------------------------------------
+bun fixtures/fast.ts   15.0 ms    14.0 ms…19.3 ms    12.4 ms…23.7 ms    1.00×
+bun fixtures/slow.ts   37.3 ms    34.9 ms…40.7 ms    31.3 ms…48.2 ms    2.49× slower
 ```
 
 Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into the
 timing numbers above):
 
 ```sh
-ostia run --runs 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json fixtures/work.ts
+ostia time --runs 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json "bun fixtures/work.ts"
 ```
 
 ```
-Command                Mean [ms]        Min…Max [ms]
-----------------------------------------------------
-bun fixtures/work.ts   275.815 ± 2.853  273.334…281.384
+Task                   Median     Spread             Range
+-----------------------------------------------------------------------
+bun fixtures/work.ts   400.6 ms   393.9 ms…417.8 ms  368.6 ms…430.7 ms
 
-CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 297.578ms)
-  100.0%    284.19ms self  hashLoop
+CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 433.480ms)
+  100.0%    413.40ms self  hashLoop
     0.0%      0.00ms self  (root)
+    0.0%      0.00ms self  (module)
   artifact: node_modules/.cache/ostia/artifacts/<run-id>-cpu.cpuprofile
 ```
 
@@ -109,25 +110,29 @@ ostia time --format json --export-json out.json "bun a.ts"
 Timing table (two commands get a Relative column automatically):
 
 ```
-Command                Mean [ms]        Min…Max [ms]        Relative
---------------------------------------------------------------------
-bun fixtures/fast.ts   8.413 ± 1.340    7.623…12.365        1.00×
-bun fixtures/slow.ts   21.712 ± 1.157   20.831…24.220       2.62× slower
+Task                   Median     Spread             Range              Relative
+--------------------------------------------------------------------------------
+bun fixtures/fast.ts   15.0 ms    14.0 ms…19.3 ms    12.4 ms…23.7 ms    1.00×
+bun fixtures/slow.ts   37.3 ms    34.9 ms…40.7 ms    31.3 ms…48.2 ms    2.49× slower
 ```
 
 Heap summary (type counts from the snapshot trial):
 
 ```
-Command                    Mean [ms]        Min…Max [ms]
---------------------------------------------------------
-bun fixtures/allocate.ts   27.079 ± 6.844   23.888…91.799
+Task                       Median     Spread             Range
+---------------------------------------------------------------------------
+bun fixtures/allocate.ts   32.5 ms    32.0 ms…34.7 ms    30.2 ms…46.2 ms
+  ! outliers-detected
 
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
+Warnings:
+  bun fixtures/allocate.ts: 5 outlier(s) detected (4 severe, 1 mild).
+
+Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
     1369  string
-     426  code
-     321  closure
+     423  code
+     319  closure
      216  object shape
-     104  hidden
+     105  hidden
   artifact: node_modules/.cache/ostia/artifacts/<run-id>-heap.heapsnapshot
 ```
 
@@ -225,12 +230,16 @@ shell's environment.
 
 
 ```
-Command                                  Mean [ms]        Min…Max [ms]        Relative
---------------------------------------------------------------------------------------
-stats/computeTimingStats (1e3 samples)   0.014 ± 0.016    0.012…0.598         1.00×
-stats/computeTimingStats (1e4 samples)   0.484 ± 0.052    0.434…0.680         38.22× slower
-stats/timingWarnings (1e3 samples)       0.036 ± 0.020    0.032…0.541         2.82× slower
+Task                                       Median     Spread             Range              Relative
+----------------------------------------------------------------------------------------------------
+stats:
+  stats/computeTimingStats (1e3 samples)   13.7 µs    13.3 µs…14.2 µs    13.1 µs…84.3 µs    1.00×
+  stats/computeTimingStats (1e4 samples)   167.3 µs   160.6 µs…168.4 µs  158.3 µs…422.5 µs  12.20× slower
+  stats/timingWarnings (1e3 samples)       40.8 µs    40.7 µs…41.1 µs    38.5 µs…598.3 µs   2.98× slower
 ```
+
+Tasks with a `group()` print the group name once, indented; ungrouped tasks and
+subprocess commands print flat.
 
 ### `ostia compare`
 
@@ -279,13 +288,13 @@ Markdown:
 ```
 # Profile Report
 
-Bun 1.4.0 · ostia 0.1.0 · darwin/arm64 · 2026-09-04T03:46:02.961Z
+Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T03:44:08.196Z
 
 ## Timing
 
-| Command | Mean ± SD (ms) | Min…Max (ms) | Median (ms) |
+| Task | Median | Mean ± SD | Range |
 |---|---|---|---|
-| bun -e 1 | 5.477 ± 0.303 | 5.153…5.882 | 5.396 |
+| bun -e 1 | 5.46 ms | 5.54 ms ± 0.48 ms | 5.19 ms…13.3 ms |
 ```
 
 ### `ostia viz`

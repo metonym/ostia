@@ -5,17 +5,17 @@ under the hood). It's a separate, labeled run - never mixed into the timing
 stats above it, so a profiled run can't quietly become "the benchmark."
 
 ```console
-ostia run --runs 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json fixtures/work.ts
+ostia time --runs 5 --cpu --cpu-interval 200 --export-json .ostia/doc.json "bun fixtures/work.ts"
 ```
 
 ```
-Command                Mean [ms]        Min…Max [ms]
-----------------------------------------------------
-bun fixtures/work.ts   282.705 ± 13.668  272.587…309.690
+Task                   Median     Spread             Range
+-----------------------------------------------------------------------
+bun fixtures/work.ts   394.6 ms   386.9 ms…433.9 ms  369.2 ms…444.2 ms
 
-CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 293.812ms)
-   99.9%    281.63ms self  hashLoop
-    0.1%      0.26ms self  isServerConfig
+CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 504.673ms)
+   99.9%    489.23ms self  hashLoop
+    0.1%      0.27ms self  isServerConfig
   artifact: .ostia/artifacts/<run-id>-cpu.cpuprofile
 ```
 
@@ -33,7 +33,7 @@ ostia viz .ostia/doc.json --format collapsed
 
 ostia viz .ostia/doc.json --format mermaid
 # graph TD
-#   n3["hashLoop (self 281.63ms, total 281.63ms)"]
+#   n3["hashLoop (self 489.23ms, total 489.23ms)"]
 #   ...
 
 ostia viz .ostia/doc.json --format speedscope > flame.json

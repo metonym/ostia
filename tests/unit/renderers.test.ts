@@ -212,6 +212,87 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(lineA).toContain("2.00× slower")
   })
 
+  test("table renderer shows Task/Median/Spread/Range columns, not the hyperfine-shaped Command/Mean table", async () => {
+    const doc = fixedDoc()
+    const result = await renderers.table.render(doc, {})
+    expect(result.text).toMatch(/Task\s+Median\s+Spread\s+Range/)
+    expect(result.text).not.toContain("Mean [ms]")
+  })
+
+  test("table renderer reads nanosecond-scale medians instead of collapsing to 0.000ms (the tiny/add defect)", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    // task("add", () => 1 + 2): sub-microsecond, used to render
+    // "0.000 ± 0.000    0.000...0.000" when everything was formatted as ms.
+    const samples = [3, 4, 3, 5, 3]
+    const w = makeEntryWorkload("suite.ts", "add", { label: "add" })
+    const doc = newDocument(
+      [w],
+      [
+        makeTimingMeasurement({
+          workload: w,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.table.render(doc, {})
+    expect(result.text).toMatch(/\d(\.\d+)? ns/)
+    expect(result.text).not.toContain("0.000")
+  })
+
+  test("table renderer prints a group header once and indents its tasks; ungrouped rows stay flat", async () => {
+    const trials = (samples: number[]) =>
+      samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 }))
+    const wGrouped = makeEntryWorkload("suite.ts", "parse/small", {
+      label: "parse/small",
+      group: "parse",
+    })
+    const wFlat = makeSubprocessWorkload(["bun", "x.ts"], "bun x.ts")
+    const samples = [1_000_000, 1_100_000, 900_000]
+    const doc = newDocument(
+      [wGrouped, wFlat],
+      [
+        makeTimingMeasurement({
+          workload: wGrouped,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+        makeTimingMeasurement({
+          workload: wFlat,
+          configFingerprint: "cfg",
+          trials: trials(samples),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.table.render(doc, {})
+    const lines = result.text!.split("\n")
+    expect(lines.some((l) => l.trim() === "parse:")).toBe(true)
+    expect(lines.some((l) => l.startsWith("  parse/small"))).toBe(true)
+    expect(lines.some((l) => l.startsWith("bun x.ts"))).toBe(true)
+  })
+
+  test("table renderer collapses per-row warnings to a code list, with full messages in a footnote", async () => {
+    const doc = fixedDoc()
+    doc.measurements[1]!.warnings.push(
+      { code: "outliers-detected", message: "3 outlier(s) detected." },
+      { code: "below-timer-resolution", message: "Close to timer resolution." },
+    )
+    const result = await renderers.table.render(doc, {})
+    const lines = result.text!.split("\n")
+    const warningLine = lines.find((l) => l.trim().startsWith("!"))
+    expect(warningLine).toContain("outliers-detected, below-timer-resolution")
+    expect(result.text).toContain("Warnings:")
+    expect(result.text).toContain("3 outlier(s) detected.")
+    expect(result.text).toContain("Close to timer resolution.")
+  })
+
   test("json renderer round-trips schema-critical fields and is deterministic", async () => {
     const doc = fixedDoc()
     const result1 = await renderers.json.render(doc, {})
@@ -233,7 +314,7 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(result.text).toContain("## Timing")
     expect(result.text).toContain("bun a.ts")
     expect(result.text).toContain("bun b.ts")
-    expect(result.text).toMatch(/\|\s*Command\s*\|/)
+    expect(result.text).toMatch(/\|\s*Task\s*\|/)
   })
 
   test("markdown renderer is deterministic for the same document", async () => {

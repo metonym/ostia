@@ -13,6 +13,20 @@
   `saveDocument` without reaching into `src/ir/document.ts`
 - `createDocument(workloads, measurements)` composes a document from several
   `profile()` calls
+- the terminal table now shows `Task | Median | Spread | Range | Relative`
+  with an adaptive ns/µs/ms/s unit per row (3 significant digits), replacing
+  the hyperfine-shaped `Command | Mean [ms] | Min…Max [ms]` table that
+  rendered sub-millisecond microbenchmarks as `0.000 ± 0.000`
+- grouped tasks (`group()`) print the group name once, indented, in the
+  terminal table; per-row warnings collapse to a code list with full
+  messages in a footnote block after the table
+- `formatDuration(ns)` in `src/renderers/format.ts`, also used by the
+  markdown renderer's Timing table
+
+**Fixes**
+
+- microbenchmarks under 1ms (e.g. `task("add", () => 1 + 2)`) render a
+  readable duration instead of collapsing to `0.000ms`
 
 **Breaking**
 

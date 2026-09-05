@@ -47,6 +47,17 @@ export function computeTimingStats(samples: number[]): TimingStats {
   }
 }
 
+/** 25th/75th percentiles of `samples`, for a table's Spread column. Kept
+ * separate from `TimingStats` (which stores `outliers` counts, not the
+ * quartiles themselves) until `p75`/`p99`/`mad` land on the IR. */
+export function computeQuartiles(samples: number[]): {
+  q1: number
+  q3: number
+} {
+  const sorted = sortedCopy(samples)
+  return { q1: percentile(sorted, 0.25), q3: percentile(sorted, 0.75) }
+}
+
 function sortedCopy(samples: number[]): Float64Array {
   const sorted = new Float64Array(samples.length)
   sorted.set(samples)

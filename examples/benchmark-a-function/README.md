@@ -25,15 +25,16 @@ console.log(text)
 ```
 
 ```
-Command                              Mean [ms]        Min…Max [ms]        Relative
-----------------------------------------------------------------------------------
-dedupe/naive (indexOf scan, O(n²))   0.195 ± 0.058    0.168…1.443         9.14× slower
-dedupe/Set-based (O(n))              0.022 ± 0.018    0.017…0.638         1.00×
+Task                                   Median     Spread             Range              Relative
+------------------------------------------------------------------------------------------------
+dedupe:
+  dedupe/naive (indexOf scan, O(n²))   217.8 µs   208.3 µs…227.2 µs  197.3 µs…825.5 µs  9.08× slower
+  dedupe/Set-based (O(n))              24.0 µs    23.2 µs…24.9 µs    21.6 µs…258.8 µs   1.00×
 ```
 
 Each suite file runs in its own spawned child, isolated from the caller's state - the
 same isolation `ostia bench suite.ts...` gives you from the CLI. The result is a
-regular `ProfileDocument`: same renderers as `ostia run`/`ostia compare`, and it can be
+regular `ProfileDocument`: same renderers as `ostia time`/`ostia compare`, and it can be
 saved and diffed against a baseline the same way - see
 [gate-a-regression](../gate-a-regression/) for the CLI-config version of that, or
 `bench/README.md` at the repo root for how this project benchmarks its own hot paths.

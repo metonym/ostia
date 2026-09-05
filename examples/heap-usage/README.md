@@ -7,20 +7,24 @@ with a raw `.heapsnapshot` file only DevTools can read. Same phase-separation ru
 clean timing numbers.
 
 ```console
-ostia run --heap "bun fixtures/allocate.ts"
+ostia time --heap "bun fixtures/allocate.ts"
 ```
 
 ```
-Command                    Mean [ms]        Min…Max [ms]
---------------------------------------------------------
-bun fixtures/allocate.ts   27.270 ± 3.488   23.912…44.858
+Task                       Median     Spread             Range
+---------------------------------------------------------------------------
+bun fixtures/allocate.ts   32.5 ms    32.0 ms…34.7 ms    30.2 ms…46.2 ms
+  ! outliers-detected
 
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2518 objects, 0.12MB)
+Warnings:
+  bun fixtures/allocate.ts: 5 outlier(s) detected (4 severe, 1 mild).
+
+Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
     1369  string
-     426  code
-     321  closure
+     423  code
+     319  closure
      216  object shape
-     104  hidden
+     105  hidden
   artifact: .ostia/artifacts/<run-id>-heap.heapsnapshot
 ```
 

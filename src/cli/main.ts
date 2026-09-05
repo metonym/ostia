@@ -1,8 +1,9 @@
 #!/usr/bin/env bun
+import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
-import { loadConfig } from "../config/index.ts"
+import { baselinePath, loadConfig } from "../config/index.ts"
 import { time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
 import type { ProfileDocument } from "../ir/types.ts"
@@ -233,7 +234,7 @@ Examples:
   ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
 `
 
-const CI_HELP = `ostia ci [--full] [--baseline NAME]
+const CI_HELP = `ostia ci [--full] [--baseline NAME] [--save-baseline]
 
 Load ostia.config.json, run configured workloads (reusing cached results when their
 fingerprint is unchanged), compare against the named baseline, and gate on regressions.
@@ -241,11 +242,35 @@ fingerprint is unchanged), compare against the named baseline, and gate on regre
 Flags:
   --full              ignore the cache; rerun every configured workload
   --baseline NAME      baseline name (default: config's "baseline" field, or "main")
+  --save-baseline     after a pass (no regressions), write the just-measured document as
+                       the new baseline at the same path just compared against - promotes
+                       today's numbers to tomorrow's floor in one step.
   --export-json PATH  write the resulting document (with comparisons) to PATH
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
 
 Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, spawn failure).
+`
+
+const BASELINE_HELP = `ostia baseline <save|list|show> [args]
+
+Manage the baseline ProfileDocuments "ostia ci" gates against and "ostia compare --baseline"
+reads.
+
+Subcommands:
+  save [name]              measure every configured workload (same code path as "ostia ci",
+                            no comparison) and write it to <baselineDir>/<name>.json
+                            (default name: config's "baseline" field, or "main")
+  list                     list saved baselines: name, created date, workload count
+  show <name> [flags]      render a saved baseline; delegates to "ostia report" (same
+                            --format/--measurement/--out-dir flags)
+
+Examples:
+  ostia baseline save
+  ostia baseline save my-feature
+  ostia baseline list
+  ostia baseline show main
+  ostia baseline show main --format markdown
 `
 
 interface TimeArgs {
@@ -796,6 +821,7 @@ async function vizCommand(argv: string[]): Promise<number> {
 interface CiArgs {
   full: boolean
   baseline?: string
+  saveBaseline: boolean
   exportJson?: string
   quiet: boolean
   help: boolean
@@ -804,6 +830,7 @@ interface CiArgs {
 function parseCiArgs(argv: string[]): CiArgs {
   let full = false
   let baseline: string | undefined
+  let saveBaseline = false
   let exportJson: string | undefined
   let quiet = false
   let help = false
@@ -816,6 +843,9 @@ function parseCiArgs(argv: string[]): CiArgs {
         break
       case "--baseline":
         baseline = argv[++i]
+        break
+      case "--save-baseline":
+        saveBaseline = true
         break
       case "--export-json":
         exportJson = argv[++i]
@@ -830,7 +860,7 @@ function parseCiArgs(argv: string[]): CiArgs {
     }
   }
 
-  return { full, baseline, exportJson, quiet, help }
+  return { full, baseline, saveBaseline, exportJson, quiet, help }
 }
 
 async function ciCommand(argv: string[]): Promise<number> {
@@ -874,11 +904,102 @@ async function ciCommand(argv: string[]): Promise<number> {
     await saveDocument(outcome.document, parsed.exportJson)
   }
 
+  if (parsed.saveBaseline && outcome.summary.regressed === 0) {
+    await saveDocument(outcome.document, baselinePath(config, parsed.baseline))
+  }
+
   if (!parsed.quiet) {
     process.stdout.write(renderCiReport(outcome.summary))
   }
 
   return outcome.summary.regressed > 0 ? 1 : 0
+}
+
+async function baselineSaveCommand(argv: string[]): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(BASELINE_HELP)
+    return 0
+  }
+  const name = argv[0]
+
+  const config = await loadConfig()
+  if (!config) {
+    process.stderr.write(
+      `No ostia.config.json found. "ostia baseline save" needs configured workloads.\n`,
+    )
+    return 2
+  }
+  if (config.workloads.length === 0) {
+    process.stderr.write(`ostia.config.json has no "workloads" configured.\n`)
+    return 2
+  }
+
+  const path = await saveBaseline(config, name)
+  process.stdout.write(`Wrote ${path}\n`)
+  return 0
+}
+
+async function baselineListCommand(argv: string[]): Promise<number> {
+  if (argv.includes("--help") || argv.includes("-h")) {
+    process.stdout.write(BASELINE_HELP)
+    return 0
+  }
+
+  const config = await loadConfig()
+  if (!config) {
+    process.stderr.write(`No ostia.config.json found.\n`)
+    return 2
+  }
+
+  const infos = await listBaselines(config)
+  if (infos.length === 0) {
+    process.stdout.write(`No baselines found in ${config.baselineDir}.\n`)
+    return 0
+  }
+  for (const info of infos) {
+    process.stdout.write(
+      `${info.name}\t${info.workloads} workloads\tcreated ${info.createdAt}\ttoolVersion ${info.toolVersion}\n`,
+    )
+  }
+  return 0
+}
+
+async function baselineShowCommand(argv: string[]): Promise<number> {
+  const [name, ...rest] = argv
+  if (!name || name === "--help" || name === "-h") {
+    process.stdout.write(BASELINE_HELP)
+    return name ? 0 : 2
+  }
+
+  const config = await loadConfig()
+  if (!config) {
+    process.stderr.write(`No ostia.config.json found.\n`)
+    return 2
+  }
+
+  return reportCommand([baselinePath(config, name), ...rest])
+}
+
+async function baselineCommand(argv: string[]): Promise<number> {
+  const [sub, ...rest] = argv
+  switch (sub) {
+    case "save":
+      return baselineSaveCommand(rest)
+    case "list":
+      return baselineListCommand(rest)
+    case "show":
+      return baselineShowCommand(rest)
+    case undefined:
+    case "--help":
+    case "-h":
+      process.stdout.write(BASELINE_HELP)
+      return sub === undefined ? 2 : 0
+    default:
+      process.stderr.write(
+        `Unknown "ostia baseline ${sub}". Run "ostia baseline --help".\n`,
+      )
+      return 2
+  }
 }
 
 async function main(): Promise<number> {
@@ -896,13 +1017,15 @@ async function main(): Promise<number> {
       return reportCommand(rest)
     case "ci":
       return ciCommand(rest)
+    case "baseline":
+      return baselineCommand(rest)
     case "viz":
       return vizCommand(rest)
     case undefined:
     case "--help":
     case "-h":
       process.stdout.write(
-        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n\nRun "ostia <command> --help" for details.\n`,
+        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap (alias: run)\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n  baseline  Manage baseline ProfileDocuments (save/list/show)\n\nRun "ostia <command> --help" for details.\n`,
       )
       return subcommand === undefined ? 2 : 0
     default:

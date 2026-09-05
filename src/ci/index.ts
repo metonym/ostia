@@ -27,10 +27,13 @@ export interface CiOptions {
 
 type WorkloadStatus = "cached" | "executed"
 
-interface CiWorkloadResult {
+export interface MeasuredWorkload {
   workload: Workload
   status: WorkloadStatus
   run: Measurement
+}
+
+interface CiWorkloadResult extends MeasuredWorkload {
   comparison?: Comparison
 }
 
@@ -53,21 +56,16 @@ export class BaselineNotFoundError extends Error {
   }
 }
 
-export async function runCi(
-  opts: CiOptions,
-): Promise<{ document: ProfileDocument; summary: CiSummary }> {
-  const { config } = opts
-  const path = baselinePath(config, opts.baselineName)
-  const baselineFile = Bun.file(path)
-  if (!(await baselineFile.exists())) {
-    throw new BaselineNotFoundError(path)
-  }
-  const baseline = await loadDocument(path)
-
-  const results: CiWorkloadResult[] = []
-  let affected = 0
-  let cached = 0
-  let executed = 0
+/** Runs every configured workload for real (or from cache, for `command`
+ * workloads whose fingerprint/inputs are unchanged), with no comparison
+ * against any baseline. Shared by `runCi` and `ostia baseline save`, so a
+ * saved baseline always reflects the same measurement code path `ci` gates
+ * against. */
+export async function measureConfigWorkloads(
+  config: OstiaConfig,
+  full: boolean,
+): Promise<MeasuredWorkload[]> {
+  const results: MeasuredWorkload[] = []
 
   for (const wc of config.workloads) {
     if (wc.suites) {
@@ -82,16 +80,27 @@ export async function runCi(
         suites: suiteFiles,
         outDir: config.outDir,
         noiseCheck: false,
+        budgetMs: config.bench?.budgetMs,
+        samples: config.bench?.samples,
+        minSamples: config.bench?.minSamples,
+        gc: config.bench?.gc,
+        cpu: config.bench?.cpu,
+        alloc: config.bench?.alloc,
+        filter: config.bench?.filter,
+        isolate: config.bench?.isolate,
+        preload: config.bench?.preload,
+        jobs:
+          typeof config.bench?.jobs === "number"
+            ? config.bench.jobs
+            : undefined,
       })
       for (const workload of doc.workloads) {
         const run = doc.measurements.find(
           (m) => m.workloadId === workload.id && m.phase === "timing",
         )
         // A task.skip()'d task has a workload but no timing measurement:
-        // nothing to gate, so it's neither affected nor executed.
+        // nothing to gate, so it contributes nothing here.
         if (!run) continue
-        affected++
-        executed++
         results.push({ workload, status: "executed", run })
       }
       continue
@@ -113,7 +122,7 @@ export async function runCi(
       inputsDigest,
     })
 
-    const cachedRun = opts.full
+    const cachedRun = full
       ? undefined
       : await readCachedRun(config.outDir, cacheKey)
     let run: Measurement
@@ -122,9 +131,7 @@ export async function runCi(
     if (cachedRun) {
       run = cachedRun
       status = "cached"
-      cached++
     } else {
-      affected++
       const phaseResult = await runTimingPhase({
         argv: wc.command!,
         runs: config.runs ?? undefined,
@@ -139,11 +146,30 @@ export async function runCi(
       })
       await writeCachedRun(config.outDir, cacheKey, run)
       status = "executed"
-      executed++
     }
 
     results.push({ workload, status, run })
   }
+
+  return results
+}
+
+export async function runCi(
+  opts: CiOptions,
+): Promise<{ document: ProfileDocument; summary: CiSummary }> {
+  const { config } = opts
+  const path = baselinePath(config, opts.baselineName)
+  const baselineFile = Bun.file(path)
+  if (!(await baselineFile.exists())) {
+    throw new BaselineNotFoundError(path)
+  }
+  const baseline = await loadDocument(path)
+
+  const measured = await measureConfigWorkloads(config, opts.full)
+  const results: CiWorkloadResult[] = measured.map((m) => ({ ...m }))
+  const affected = results.filter((r) => r.status === "executed").length
+  const cached = results.filter((r) => r.status === "cached").length
+  const executed = affected
 
   const candidateDoc = newDocument(
     results.map((r) => r.workload),

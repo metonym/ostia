@@ -18,7 +18,7 @@
     "knip": "knip-bun",
     "bench": "bun src/cli/main.ts bench bench/*.ts",
     "bench:baseline": "bun src/cli/main.ts bench bench/*.ts --time-budget 3000 --min-samples 30 --export-json .ostia/baselines/bench-main.json",
-    "baseline": "bun scripts/seed-baseline.ts",
+    "baseline": "bun src/cli/main.ts baseline save",
     "dogfood": "bun test && bun src/cli/main.ts ci",
     "examples": "bun scripts/run-examples.ts"
   },

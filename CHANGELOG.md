@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 — 2026-09-05
 
 **Features**
 
@@ -161,26 +161,6 @@
   `--time-budget` are gone, use `budgetMs` / `--budget`.
   `InprocessTimingOptions.warmupFraction` is gone, use `warmup`.
 
-**Documentation**
-
-- Rewrote the README opening to lead with what ostia is (one document for
-  timing/CPU/heap/JIT/allocation, a comparison with confidence intervals and
-  a noise floor, CI gating with input-fingerprint caching, per-task process
-  isolation, agent-friendly `minimal` output) instead of a generic
-  description; the quick start already used the adaptive-unit table from
-  item 3, not the old hyperfine-shaped one.
-- Removed inline "mirrors mitata" / mitata-comparison phrases from the API
-  sections (`baseline()`, `range()`, per-trial hooks) in favor of describing
-  ostia's own model on its own terms.
-- Added `## Migrating from mitata or hyperfine`: a mapping table (`bench()` →
-  `task()`, `baseline()` → `{ baseline: true }`, `.range()` → `sweep()` +
-  `range()`, generator setup → `{ before, after }`, `do_not_optimize` →
-  `keep()`, `hyperfine -L` → `params`/`sweep()`, `--runs`/`--warmup` →
-  `--samples`/`--warmup`, `--export-json`/`--export-markdown` →
-  `--export-json`/`--format markdown`).
-- Regenerated every real captured sample output in the README by running the
-  examples and CLI again.
-
 ## 0.1.7 — 2026-09-04
 
 **Features**
@@ -195,12 +175,6 @@
 
 - avoid importing a suite file twice per invocation (plan + shared-task passes
   now share one import; isolated tasks still get their own subprocess)
-
-**Documentation**
-
-- preload recipes cookbook for DOM/component suites (jsdom/happy-dom,
-  Bun.plugin component compile)
-- multi-instance scoping pattern for suites
 
 ## 0.1.6 — 2026-09-04
 
@@ -273,10 +247,6 @@
 
 - scope the Relative column to per-group siblings instead of the whole-run
   fastest task
-
-**Documentation**
-
-- `warmupFraction` is documented as a fraction of the time budget
 
 ## 0.1.1 — 2026-09-03
 

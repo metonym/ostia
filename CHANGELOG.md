@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.2.2 — 2026-09-06
+
+**Fixes**
+
+- `defineConfig` / config loading accept partial `thresholds` overrides
+  (`OstiaConfigInput`); resolved `OstiaConfig` still requires every field
+
 ## 0.2.1 — 2026-09-05
 
 **Features**

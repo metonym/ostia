@@ -53,6 +53,13 @@ export interface OstiaConfig {
   bench?: BenchConfig
 }
 
+// `Partial<OstiaConfig>` alone doesn't help here: Partial is shallow, so a
+// user-supplied `thresholds` would still need every Thresholds field even
+// though resolveConfig merges it against DEFAULT_THRESHOLDS field-by-field.
+export type OstiaConfigInput = Omit<Partial<OstiaConfig>, "thresholds"> & {
+  thresholds?: Partial<Thresholds>
+}
+
 // Scratch/artifact output: node_modules is already gitignored everywhere,
 // so consumers get that for free (matches node_modules/.cache/<tool> as
 // used by Babel, ESLint, Jest, etc).
@@ -74,7 +81,7 @@ export const DEFAULT_CONFIG: OstiaConfig = {
   workloads: [],
 }
 
-function resolveConfig(raw: Partial<OstiaConfig>): OstiaConfig {
+function resolveConfig(raw: OstiaConfigInput): OstiaConfig {
   return {
     ...DEFAULT_CONFIG,
     ...raw,
@@ -85,13 +92,13 @@ function resolveConfig(raw: Partial<OstiaConfig>): OstiaConfig {
 async function loadJsonConfig(path: string): Promise<OstiaConfig | undefined> {
   const file = Bun.file(path)
   if (!(await file.exists())) return undefined
-  return resolveConfig((await file.json()) as Partial<OstiaConfig>)
+  return resolveConfig((await file.json()) as OstiaConfigInput)
 }
 
 async function loadTsConfig(path: string): Promise<OstiaConfig | undefined> {
   const absPath = path.startsWith("/") ? path : `${process.cwd()}/${path}`
   if (!(await Bun.file(absPath).exists())) return undefined
-  const mod = (await import(absPath)) as { default?: Partial<OstiaConfig> }
+  const mod = (await import(absPath)) as { default?: OstiaConfigInput }
   return resolveConfig(mod.default ?? {})
 }
 

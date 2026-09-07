@@ -2,7 +2,7 @@ import { runCpuCapture } from "./capture/cpu/index.ts"
 import { runHeapCapture } from "./capture/heap/index.ts"
 import { captureInspectorProfile } from "./capture/inspector/index.ts"
 import { captureJscProfile } from "./capture/jsc/index.ts"
-import { DEFAULT_OUT_DIR, type OstiaConfig } from "./config/index.ts"
+import { DEFAULT_OUT_DIR, type OstiaConfigInput } from "./config/index.ts"
 import {
   configFingerprint,
   makeArtifactRef,
@@ -39,7 +39,11 @@ export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { sweep } from "./bench/sweep.ts"
 export { compareDocuments } from "./compare/index.ts"
-export type { OstiaConfig, WorkloadConfig } from "./config/index.ts"
+export type {
+  OstiaConfig,
+  OstiaConfigInput,
+  WorkloadConfig,
+} from "./config/index.ts"
 export {
   loadDocument,
   newDocument as createDocument,
@@ -67,9 +71,7 @@ export { keep }
  * `OstiaConfig`'s fields, the same way Vite/Vitest/ESLint's `defineConfig`
  * helpers work. `loadConfig` never calls this - it just imports the file's
  * default export, whatever produced it. */
-export function defineConfig(
-  config: Partial<OstiaConfig>,
-): Partial<OstiaConfig> {
+export function defineConfig(config: OstiaConfigInput): OstiaConfigInput {
   return config
 }
 

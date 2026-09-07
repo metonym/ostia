@@ -2,11 +2,7 @@ import { runCpuCapture } from "./capture/cpu/index.ts"
 import { runHeapCapture } from "./capture/heap/index.ts"
 import { captureInspectorProfile } from "./capture/inspector/index.ts"
 import { captureJscProfile } from "./capture/jsc/index.ts"
-import {
-  DEFAULT_OUT_DIR,
-  type OstiaConfig,
-  type OstiaConfigInput,
-} from "./config/index.ts"
+import { DEFAULT_OUT_DIR, type OstiaConfigInput } from "./config/index.ts"
 import {
   configFingerprint,
   makeArtifactRef,

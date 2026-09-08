@@ -1,6 +1,7 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import {
   BaselineNotFoundError,
+  MissingBaselineError,
   renderCiReport,
   runCi,
 } from "../../src/ci/index.ts"
@@ -53,13 +54,11 @@ describe("runCi", () => {
 
     const first = await runCi({ config: cfg, full: false })
     expect(first.summary.total).toBe(1)
-    expect(first.summary.affected).toBe(1)
     expect(first.summary.cached).toBe(0)
     expect(first.summary.executed).toBe(1)
     expect(first.summary.results[0]!.status).toBe("executed")
 
     const second = await runCi({ config: cfg, full: false })
-    expect(second.summary.affected).toBe(0)
     expect(second.summary.cached).toBe(1)
     expect(second.summary.executed).toBe(0)
     expect(second.summary.results[0]!.status).toBe("cached")
@@ -133,10 +132,101 @@ describe("runCi", () => {
 
     const text = renderCiReport(outcome.summary)
     expect(text).toContain("1 workloads")
-    expect(text).toContain("affected by this change")
+    expect(text).toContain("executed")
     expect(text).toMatch(/Profile CI: [✓✗]/)
 
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-report`]).exited
+  }, 20_000)
+})
+
+describe("runCi - exit semantics and noise floor (task 04.4)", () => {
+  const SLEEP_FIXTURE = `${import.meta.dir}/../fixtures/ci-sleep-command.ts`
+
+  test("a candidate that sleeps 3x longer than the saved baseline regresses (maps to exit 1)", async () => {
+    const outDir = `${OUT_DIR}-regress`
+    const cfg = config({
+      outDir,
+      runs: 10,
+      warmup: 2,
+      workloads: [{ label: "sleep", command: ["bun", SLEEP_FIXTURE] }],
+    })
+    const originalSource = await Bun.file(SLEEP_FIXTURE).text()
+    try {
+      await Bun.write(SLEEP_FIXTURE, "await Bun.sleep(10)\n")
+      const baseline = await time({
+        commands: [["bun", SLEEP_FIXTURE]],
+        samples: 10,
+        warmup: 2,
+        noiseCheck: false,
+      })
+      await saveDocument(baseline, baselinePath(cfg))
+
+      await Bun.write(SLEEP_FIXTURE, "await Bun.sleep(30)\n")
+      const outcome = await runCi({ config: cfg, full: false })
+      expect(outcome.summary.regressed).toBeGreaterThan(0)
+      expect(outcome.summary.failed).toBe(0)
+    } finally {
+      await Bun.write(SLEEP_FIXTURE, originalSource)
+      await Bun.spawn(["rm", "-rf", outDir]).exited
+    }
+  }, 30_000)
+
+  test("a baseline file with no matching workload ids throws MissingBaselineError (maps to exit 2)", async () => {
+    const outDir = `${OUT_DIR}-no-match`
+    const cfg = config({ outDir })
+    // A baseline for an unrelated command: same file, zero matching ids.
+    const baseline = await time({
+      commands: [["bun", "-e", "1"]],
+      samples: 3,
+      warmup: 1,
+      noiseCheck: false,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    const err = await runCi({ config: cfg, full: false }).catch((e) => e)
+    expect(err).toBeInstanceOf(MissingBaselineError)
+    expect((err as MissingBaselineError).message).toContain(
+      baselinePath(cfg),
+    )
+    expect((err as MissingBaselineError).message).toContain(
+      "ostia baseline save",
+    )
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 20_000)
+
+  test("the candidate document carries environment.noise by default", async () => {
+    const outDir = `${OUT_DIR}-noise`
+    const cfg = config({ outDir })
+    const baseline = await time({
+      commands: [["bun", FIXTURE]],
+      samples: 3,
+      warmup: 1,
+      noiseCheck: false,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    const outcome = await runCi({ config: cfg, full: false })
+    expect(outcome.document.environment?.noise).toBeDefined()
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 20_000)
+
+  test("noiseCheck: false skips the reference measurement", async () => {
+    const outDir = `${OUT_DIR}-no-noise`
+    const cfg = config({ outDir, noiseCheck: false })
+    const baseline = await time({
+      commands: [["bun", FIXTURE]],
+      samples: 3,
+      warmup: 1,
+      noiseCheck: false,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    const outcome = await runCi({ config: cfg, full: false })
+    expect(outcome.document.environment).toBeUndefined()
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
   }, 20_000)
 })
 

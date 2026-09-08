@@ -622,13 +622,14 @@ ostia ci --full                  # ignore cache
 ostia ci --baseline main
 ostia ci --export-json out.json
 ostia ci --save-baseline         # after a pass, promote today's numbers to the baseline
+ostia ci --on-missing-baseline fail
+ostia ci --no-noise-check
 ```
 
 Pass:
 
 ```
 1 workloads
-1 affected by this change
 0 cached
 1 executed
 1 passed  0 regressed
@@ -640,7 +641,6 @@ Fail:
 
 ```
 1 workloads
-1 affected by this change
 0 cached
 1 executed
 0 passed  1 regressed (+1278.7% median on work)
@@ -648,7 +648,26 @@ Fail:
 Profile CI: ✗
 ```
 
-Exit codes: `0` pass, `1` regression, `2` harness error (missing config/baseline, spawn failure).
+Exit codes: `0` pass, `1` regression, `2` harness error - missing config/baseline, every
+sampled trial of a `command` workload exited non-zero (a harness failure, reported as
+`N failed` and distinct from a timing regression), an `onMissingBaseline: "fail"` mismatch,
+or a spawn failure.
+
+A configured workload with no matching row in the baseline (by workload id) doesn't just
+silently pass: `onMissingBaseline` (config field, or `--on-missing-baseline warn|fail`)
+decides what happens. Left unset, `ci` exits `2` (naming the baseline file and suggesting
+`ostia baseline save`) only when *every* configured workload is missing - a totally
+stale/wrong baseline - and otherwise lists what's missing in the report without affecting
+the exit code, since one new workload next to an otherwise-matching baseline isn't a hard
+error. `"fail"`/`"warn"` explicitly always fail/never fail on any mismatch, regardless of
+how many workloads are missing.
+
+`ci` also measures this machine's noise floor once per invocation (the same ~200ms
+reference measurement `time()`/`bench()` take) and stamps it on both the candidate
+document and `ostia baseline save`'s output, so `compare`'s noise-floor threshold widening
+(see [Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)) applies
+to `ci`-gated regressions too, not only ad hoc `time`/`bench` runs. `noiseCheck: false` in
+config, or `--no-noise-check`, skips it.
 
 #### `ostia.config.ts` / `ostia.config.json`
 
@@ -725,6 +744,10 @@ the workload id, so tuning them doesn't orphan a cached run or a saved baseline.
 Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
 scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're
 independent - `baselineDir` doesn't move just because you override `outDir`.
+
+`onMissingBaseline` (`"warn"` | `"fail"`, default unset - see [`ostia
+ci`](#ostia-ci) above) and `noiseCheck` (default `true`) are top-level config fields, not
+per-workload: `--on-missing-baseline` / `--no-noise-check` override them per invocation.
 
 #### Baselines (local and CI)
 

@@ -10,10 +10,14 @@ export async function saveBaseline(
   config: OstiaConfig,
   name?: string,
 ): Promise<string> {
-  const measured = await measureConfigWorkloads(config, false)
+  const { results: measured, environment } = await measureConfigWorkloads(
+    config,
+    false,
+  )
   const doc = newDocument(
     measured.map((m) => m.workload),
     measured.map((m) => m.run),
+    environment,
   )
   const path = baselinePath(config, name)
   await saveDocument(doc, path)

@@ -257,6 +257,12 @@ headroom, so numbers taken at `--jobs > 1` are noisier and not like-for-like wit
 baseline measured at 1. It defaults to 1 for that reason; opt in for exploratory runs,
 keep 1 for anything you `compare` or `ci` against.
 
+`--gc`/`--cpu`/`--alloc`/`--isolate` each take a `--no-` counterpart
+(`--no-gc`/`--no-cpu`/`--no-alloc`/`--no-isolate`) that resolves to an explicit `false`,
+overriding a `true` from `ostia.config.json`'s `bench` section the same way the plain
+flag overrides a config `false` - each flag is `cli ?? config ?? builtin default`, so
+`ostia bench --no-gc` always wins over a config-wide `{ "gc": true }` for that one run.
+
 `--isolate` gives every task its own child process instead of sharing its suite file's,
 isolating each task's JIT tier state, inline caches and heap shape from every other task
 in the run - the same guarantee suite files already get from each other, at task

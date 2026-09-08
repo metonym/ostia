@@ -87,11 +87,11 @@ export interface BenchCliOverrides {
   samples?: number
   minSamples?: number
   jobs?: number
-  gc: boolean
-  cpu: boolean
-  alloc: boolean
+  gc?: boolean
+  cpu?: boolean
+  alloc?: boolean
   filter?: string
-  isolate: boolean
+  isolate?: boolean
   preload: string[]
   bunFlags?: string[]
   outDir?: string
@@ -128,11 +128,11 @@ export async function resolveBenchOptions(
     samples: cli.samples ?? config?.samples,
     minSamples: cli.minSamples ?? config?.minSamples,
     jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
-    gc: cli.gc || (config?.gc ?? false),
-    cpu: cli.cpu || (config?.cpu ?? false),
-    alloc: cli.alloc || (config?.alloc ?? false),
+    gc: cli.gc ?? config?.gc ?? false,
+    cpu: cli.cpu ?? config?.cpu ?? false,
+    alloc: cli.alloc ?? config?.alloc ?? false,
     filter: cli.filter ?? config?.filter,
-    isolate: cli.isolate || (config?.isolate ?? false),
+    isolate: cli.isolate ?? config?.isolate ?? false,
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
     bunFlags: cli.bunFlags,
     outDir: cli.outDir ?? config?.outDir,

@@ -77,6 +77,43 @@ describe("ostia report --format", () => {
   }, 10_000)
 })
 
+describe("ostia numeric flag validation", () => {
+  test("time --samples abc exits 2 quickly instead of hanging", async () => {
+    const { stderr, exitCode } = await runCli([
+      "time",
+      "--samples",
+      "abc",
+      "--no-noise-check",
+      "bun -e 1",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Invalid --samples "abc"`)
+  }, 5_000)
+
+  test("time --samples 0 is rejected", async () => {
+    const { stderr, exitCode } = await runCli([
+      "time",
+      "--samples",
+      "0",
+      "--no-noise-check",
+      "bun -e 1",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Invalid --samples "0"`)
+  }, 5_000)
+
+  test("bench --jobs x is rejected", async () => {
+    const { stderr, exitCode } = await runCli([
+      "bench",
+      "--jobs",
+      "x",
+      `${import.meta.dir}/../fixtures/bench-suite-skip.ts`,
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Invalid --jobs "x"`)
+  }, 5_000)
+})
+
 describe("ostia bench - task.skip/.only (item 10)", () => {
   const OUT_DIR = `${import.meta.dir}/../../.ostia-test-cli-bench`
 

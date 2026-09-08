@@ -19,6 +19,38 @@ function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
+/** Thrown by an argument parser for a malformed flag; every `xCommand`
+ * catches it, prints the message plus a `--help` pointer, and exits 2. */
+export class CliUsageError extends Error {}
+
+function reportUsageError(err: unknown, command: string): number {
+  if (!(err instanceof CliUsageError)) throw err
+  process.stderr.write(`${err.message}\nRun 'ostia ${command} --help'.\n`)
+  return 2
+}
+
+/** Parses `raw` as an integer flag value, throwing `CliUsageError` with a
+ * uniform message when it isn't one (or is below `opts.min`, default 1).
+ * `opts.allowAuto` additionally accepts the literal "auto", resolved to the
+ * machine's available job count. */
+export function parseIntFlag(
+  name: string,
+  raw: string | undefined,
+  opts: { min?: number; allowAuto?: boolean } = {},
+): number {
+  if (opts.allowAuto && raw === "auto") return availableJobs()
+  const min = opts.min ?? 1
+  const n = Number(raw)
+  if (!Number.isInteger(n) || n < min) {
+    throw new CliUsageError(
+      `Invalid ${name} "${raw}": expected an integer ≥ ${min}${
+        opts.allowAuto ? ` (or "auto")` : ""
+      }`,
+    )
+  }
+  return n
+}
+
 function checkFormat(format: string): format is FormatName {
   if (format in renderers) return true
   process.stderr.write(
@@ -370,16 +402,16 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     const arg = argv[i]!
     switch (arg) {
       case "--samples":
-        args.samples = Number(argv[++i])
+        args.samples = parseIntFlag("--samples", argv[++i], { min: 1 })
         break
       case "--budget":
-        args.budgetMs = Number(argv[++i])
+        args.budgetMs = parseIntFlag("--budget", argv[++i], { min: 1 })
         break
       case "--min-samples":
-        args.minSamples = Number(argv[++i])
+        args.minSamples = parseIntFlag("--min-samples", argv[++i], { min: 1 })
         break
       case "--warmup":
-        args.warmup = Number(argv[++i])
+        args.warmup = parseIntFlag("--warmup", argv[++i], { min: 0 })
         break
       case "--no-interleave":
         args.interleave = false
@@ -400,7 +432,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         args.heap = true
         break
       case "--cpu-interval":
-        args.cpuIntervalUs = Number(argv[++i])
+        args.cpuIntervalUs = parseIntFlag("--cpu-interval", argv[++i], {
+          min: 1,
+        })
         break
       case "--out-dir":
         args.outDir = argv[++i]
@@ -432,7 +466,12 @@ function parseTimeArgs(argv: string[]): TimeArgs {
 const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
 
 async function timeCommand(argv: string[]): Promise<number> {
-  const parsed = parseTimeArgs(argv)
+  let parsed: TimeArgs
+  try {
+    parsed = parseTimeArgs(argv)
+  } catch (err) {
+    return reportUsageError(err, "time")
+  }
   if (parsed.help || parsed.commands.length === 0) {
     process.stdout.write(TIME_HELP)
     return parsed.help ? 0 : 2
@@ -551,19 +590,20 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     }
     switch (arg) {
       case "--budget":
-        args.budgetMs = Number(argv[++i])
+        args.budgetMs = parseIntFlag("--budget", argv[++i], { min: 1 })
         break
       case "--samples":
-        args.samples = Number(argv[++i])
+        args.samples = parseIntFlag("--samples", argv[++i], { min: 1 })
         break
       case "--min-samples":
-        args.minSamples = Number(argv[++i])
+        args.minSamples = parseIntFlag("--min-samples", argv[++i], { min: 1 })
         break
-      case "--jobs": {
-        const raw = argv[++i]
-        args.jobs = raw === "auto" ? availableJobs() : Number(raw)
+      case "--jobs":
+        args.jobs = parseIntFlag("--jobs", argv[++i], {
+          min: 1,
+          allowAuto: true,
+        })
         break
-      }
       case "--gc":
         args.gc = true
         break
@@ -610,7 +650,12 @@ function parseBenchArgs(argv: string[]): BenchArgs {
 }
 
 async function benchCommand(argv: string[]): Promise<number> {
-  const parsed = parseBenchArgs(argv)
+  let parsed: BenchArgs
+  try {
+    parsed = parseBenchArgs(argv)
+  } catch (err) {
+    return reportUsageError(err, "bench")
+  }
   if (parsed.help) {
     process.stdout.write(BENCH_HELP)
     return 0

@@ -134,6 +134,30 @@ export interface TimeOptions {
 const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
+  if (
+    opts.samples !== undefined &&
+    (!Number.isFinite(opts.samples) || opts.samples < 1)
+  ) {
+    throw new RangeError(`time: samples must be >= 1, got ${opts.samples}`)
+  }
+  if (
+    opts.minSamples !== undefined &&
+    (!Number.isFinite(opts.minSamples) || opts.minSamples < 1)
+  ) {
+    throw new RangeError(
+      `time: minSamples must be >= 1, got ${opts.minSamples}`,
+    )
+  }
+  if (
+    opts.warmup !== undefined &&
+    (!Number.isFinite(opts.warmup) || opts.warmup < 0)
+  ) {
+    throw new RangeError(`time: warmup must be >= 0, got ${opts.warmup}`)
+  }
+  if (opts.budgetMs !== undefined && !Number.isFinite(opts.budgetMs)) {
+    throw new RangeError(`time: budgetMs must be finite, got ${opts.budgetMs}`)
+  }
+
   const cfgFp = configFingerprint({
     samples: opts.samples ?? null,
     budgetMs: opts.budgetMs ?? null,

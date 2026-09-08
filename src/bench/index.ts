@@ -153,6 +153,24 @@ interface WorkItem {
 }
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
+  if (
+    opts.samples !== undefined &&
+    (!Number.isFinite(opts.samples) || opts.samples < 1)
+  ) {
+    throw new RangeError(`bench: samples must be >= 1, got ${opts.samples}`)
+  }
+  if (
+    opts.minSamples !== undefined &&
+    (!Number.isFinite(opts.minSamples) || opts.minSamples < 1)
+  ) {
+    throw new RangeError(
+      `bench: minSamples must be >= 1, got ${opts.minSamples}`,
+    )
+  }
+  if (opts.budgetMs !== undefined && !Number.isFinite(opts.budgetMs)) {
+    throw new RangeError(`bench: budgetMs must be finite, got ${opts.budgetMs}`)
+  }
+
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   const tmpDir = `${outDir}/bench-tmp`
   const cwd = opts.cwd ?? process.cwd()

@@ -4,6 +4,27 @@
 
 **Features**
 
+- `ostia ci` gains an `onMissingBaseline` config field / `--on-missing-baseline
+  warn|fail` flag: a configured workload with no matching row in the
+  baseline (by workload id) used to be counted in `missingBaseline` with no
+  effect on the exit code, so a run where *nothing* matched still printed
+  `Profile CI: ✓` and exited `0`. Left unset, `ci` now exits `2` (naming
+  the baseline file, suggesting `ostia baseline save`) when every
+  configured workload is missing; otherwise it's still just listed in the
+  report. `"warn"`/`"fail"` override that default unconditionally.
+- `ostia ci` now measures this machine's noise floor once per invocation
+  (same ~200ms reference measurement as `time()`/`bench()`) and stamps it
+  on the candidate document and `ostia baseline save`'s output, so
+  `compare`'s noise-floor threshold widening applies to `ci`-gated
+  regressions too - previously `ci` was the noisiest place to compare and
+  the one place the widening never applied. `noiseCheck: false` in config,
+  or `--no-noise-check`, opts out.
+- A `command` workload whose every sampled trial exits non-zero (after
+  `ignoreExitCodes`) is now reported by `ostia ci` as a harness failure
+  (`CiSummary.failed`, a new `N failed` report line) distinct from a
+  timing regression, and gates the exit code to `2` - previously a broken
+  command still produced (meaningless) timing numbers that could pass or
+  fail the regression check as if the command had run successfully.
 - `ostia compare` now reads `ostia.config.ts`/`ostia.config.json`'s
   `thresholds` when present (same discovery as `ostia ci`), instead of
   always gating on `DEFAULT_THRESHOLDS` regardless of a project's
@@ -110,6 +131,17 @@
   document (additive fields, no schema bump), and now exits `2` when zero
   workloads matched instead of a misleading `0` pass. New exports from
   `ostia`: `CompareResult`, `Thresholds`, `DEFAULT_THRESHOLDS`, `Comparison`.
+- `CiSummary.affected` is removed (it always equaled `executed`, but
+  rendered as two different report lines); `renderCiReport` prints
+  `executed` once. `measureConfigWorkloads` now returns
+  `{ results, environment }` instead of a bare array; `results[].run` is
+  unchanged but every result also carries `harnessFailed: boolean`.
+  `ostia ci` now exits `2` (in addition to the existing missing-config/
+  missing-baseline-file cases) when every configured workload is missing
+  from the baseline (or, with `onMissingBaseline: "fail"`, when any is),
+  or when a `command` workload's every trial exited non-zero - see
+  Features above for both. `ostia ci --save-baseline` no longer promotes a
+  run with a harness failure to the baseline, even with zero regressions.
 
 **Fixes**
 

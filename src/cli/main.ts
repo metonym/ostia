@@ -1,7 +1,12 @@
 #!/usr/bin/env bun
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
-import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
+import {
+  BaselineNotFoundError,
+  MissingBaselineError,
+  renderCiReport,
+  runCi,
+} from "../ci/index.ts"
 import {
   compareDocuments,
   DEFAULT_THRESHOLDS,
@@ -454,16 +459,23 @@ Load ostia.config.json, run configured workloads (reusing cached results when th
 fingerprint is unchanged), compare against the named baseline, and gate on regressions.
 
 Flags:
-  --full              ignore the cache; rerun every configured workload
-  --baseline NAME     baseline name (default: config's "baseline" field, or "main")
-  --save-baseline     after a pass (no regressions), write the just-measured document as
-                       the new baseline at the same path just compared against - promotes
-                       today's numbers to tomorrow's floor in one step.
-  --export-json PATH  write the resulting document (with comparisons) to PATH
-  --quiet             suppress the rendered report (still writes --export-json)
-  --help              show this message
+  --full                       ignore the cache; rerun every configured workload
+  --baseline NAME              baseline name (default: config's "baseline" field, or "main")
+  --save-baseline              after a pass (no regressions, no harness failures), write the
+                                just-measured document as the new baseline at the same path
+                                just compared against - promotes today's numbers to
+                                tomorrow's floor in one step.
+  --export-json PATH           write the resulting document (with comparisons) to PATH
+  --on-missing-baseline POLICY "warn" or "fail" when a configured workload has no matching
+                                row in the baseline (default: "fail" when every configured
+                                workload is missing, "warn" otherwise)
+  --no-noise-check             skip the ~200ms noise-floor reference measurement (default:
+                                on; same as ostia.config's noiseCheck: false)
+  --quiet                      suppress the rendered report (still writes --export-json)
+  --help                       show this message
 
-Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, spawn failure).
+Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, every trial of
+a workload exited non-zero, an "onMissingBaseline: fail" mismatch, or a spawn failure).
 `
 
 const BASELINE_HELP = `ostia baseline <save|list|show> [args]
@@ -1212,6 +1224,8 @@ interface CiArgs {
   exportJson?: string
   quiet: boolean
   help: boolean
+  onMissingBaseline?: "warn" | "fail"
+  noNoiseCheck: boolean
 }
 
 function parseCiArgs(argv: string[]): CiArgs {
@@ -1220,6 +1234,7 @@ function parseCiArgs(argv: string[]): CiArgs {
     saveBaseline: false,
     quiet: false,
     help: false,
+    noNoiseCheck: false,
   }
 
   for (let i = 0; i < argv.length; i++) {
@@ -1236,6 +1251,19 @@ function parseCiArgs(argv: string[]): CiArgs {
         break
       case "--export-json":
         args.exportJson = argv[++i]
+        break
+      case "--on-missing-baseline": {
+        const raw = argv[++i]
+        if (raw !== "warn" && raw !== "fail") {
+          throw new CliUsageError(
+            `Invalid --on-missing-baseline "${raw}": expected "warn" or "fail".`,
+          )
+        }
+        args.onMissingBaseline = raw
+        break
+      }
+      case "--no-noise-check":
+        args.noNoiseCheck = true
         break
       case "--quiet":
         args.quiet = true
@@ -1267,15 +1295,26 @@ async function ciCommand(argv: string[]): Promise<number> {
   const config = await requireConfig("ostia ci")
   if (!config) return 2
 
+  const effectiveConfig: OstiaConfig = {
+    ...config,
+    ...(parsed.onMissingBaseline !== undefined && {
+      onMissingBaseline: parsed.onMissingBaseline,
+    }),
+    ...(parsed.noNoiseCheck && { noiseCheck: false }),
+  }
+
   let outcome: Awaited<ReturnType<typeof runCi>>
   try {
     outcome = await runCi({
-      config,
+      config: effectiveConfig,
       full: parsed.full,
       baselineName: parsed.baseline,
     })
   } catch (err) {
-    if (err instanceof BaselineNotFoundError) {
+    if (
+      err instanceof BaselineNotFoundError ||
+      err instanceof MissingBaselineError
+    ) {
       process.stderr.write(`${err.message}\n`)
       return 2
     }
@@ -1287,14 +1326,22 @@ async function ciCommand(argv: string[]): Promise<number> {
     await saveDocument(outcome.document, parsed.exportJson)
   }
 
-  if (parsed.saveBaseline && outcome.summary.regressed === 0) {
-    await saveDocument(outcome.document, baselinePath(config, parsed.baseline))
+  if (
+    parsed.saveBaseline &&
+    outcome.summary.regressed === 0 &&
+    outcome.summary.failed === 0
+  ) {
+    await saveDocument(
+      outcome.document,
+      baselinePath(effectiveConfig, parsed.baseline),
+    )
   }
 
   if (!parsed.quiet) {
     process.stdout.write(renderCiReport(outcome.summary))
   }
 
+  if (outcome.summary.failed > 0) return 2
   return outcome.summary.regressed > 0 ? 1 : 0
 }
 

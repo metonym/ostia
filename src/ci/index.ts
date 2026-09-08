@@ -12,10 +12,13 @@ import {
 } from "../ir/document.ts"
 import type {
   Comparison,
+  Environment,
   Measurement,
   ProfileDocument,
+  Trial,
   Workload,
 } from "../ir/types.ts"
+import { captureEnvironment } from "../measure/environment.ts"
 import { runTimingPhase } from "../measure/timing.ts"
 import { workloadLabel } from "../renderers/format.ts"
 import { TOOL_VERSION } from "../version.ts"
@@ -33,10 +36,16 @@ const DEFAULT_CI_TIMEOUT_MS = 600_000
 
 type WorkloadStatus = "cached" | "executed"
 
-export interface MeasuredWorkload {
+interface MeasuredWorkload {
   workload: Workload
   status: WorkloadStatus
   run: Measurement
+  /** `command` workloads only: every sampled trial (after `ignoreExitCodes`)
+   * exited non-zero - not a regression, a harness failure (the command
+   * itself is broken), so `ci` reports and gates on it separately from a
+   * timing verdict. Always `false` for `suites` workloads: there's no
+   * subprocess exit code to check at this granularity. */
+  harnessFailed: boolean
 }
 
 interface CiWorkloadResult extends MeasuredWorkload {
@@ -45,12 +54,14 @@ interface CiWorkloadResult extends MeasuredWorkload {
 
 export interface CiSummary {
   total: number
-  affected: number
   cached: number
   executed: number
   passed: number
   regressed: number
   missingBaseline: number
+  /** Count of `results` with `harnessFailed: true`. Always gates the exit
+   * code to 2, regardless of `regressed`. */
+  failed: number
   results: CiWorkloadResult[]
 }
 
@@ -62,6 +73,59 @@ export class BaselineNotFoundError extends Error {
   }
 }
 
+/** Thrown by `runCi` when `onMissingBaseline` (explicit or the "fail when
+ * every workload is missing" default) decides a mismatch between the
+ * configured workloads and the baseline file's rows is a hard error rather
+ * than something to list and continue past. */
+export class MissingBaselineError extends Error {
+  constructor(
+    public readonly path: string,
+    public readonly missing: number,
+    public readonly total: number,
+  ) {
+    super(
+      `${missing} of ${total} configured workload(s) have no matching row in baseline ${path} (by workload id). Re-seed with: ostia baseline save`,
+    )
+  }
+}
+
+/** Resolves `config.onMissingBaseline` (or a CLI override) to an effective
+ * policy: an explicit `"warn"`/`"fail"` always wins; left unset, `"fail"`
+ * only when *every* configured workload is missing from the baseline (a
+ * stale/wrong baseline file), `"warn"` when just some are (e.g. a workload
+ * added since the baseline was last saved). */
+function effectiveMissingBaselinePolicy(
+  configured: "warn" | "fail" | undefined,
+  missingBaseline: number,
+  total: number,
+): "warn" | "fail" {
+  if (configured) return configured
+  return missingBaseline === total ? "fail" : "warn"
+}
+
+function isHarnessFailure(
+  trials: Trial[],
+  ignoreExitCodes: number[] = [],
+): boolean {
+  const ignoreSet = new Set(ignoreExitCodes)
+  const exitCodes = trials
+    .filter((t) => !t.timedOut && !t.timeSourceNoMatch)
+    .map((t) => t.exitCode)
+    .filter((c): c is number => c !== undefined)
+  return (
+    exitCodes.length > 0 && exitCodes.every((c) => c !== 0 && !ignoreSet.has(c))
+  )
+}
+
+export interface MeasureConfigWorkloadsResult {
+  results: MeasuredWorkload[]
+  /** Machine conditions from one ~200ms reference measurement taken before
+   * any configured workload runs (default true; `config.noiseCheck: false`
+   * skips it) - the same measurement `time()`/`bench()` take, so `compare`'s
+   * noise-floor threshold widening applies to `ci`-produced documents too. */
+  environment?: Environment
+}
+
 /** Runs every configured workload for real (or from cache, for `command`
  * workloads whose fingerprint/inputs are unchanged), with no comparison
  * against any baseline. Shared by `runCi` and `ostia baseline save`, so a
@@ -70,7 +134,9 @@ export class BaselineNotFoundError extends Error {
 export async function measureConfigWorkloads(
   config: OstiaConfig,
   full: boolean,
-): Promise<MeasuredWorkload[]> {
+): Promise<MeasureConfigWorkloadsResult> {
+  const environment =
+    config.noiseCheck === false ? undefined : captureEnvironment()
   const results: MeasuredWorkload[] = []
 
   for (const wc of config.workloads) {
@@ -108,7 +174,12 @@ export async function measureConfigWorkloads(
         // A task.skip()'d task has a workload but no timing measurement:
         // nothing to gate, so it contributes nothing here.
         if (!run) continue
-        results.push({ workload, status: "executed", run })
+        results.push({
+          workload,
+          status: "executed",
+          run,
+          harnessFailed: false,
+        })
       }
       continue
     }
@@ -168,10 +239,15 @@ export async function measureConfigWorkloads(
       status = "executed"
     }
 
-    results.push({ workload, status, run })
+    results.push({
+      workload,
+      status,
+      run,
+      harnessFailed: isHarnessFailure(run.trials, wc.ignoreExitCodes),
+    })
   }
 
-  return results
+  return { results, environment }
 }
 
 export async function runCi(
@@ -185,14 +261,19 @@ export async function runCi(
   }
   const baseline = await loadDocument(path)
 
-  const measured = await measureConfigWorkloads(config, opts.full)
+  const { results: measured, environment } = await measureConfigWorkloads(
+    config,
+    opts.full,
+  )
   const results: CiWorkloadResult[] = measured.map((m) => ({ ...m }))
   const executed = results.filter((r) => r.status === "executed").length
   const cached = results.length - executed
+  const failed = results.filter((r) => r.harnessFailed).length
 
   const candidateDoc = newDocument(
     results.map((r) => r.workload),
     results.map((r) => r.run),
+    environment,
   )
 
   let passed = 0
@@ -215,6 +296,17 @@ export async function runCi(
     else regressed++
   }
 
+  if (missingBaseline > 0) {
+    const policy = effectiveMissingBaselinePolicy(
+      config.onMissingBaseline,
+      missingBaseline,
+      results.length,
+    )
+    if (policy === "fail") {
+      throw new MissingBaselineError(path, missingBaseline, results.length)
+    }
+  }
+
   candidateDoc.comparisons = results
     .map((r) => r.comparison)
     .filter((c): c is Comparison => c !== undefined)
@@ -223,12 +315,12 @@ export async function runCi(
     document: candidateDoc,
     summary: {
       total: results.length,
-      affected: executed,
       cached,
       executed,
       passed,
       regressed,
       missingBaseline,
+      failed,
       results,
     },
   }
@@ -237,13 +329,20 @@ export async function runCi(
 export function renderCiReport(summary: CiSummary): string {
   const lines: string[] = []
   lines.push(`${summary.total} workloads`)
-  lines.push(`${summary.affected} affected by this change`)
   lines.push(`${summary.cached} cached`)
   lines.push(`${summary.executed} executed`)
   if (summary.missingBaseline > 0)
     lines.push(
       `${summary.missingBaseline} skipped (no matching baseline workload)`,
     )
+  if (summary.failed > 0) {
+    const failedLabels = summary.results
+      .filter((r) => r.harnessFailed)
+      .map((r) => workloadLabel(r.workload))
+    lines.push(
+      `${summary.failed} failed (harness error, every trial exited non-zero: ${failedLabels.join(", ")})`,
+    )
+  }
 
   const regressionDetails = summary.results
     .filter((r) => r.comparison?.verdict === "fail")
@@ -259,7 +358,9 @@ export function renderCiReport(summary: CiSummary): string {
     `${summary.passed} passed  ${summary.regressed} regressed${regressionDetails.length > 0 ? ` (${regressionDetails.join(", ")})` : ""}`,
   )
   lines.push("")
-  lines.push(`Profile CI: ${summary.regressed > 0 ? "✗" : "✓"}`)
+  lines.push(
+    `Profile CI: ${summary.regressed > 0 || summary.failed > 0 ? "✗" : "✓"}`,
+  )
 
   return `${lines.join("\n")}\n`
 }

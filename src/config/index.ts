@@ -64,6 +64,21 @@ export interface OstiaConfig {
   thresholds: Thresholds
   workloads: WorkloadConfig[]
   bench?: BenchConfig
+  /** `ostia ci`'s policy when a configured workload has no matching row in
+   * the baseline (by workload id): `"fail"` exits 2 naming the baseline
+   * file, `"warn"` lists it in the report without affecting the exit code.
+   * Unset (the default): `"fail"` when *every* configured workload is
+   * missing, `"warn"` otherwise - a totally stale/wrong baseline is a hard
+   * error, a handful of new workloads next to an otherwise-matching
+   * baseline is not. `--on-missing-baseline` overrides this per invocation. */
+  onMissingBaseline?: "warn" | "fail"
+  /** Measures this machine's noise floor once per `ostia ci` invocation
+   * (default true) and stamps it on the candidate document as
+   * `environment`, the same reference measurement `time()`/`bench()` run -
+   * so `compare`'s noise-floor threshold widening applies to `ci` too, not
+   * only to ad hoc `time`/`bench` runs. `--no-noise-check` overrides this
+   * to false per invocation. */
+  noiseCheck?: boolean
 }
 
 // `Partial<OstiaConfig>` alone doesn't help here: Partial is shallow, so a

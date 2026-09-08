@@ -372,6 +372,35 @@ describe("ostia compare - git metadata line (item 17)", () => {
   }, 20_000)
 })
 
+describe("ostia compare - zero matched workloads (task 04.2)", () => {
+  test("exits 2 and prints an Unmatched section when base and candidate share no workload id", async () => {
+    const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-unmatched-base.json`
+    const candPath = `${import.meta.dir}/../../.ostia-test-cli-compare-unmatched-cand.json`
+    try {
+      const base = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      const cand = await time({
+        commands: [["bun", "-e", "2"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      await saveDocument(base, basePath)
+      await saveDocument(cand, candPath)
+
+      const { stdout, exitCode } = await runCli(["compare", basePath, candPath])
+      expect(exitCode).toBe(2)
+      expect(stdout).toContain("Unmatched:")
+    } finally {
+      await Bun.spawn(["rm", "-f", basePath, candPath]).exited
+    }
+  }, 20_000)
+})
+
 describe("ostia report - garbage document", () => {
   test("an unsupported schemaVersion exits 2 with the OstiaDocumentError message", async () => {
     const path = `${import.meta.dir}/../../.ostia-test-cli-garbage-doc.json`

@@ -625,7 +625,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
       outDir: `${OUT_DIR}-cpu-cmp-cand`,
     })
 
-    const comparisons = compareDocuments(base, cand)
+    const { comparisons } = compareDocuments(base, cand)
     expect(comparisons.length).toBeGreaterThan(0)
     const withFrames = comparisons.filter((c) => c.frames !== undefined)
     expect(withFrames.length).toBeGreaterThan(0)

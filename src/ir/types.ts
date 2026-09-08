@@ -9,6 +9,15 @@ export interface ProfileDocument {
   workloads: Workload[]
   measurements: Measurement[]
   comparisons?: Comparison[]
+  /** Aggregate across `comparisons`, from `compareDocuments`/`ostia compare`/
+   * `ostia ci`. Additive, no schema bump. Absent wherever `comparisons` is. */
+  comparisonSummary?: ComparisonSummary
+  /** Workload ids present on only one side of a `compareDocuments` call -
+   * candidates matched by id gone missing from the baseline, or vice versa.
+   * Additive, no schema bump; absent wherever `comparisons` is. Ids only
+   * (not full `Workload`s) to keep the document small; `ostia compare`'s
+   * printed report resolves labels from the two source documents directly. */
+  unmatched?: { baseOnly: string[]; candOnly: string[] }
   /** Machine conditions when this document was measured. Additive, no
    * schema bump. Absent when `noiseCheck: false` (or `--no-noise-check`)
    * skipped the reference measurement. */
@@ -327,5 +336,24 @@ export interface Comparison {
      * tested against, once machine noise widens it past `timingPct`. */
     effectiveTimingPct: number
   }
+  verdict: "pass" | "fail"
+}
+
+/** Aggregate view over a `compareDocuments` call's `Comparison[]`. */
+export interface ComparisonSummary {
+  /** `comparisons.length`: workloads present (and comparable) on both sides. */
+  matched: number
+  regressed: number
+  improved: number
+  unchanged: number
+  /** Geometric mean of `cand/base` median ratios over matched timing
+   * comparisons, as a signed percent (negative: candidate faster on
+   * average). `null` when no comparison had a finite timing ratio. */
+  geomeanPct: number | null
+  /** Same value as `Comparison.thresholds.effectiveTimingPct` - one number
+   * for the whole document pair, since it depends only on `thresholds` and
+   * the two documents' `environment.noise.floorPct`, never per-workload. */
+  effectiveTimingPct: number
+  /** `"fail"` when any comparison's verdict is `"fail"`. */
   verdict: "pass" | "fail"
 }

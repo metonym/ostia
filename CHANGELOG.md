@@ -84,6 +84,17 @@
   `inprocess`/entry workload ids already worked. Every existing baseline is
   now stale (its rows won't match any candidate's id); re-save with `ostia
   baseline save`. There is no migration command.
+- `compareDocuments(base, cand, thresholds?)` now returns `CompareResult`
+  (`{ comparisons, unmatched, summary }`) instead of a bare `Comparison[]`;
+  callers that destructured the return value as an array need
+  `result.comparisons`. Workload ids matched on only one side, previously
+  dropped silently, are now on `result.unmatched.baseOnly` /
+  `.candOnly` (full `Workload[]`). `ostia compare` persists
+  `result.summary` as `comparisonSummary` and `result.unmatched`'s ids as
+  `unmatched: { baseOnly: string[]; candOnly: string[] }` on the candidate
+  document (additive fields, no schema bump), and now exits `2` when zero
+  workloads matched instead of a misleading `0` pass. New exports from
+  `ostia`: `CompareResult`, `Thresholds`, `DEFAULT_THRESHOLDS`, `Comparison`.
 
 **Fixes**
 

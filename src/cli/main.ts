@@ -2,7 +2,7 @@
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
-import { compareDocuments } from "../compare/index.ts"
+import { compareDocuments, DEFAULT_THRESHOLDS } from "../compare/index.ts"
 import {
   baselinePath,
   configFilePath,
@@ -11,8 +11,8 @@ import {
 } from "../config/index.ts"
 import { type CommandSpec, time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
-import type { ProfileDocument } from "../ir/types.ts"
-import { formatGit } from "../renderers/format.ts"
+import type { ProfileDocument, Workload } from "../ir/types.ts"
+import { formatGit, workloadLabel } from "../renderers/format.ts"
 import {
   type FormatName,
   type RenderResult,
@@ -379,6 +379,9 @@ Flags:
                        "minimal" adds delta: {medianPct, verdict, pass} to each task line
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
+
+Exit codes: 0 pass, 1 at least one workload regressed, 2 nothing was compared (zero
+matched workloads) or a harness error (documents failed to load, or a bad flag).
 
 Examples:
   ostia compare before.json after.json
@@ -967,19 +970,74 @@ async function compareCommand(argv: string[]): Promise<number> {
     return 2
   }
 
-  const comparisons = compareDocuments(base, cand)
-  const outDoc = { ...cand, comparisons }
-
-  if (!parsed.quiet && base.git && cand.git) {
-    process.stdout.write(
-      `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,
-    )
+  const thresholds = DEFAULT_THRESHOLDS
+  const result = compareDocuments(base, cand, thresholds)
+  const outDoc: ProfileDocument = {
+    ...cand,
+    comparisons: result.comparisons,
+    comparisonSummary: result.summary,
+    unmatched: {
+      baseOnly: result.unmatched.baseOnly.map((w) => w.id),
+      candOnly: result.unmatched.candOnly.map((w) => w.id),
+    },
   }
+
+  if (!parsed.quiet) {
+    if (base.git && cand.git) {
+      process.stdout.write(
+        `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,
+      )
+    }
+    if (
+      parsed.format === "table" &&
+      result.summary.effectiveTimingPct > thresholds.timingPct
+    ) {
+      process.stdout.write(
+        `threshold ${thresholds.timingPct}% (widened to ${result.summary.effectiveTimingPct.toFixed(1)}% by noise floor)\n`,
+      )
+    }
+  }
+
   const emitCode = await emitDocument(outDoc, parsed)
   if (emitCode !== 0) return emitCode
 
-  const anyFail = comparisons.some((c) => c.verdict === "fail")
-  return anyFail ? 1 : 0
+  if (
+    !parsed.quiet &&
+    (parsed.format === "table" || parsed.format === "markdown") &&
+    (result.unmatched.baseOnly.length > 0 ||
+      result.unmatched.candOnly.length > 0)
+  ) {
+    process.stdout.write(
+      renderUnmatchedSection(result.unmatched, parsed.format),
+    )
+  }
+
+  if (result.summary.matched === 0) return 2
+  return result.summary.verdict === "fail" ? 1 : 0
+}
+
+function renderUnmatchedSection(
+  unmatched: { baseOnly: Workload[]; candOnly: Workload[] },
+  format: "table" | "markdown",
+): string {
+  const labels = (ws: Workload[]) => ws.map((w) => workloadLabel(w)).join(", ")
+
+  if (format === "markdown") {
+    const lines = ["### Unmatched", ""]
+    if (unmatched.baseOnly.length > 0)
+      lines.push(`- baseline only: ${labels(unmatched.baseOnly)}`)
+    if (unmatched.candOnly.length > 0)
+      lines.push(`- candidate only: ${labels(unmatched.candOnly)}`)
+    lines.push("")
+    return `${lines.join("\n")}\n`
+  }
+
+  const lines = ["", "Unmatched:"]
+  if (unmatched.baseOnly.length > 0)
+    lines.push(`  baseline only: ${labels(unmatched.baseOnly)}`)
+  if (unmatched.candOnly.length > 0)
+    lines.push(`  candidate only: ${labels(unmatched.candOnly)}`)
+  return `${lines.join("\n")}\n`
 }
 
 interface ReportArgs {

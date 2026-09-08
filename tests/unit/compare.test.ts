@@ -194,9 +194,69 @@ describe("compareDocuments - batch matching by workload id", () => {
     const a2 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
     const cand = a2.doc
 
-    const comparisons = compareDocuments(base, cand)
+    const { comparisons } = compareDocuments(base, cand)
     expect(comparisons).toHaveLength(1)
     expect(comparisons[0]!.verdict).toBe("pass")
+  })
+})
+
+describe("compareDocuments - unmatched workloads and summary (task 04.2)", () => {
+  test("reports workloads present on only one side instead of silently dropping them", () => {
+    const a1 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
+    const b1 = timingDoc(["bun", "b.ts"], [5_000_000, 5_100_000, 5_050_000])
+    const base = newDocument(
+      [...a1.doc.workloads, ...b1.doc.workloads],
+      [...a1.doc.measurements, ...b1.doc.measurements],
+    )
+
+    const a2 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
+    const c1 = timingDoc(["bun", "c.ts"], [1_000_000, 1_100_000, 1_050_000])
+    const cand = newDocument(
+      [...a2.doc.workloads, ...c1.doc.workloads],
+      [...a2.doc.measurements, ...c1.doc.measurements],
+    )
+
+    const result = compareDocuments(base, cand)
+    expect(result.comparisons).toHaveLength(1)
+    expect(result.unmatched.baseOnly.map((w) => w.id)).toEqual([b1.workload.id])
+    expect(result.unmatched.candOnly.map((w) => w.id)).toEqual([c1.workload.id])
+    expect(result.summary.matched).toBe(1)
+    expect(result.summary.verdict).toBe("pass")
+  })
+
+  test("summary counts verdicts and computes a geomean over matched timing comparisons", () => {
+    const baseRegress = timingDoc(
+      ["bun", "regress.ts"],
+      [10_000_000, 10_100_000, 10_050_000],
+    )
+    const candRegress = timingDoc(
+      ["bun", "regress.ts"],
+      [12_000_000, 12_100_000, 12_050_000],
+    )
+    const baseSame = timingDoc(
+      ["bun", "same.ts"],
+      [10_000_000, 10_010_000, 9_990_000, 10_005_000, 9_995_000],
+    )
+    const candSame = timingDoc(
+      ["bun", "same.ts"],
+      [10_020_000, 10_030_000, 10_010_000, 10_025_000, 10_015_000],
+    )
+    const base = newDocument(
+      [...baseRegress.doc.workloads, ...baseSame.doc.workloads],
+      [...baseRegress.doc.measurements, ...baseSame.doc.measurements],
+    )
+    const cand = newDocument(
+      [...candRegress.doc.workloads, ...candSame.doc.workloads],
+      [...candRegress.doc.measurements, ...candSame.doc.measurements],
+    )
+
+    const result = compareDocuments(base, cand)
+    expect(result.summary.matched).toBe(2)
+    expect(result.summary.regressed).toBe(1)
+    expect(result.summary.unchanged).toBe(1)
+    expect(result.summary.verdict).toBe("fail")
+    expect(result.summary.geomeanPct).not.toBeNull()
+    expect(result.summary.geomeanPct!).toBeGreaterThan(0)
   })
 })
 

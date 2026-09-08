@@ -1,9 +1,11 @@
 import { fp } from "../ir/fp.ts"
 import type {
   Comparison,
+  ComparisonSummary,
   Measurement,
   ProfileDocument,
   Warning,
+  Workload,
 } from "../ir/types.ts"
 import { bootstrapMedianDiffCi } from "../stats/bootstrap.ts"
 import { mannWhitneyU } from "../stats/mannwhitney.ts"
@@ -50,11 +52,40 @@ function measurementsFor(
   )
 }
 
+export interface CompareResult {
+  comparisons: Comparison[]
+  unmatched: { baseOnly: Workload[]; candOnly: Workload[] }
+  summary: ComparisonSummary
+}
+
+/** Geometric mean of `cand/base` median ratios over `comparisons` with a
+ * timing verdict, as a signed percent (e.g. `-4.2` means candidate ran
+ * ~4.2% faster on average). `null` when no comparison has a finite ratio -
+ * an all-frames-only/all-heap-only document, or every timing delta was
+ * `Infinity` (a zero baseline median). */
+function geomeanTimingPct(comparisons: Comparison[]): number | null {
+  const logRatios: number[] = []
+  for (const c of comparisons) {
+    if (!c.timing) continue
+    const ratio = 1 + c.timing.medianDeltaPct / 100
+    if (Number.isFinite(ratio) && ratio > 0) logRatios.push(Math.log(ratio))
+  }
+  if (logRatios.length === 0) return null
+  const meanLog = logRatios.reduce((a, b) => a + b, 0) / logRatios.length
+  return (Math.exp(meanLog) - 1) * 100
+}
+
+/** Matches `base.workloads` against `cand.workloads` by id, comparing every
+ * match and reporting whatever matched only one side instead of silently
+ * dropping it - a baseline/candidate pair that share zero workloads (a stale
+ * baseline, a totally rewritten config) is visible in `unmatched`, not just
+ * an empty `comparisons` array. */
 export function compareDocuments(
   base: ProfileDocument,
   cand: ProfileDocument,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
-): Comparison[] {
+): CompareResult {
+  const baseWorkloadIds = new Set(base.workloads.map((w) => w.id))
   const candWorkloadIds = new Set(cand.workloads.map((w) => w.id))
   const comparisons: Comparison[] = []
   for (const workload of base.workloads) {
@@ -62,7 +93,39 @@ export function compareDocuments(
     const comparison = compareWorkload(base, cand, workload.id, thresholds)
     if (comparison) comparisons.push(comparison)
   }
-  return comparisons
+
+  const baseOnly = base.workloads.filter((w) => !candWorkloadIds.has(w.id))
+  const candOnly = cand.workloads.filter((w) => !baseWorkloadIds.has(w.id))
+
+  let regressed = 0
+  let improved = 0
+  let unchanged = 0
+  for (const c of comparisons) {
+    if (!c.timing) continue
+    if (c.timing.verdict === "regressed") regressed++
+    else if (c.timing.verdict === "improved") improved++
+    else unchanged++
+  }
+
+  const effectiveTimingPct = Math.max(
+    thresholds.timingPct,
+    base.environment?.noise.floorPct ?? 0,
+    cand.environment?.noise.floorPct ?? 0,
+  )
+
+  return {
+    comparisons,
+    unmatched: { baseOnly, candOnly },
+    summary: {
+      matched: comparisons.length,
+      regressed,
+      improved,
+      unchanged,
+      geomeanPct: geomeanTimingPct(comparisons),
+      effectiveTimingPct,
+      verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
+    },
+  }
 }
 
 export function compareWorkload(

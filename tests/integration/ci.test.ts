@@ -185,9 +185,7 @@ describe("runCi - exit semantics and noise floor (task 04.4)", () => {
 
     const err = await runCi({ config: cfg, full: false }).catch((e) => e)
     expect(err).toBeInstanceOf(MissingBaselineError)
-    expect((err as MissingBaselineError).message).toContain(
-      baselinePath(cfg),
-    )
+    expect((err as MissingBaselineError).message).toContain(baselinePath(cfg))
     expect((err as MissingBaselineError).message).toContain(
       "ostia baseline save",
     )

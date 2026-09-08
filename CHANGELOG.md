@@ -4,6 +4,18 @@
 
 **Features**
 
+- New `environment-mismatch` `WarningCode`: `compare`/`ci` now flag every
+  comparison in a document pair whose `platform.os`, `platform.arch`,
+  `bunVersion`, or (when both sides measured it) `cpuModel`/`cores` differ
+  between base and candidate - a timing delta between two different
+  machines or Bun versions may reflect that, not the code change under
+  test. `table`/`markdown` print it once, in the header, instead of once
+  per workload (it's the same warning on every comparison); `minimal`
+  folds it into each task line's `warnings[]` alongside measurement
+  warnings. `Comparison.warnings` in general (previously computed but
+  never rendered by `table`/`minimal`, only visible in `json`) now shows
+  up in the terminal's comparison footnotes, markdown's per-comparison
+  bullet list, and `minimal`'s `warnings[]`.
 - `ostia ci` gains an `onMissingBaseline` config field / `--on-missing-baseline
   warn|fail` flag: a configured workload with no matching row in the
   baseline (by workload id) used to be counted in `missingBaseline` with no

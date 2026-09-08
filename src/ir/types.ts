@@ -259,6 +259,7 @@ export const WARNING_CODES = [
   "timeout",
   "aborted",
   "time-source-no-match",
+  "environment-mismatch",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

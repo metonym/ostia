@@ -95,7 +95,9 @@ function skippedLine(
   const line: MinimalLine = {
     task: workload.entry?.task ?? workload.label ?? workload.id,
     skipped: true,
-    warnings: [],
+    warnings: (cmp?.warnings ?? []).map((w) =>
+      w.data ? { code: w.code, data: w.data } : { code: w.code },
+    ),
   }
   addWorkloadFields(line, workload)
   const delta = deltaFrom(cmp)
@@ -129,6 +131,7 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
   const measuredLines = rows.map((row) => {
     const { run, workload } = row
     const t = run.timing
+    const comparison = comparisonByRun.get(run.id)
     const line: MinimalLine = {
       task: taskLabel(workload, run),
       unit: "ns",
@@ -142,6 +145,7 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
       warnings: [
         ...run.warnings,
         ...(cpuWarningsByWorkloadId.get(run.workloadId) ?? []),
+        ...(comparison?.warnings ?? []),
       ].map((w) =>
         w.data ? { code: w.code, data: w.data } : { code: w.code },
       ),
@@ -152,7 +156,7 @@ function minimalLines(doc: ProfileDocument): MinimalLine[] {
     addWorkloadFields(line, workload)
     if (refs) line.relative = sig(t.median / (refs.get(row) ?? t.median))
     if (workload?.baseline) line.baseline = true
-    const delta = deltaFrom(comparisonByRun.get(run.id))
+    const delta = deltaFrom(comparison)
     if (delta) line.delta = delta
     return line
   })

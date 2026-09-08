@@ -503,6 +503,15 @@ just a point estimate past the threshold - see
 below. Comparisons with fewer than 5 samples on either side fall back to the
 old point-estimate rule and carry a `thin-comparison` warning instead.
 
+When `base`/`cand` differ in `platform.os`, `platform.arch`, `bunVersion`, or (when both
+carry `environment`) `cpuModel`/`cores`, every comparison in the document carries an
+`environment-mismatch` warning (`data.fields`: `{ field, base, cand }[]`) - a timing delta
+between two different machines or Bun versions may reflect that, not the code change under
+test. `table` and `markdown` print it once, in the header, instead of once per workload;
+`minimal` folds it into each task line's `warnings[]` alongside its measurement warnings,
+so `line.warnings.some(w => w.code === "environment-mismatch")` keeps working the same way
+it does for a measurement warning.
+
 #### Statistics: a real significance test, not a percentage threshold
 
 A point estimate past `timingPct` is not enough to call something a

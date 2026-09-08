@@ -61,6 +61,12 @@ export interface BenchOptions {
    * subprocess (default: true) and stamp it on the document as
    * `environment`. Set false to skip the ~200ms reference measurement. */
   noiseCheck?: boolean
+  /** Kills a suite file's subprocess (or, under `isolate`, one task's
+   * dedicated subprocess) with SIGKILL if it hasn't finished after this many
+   * ms. No default: an unset `timeoutMs` never times out. Applies to the
+   * whole subprocess, not per task - the same granularity `isolate` already
+   * runs at. */
+  timeoutMs?: number
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -96,6 +102,7 @@ export interface BenchCliOverrides {
   bunFlags?: string[]
   outDir?: string
   noiseCheck: boolean
+  timeoutMs?: number
 }
 
 function resolveConfigJobs(
@@ -137,6 +144,7 @@ export async function resolveBenchOptions(
     bunFlags: cli.bunFlags,
     outDir: cli.outDir ?? config?.outDir,
     noiseCheck: cli.noiseCheck,
+    timeoutMs: cli.timeoutMs ?? config?.timeoutMs,
     cwd,
   }
 }
@@ -210,15 +218,36 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       while (failure === undefined && next < argvList.length) {
         const index = next++
         try {
+          let timedOut = false
+          const timeoutSignal =
+            opts.timeoutMs !== undefined
+              ? AbortSignal.timeout(opts.timeoutMs)
+              : undefined
+          timeoutSignal?.addEventListener(
+            "abort",
+            () => {
+              timedOut = true
+            },
+            { once: true },
+          )
           const proc = Bun.spawn(argvList[index]!, {
             cwd,
             stdout: "inherit",
             stderr: "inherit",
             stdin: "ignore",
+            ...(timeoutSignal && {
+              signal: timeoutSignal,
+              killSignal: "SIGKILL" as const,
+            }),
           })
           inFlight.add(proc)
           const exitCode = await proc.exited
           inFlight.delete(proc)
+          if (timedOut) {
+            throw new Error(
+              `Bench suite timed out after ${opts.timeoutMs}ms: ${describe(index)}`,
+            )
+          }
           if (exitCode !== 0) {
             throw new Error(
               `Bench suite failed: ${describe(index)} (runner exited ${exitCode})`,

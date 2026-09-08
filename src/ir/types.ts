@@ -136,6 +136,10 @@ export interface Trial {
   userNs?: number
   systemNs?: number
   maxRssBytes?: number
+  /** Set when the trial was killed by `timeoutMs` before it exited on its
+   * own. `exitCode` is absent in that case: the kill signal, not the
+   * command, decided how the process ended. Contributes no sample. */
+  timedOut?: true
 }
 
 export interface TimingStats {
@@ -230,6 +234,7 @@ export const WARNING_CODES = [
   "noisy-machine",
   "skipped",
   "jit-cold",
+  "timeout",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

@@ -28,7 +28,11 @@ const DEFAULT_WARMUP = 3
 
 export interface TimingPhaseResult {
   trials: Trial[]
-  timing: TimingStats
+  /** Absent when every trial was excluded from sampling (e.g. every trial
+   * timed out): there's nothing to compute stats over, so the measurement
+   * carries no timing stats and a renderer treats it like a skipped
+   * workload instead of showing an empty/zero row. */
+  timing?: TimingStats
   warnings: Warning[]
 }
 
@@ -76,7 +80,7 @@ export function createTimingPhase(
       await runPrepare(
         opts.prepare,
         { phase, index },
-        { cwd: opts.cwd, env: opts.env },
+        { cwd: opts.cwd, env: opts.env, timeoutMs: opts.timeoutMs },
       )
     }
     return runTrial(opts)
@@ -92,13 +96,14 @@ export function createTimingPhase(
       trials.push({
         i,
         wallNs: result.wallNs,
-        exitCode: result.exitCode,
+        exitCode: result.exitCode ?? undefined,
         userNs: result.userNs,
         systemNs: result.systemNs,
         maxRssBytes: result.maxRssBytes,
         ...(result.reportedNs !== undefined && {
           reportedNs: result.reportedNs,
         }),
+        ...(result.timedOut ? { timedOut: true as const } : {}),
       })
       // The budget is about how long the loop is allowed to take, so it
       // always counts wall time, even when the samples are reported times.
@@ -108,14 +113,32 @@ export function createTimingPhase(
     },
     done,
     result(): TimingPhaseResult {
-      const timingSamples = trials.map((t) =>
+      // A timed-out trial contributes no sample: its wall clock is a
+      // timeout, not a measurement of the command.
+      const sampled = trials.filter((t) => !t.timedOut)
+      const timingSamples = sampled.map((t) =>
         reported ? (t.reportedNs ?? t.wallNs) : t.wallNs,
       )
+
+      const warnings: Warning[] = []
+      const timedOutCount = trials.length - sampled.length
+      if (timedOutCount > 0) {
+        warnings.push({
+          code: "timeout",
+          message: `${timedOutCount} of ${trials.length} trial(s) timed out after ${opts.timeoutMs}ms.`,
+          data: { timeoutMs: opts.timeoutMs, trials: timedOutCount },
+        })
+      }
+
+      if (timingSamples.length === 0) return { trials, warnings }
+
       const timing = computeTimingStats(timingSamples)
-      const warnings = timingWarnings(
-        timing,
-        trials.map((t) => t.exitCode),
-        reported ? "reported" : "subprocess",
+      warnings.push(
+        ...timingWarnings(
+          timing,
+          sampled.map((t) => t.exitCode),
+          reported ? "reported" : "subprocess",
+        ),
       )
       return { trials, timing, warnings }
     },

@@ -1,12 +1,17 @@
 export interface TrialResult {
   wallNs: number
-  exitCode: number
+  /** `null` when the trial timed out: the process was killed before it could
+   * exit on its own, so its exit code carries no information. */
+  exitCode: number | null
   userNs?: number
   systemNs?: number
   maxRssBytes?: number
   /** The command's own reported time, parsed from its output with
    * `timeSource`, in ns. Only present when `timeSource` is set. */
   reportedNs?: number
+  /** Set when `timeoutMs` elapsed before the process exited on its own; it
+   * was killed with SIGKILL. A timed-out trial contributes no sample. */
+  timedOut?: true
 }
 
 /** Which trial a `prepare` hook is about to run ahead of. `index` counts
@@ -49,6 +54,11 @@ export interface SpawnTrialOptions {
   cwd?: string
   env?: Record<string, string>
   timeSource?: TimeSource
+  /** Kills the trial's process with SIGKILL if it hasn't exited after this
+   * many ms. The trial resolves (never rejects) with `exitCode: null,
+   * timedOut: true` and contributes no sample. No default: an unset
+   * `timeoutMs` never times out. */
+  timeoutMs?: number
 }
 
 const UNIT_NS: Record<TimeUnit, number> = {
@@ -61,12 +71,31 @@ const UNIT_NS: Record<TimeUnit, number> = {
 export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   const capture = opts.timeSource !== undefined
   const start = Bun.nanoseconds()
+
+  // `AbortSignal.timeout` fires independently of anything the caller passes
+  // in later (e.g. a run-wide cancellation signal); we only listen for it
+  // here to tell "killed because it overran timeoutMs" apart from any other
+  // reason `proc.exited` might resolve.
+  let timedOut = false
+  const signal =
+    opts.timeoutMs !== undefined
+      ? AbortSignal.timeout(opts.timeoutMs)
+      : undefined
+  signal?.addEventListener(
+    "abort",
+    () => {
+      timedOut = true
+    },
+    { once: true },
+  )
+
   const proc = Bun.spawn(opts.argv, {
     cwd: opts.cwd,
     env: opts.env,
     stdout: capture ? "pipe" : "ignore",
     stderr: capture ? "pipe" : "ignore",
     stdin: "ignore",
+    ...(signal && { signal, killSignal: "SIGKILL" as const }),
   })
   // Drain the pipes concurrently with waiting on exit: a command writing more
   // than the pipe buffer would otherwise block on a full pipe and inflate
@@ -83,19 +112,26 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
 
   const result: TrialResult = {
     wallNs: end - start,
-    exitCode,
+    exitCode: timedOut ? null : exitCode,
     userNs: usage ? Number(usage.cpuTime.user) * 1000 : undefined,
     systemNs: usage ? Number(usage.cpuTime.system) * 1000 : undefined,
     maxRssBytes: usage?.maxRSS,
+    ...(timedOut ? { timedOut: true as const } : {}),
   }
-  if (output && opts.timeSource) {
+  if (output) {
     const [stdout, stderr] = await output
-    result.reportedNs = parseReportedTime(
-      opts.timeSource,
-      stdout,
-      stderr,
-      opts.argv,
-    )
+    // A killed process's output is partial at best; there's no reported time
+    // to parse out of it, so skip straight past timeSource entirely (the
+    // pipes are still drained above either way, so a killed process can't
+    // block on a full pipe).
+    if (opts.timeSource && !timedOut) {
+      result.reportedNs = parseReportedTime(
+        opts.timeSource,
+        stdout,
+        stderr,
+        opts.argv,
+      )
+    }
   }
   return result
 }
@@ -144,25 +180,46 @@ function excerpt(stdout: string, stderr: string): string {
 }
 
 /** Runs a `prepare` hook ahead of one trial. Command forms spawn in the
- * command's `cwd`/`env` with output discarded and must exit 0. */
+ * command's `cwd`/`env` with output discarded and must exit 0. `timeoutMs`
+ * (no default: function hooks can't be killed this way and are never timed
+ * out) kills a hung command-form hook with SIGKILL and aborts the run with a
+ * clear message, the same way a non-zero exit already does. */
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
-  opts: { cwd?: string; env?: Record<string, string> },
+  opts: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
 ): Promise<void> {
   if (typeof hook === "function") {
     await hook(run)
     return
   }
   const argv = prepareArgv(hook)!
+  let timedOut = false
+  const signal =
+    opts.timeoutMs !== undefined
+      ? AbortSignal.timeout(opts.timeoutMs)
+      : undefined
+  signal?.addEventListener(
+    "abort",
+    () => {
+      timedOut = true
+    },
+    { once: true },
+  )
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,
     stdout: "ignore",
     stderr: "inherit",
     stdin: "ignore",
+    ...(signal && { signal, killSignal: "SIGKILL" as const }),
   })
   const exitCode = await proc.exited
+  if (timedOut) {
+    throw new Error(
+      `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.`,
+    )
+  }
   if (exitCode !== 0) {
     throw new Error(
       `prepare command "${argv.join(" ")}" exited with code ${exitCode} before ${run.phase} trial ${run.index}.`,

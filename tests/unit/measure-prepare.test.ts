@@ -38,7 +38,7 @@ describe("measure/timing - prepare", () => {
     // own prepare wrote, so hooks landed before their trial - not batched up
     // front or reordered.
     expect(result.trials.map((t) => t.reportedNs)).toEqual([2e6, 3e6, 4e6])
-    expect(result.timing.samples).toEqual([2e6, 3e6, 4e6])
+    expect(result.timing!.samples).toEqual([2e6, 3e6, 4e6])
     for (const t of result.trials) expect(t.wallNs).toBeGreaterThan(0)
     await rm(path)
   }, 20_000)
@@ -144,8 +144,8 @@ describe("spawn - timeSource", () => {
       warmup: 0,
       timeSource: { pattern: /in (\d+)ms/ },
     })
-    expect(result.timing.samples).toEqual([7e6, 7e6, 7e6])
-    expect(result.timing.median).toBe(7e6)
+    expect(result.timing!.samples).toEqual([7e6, 7e6, 7e6])
+    expect(result.timing!.median).toBe(7e6)
     for (const t of result.trials) {
       expect(t.reportedNs).toBe(7e6)
       expect(t.wallNs).toBeGreaterThan(0)

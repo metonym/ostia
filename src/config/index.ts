@@ -20,6 +20,10 @@ export interface WorkloadConfig {
   /** `command` only. Take timing from a number in the command's own output
    * instead of its wall clock; see `TimeSource`. */
   timeSource?: TimeSource
+  /** `command` only. Kills a trial (or prepare hook) that hasn't finished
+   * after this many ms. Overrides `ostia ci`'s 10-minute default per
+   * workload. */
+  timeoutMs?: number
 }
 
 export interface BenchConfig {
@@ -39,6 +43,9 @@ export interface BenchConfig {
   filter?: string
   isolate?: boolean
   outDir?: string
+  /** Kills a suite file's (or isolated task's) subprocess if it hasn't
+   * finished after this many ms. Overrides `ostia ci`'s 10-minute default. */
+  timeoutMs?: number
 }
 
 export interface OstiaConfig {

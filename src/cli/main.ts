@@ -399,9 +399,11 @@ Flags:
   --no-noise-check    skip the ~200ms machine noise floor reference measurement
   --export-json PATH  write the full ProfileDocument to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
-                       "minimal" is one compact JSON object per task with no raw sample
-                       array: {task, group, description, params, samples, mean, median,
-                       stddevPct, relative, warnings[{code,data}]} in ns - built to pipe
+                       "minimal" is protocol v1 (see README's "Using ostia from an AI
+                       agent"): one JSON "run" event per task, {event, protocolVersion,
+                       schemaVersion, workloadId, task, group, description, params,
+                       samples, batch, mean, median, stddevPct, relative,
+                       warnings[{code,data}]} in ns, no raw sample array - built to pipe
                        into an LLM agent's context.
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
@@ -465,7 +467,11 @@ Compare two ProfileDocuments (matched by workload id) and rank timing/frame/heap
 Flags:
   --export-json PATH  write the resulting document (with comparisons) to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
-                       "minimal" adds delta: {medianPct, verdict, pass} to each task line
+                       "minimal" is protocol v1 (see README's "Using ostia from an AI
+                       agent"): a "run" event per task with delta: {medianPct, meanPct,
+                       verdict, pass, ci95?, pValue?, effectiveTimingPct, matched}, an
+                       "unmatched" event per workload absent from one side, and a
+                       trailing "summary" event with the overall verdict and exitCode.
   --timing-pct N       override thresholds.timingPct (percent)
   --alpha N            override thresholds.alpha (Mann-Whitney significance level)
   --no-config          ignore ostia.config.ts/.json; use DEFAULT_THRESHOLDS

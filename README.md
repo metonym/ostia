@@ -13,8 +13,9 @@ regression. `ostia ci` gates a whole `ostia.config.json`/`ostia.config.ts` of
 workloads - subprocess commands and in-process `group()`/`task()` suites alike -
 against a saved baseline, skipping anything whose input fingerprint hasn't changed.
 Any task can run in its own subprocess for clean JIT/heap isolation from its
-suite-mates, and every renderer has a `minimal` JSON-lines mode built for piping
-straight into an LLM agent's context.
+suite-mates, and every command has a `--format minimal` mode - a versioned JSON
+protocol built for piping straight into an LLM agent's context (see
+[Using ostia from an AI agent](#using-ostia-from-an-ai-agent)).
 
 Zero runtime dependencies. Requires Bun ≥ 1.4.
 
@@ -100,6 +101,46 @@ ostia ci              # on your branch: rerun changed workloads, exit 1 on regre
 
 Profile CI: ✓
 ```
+
+## Using ostia from an AI agent
+
+`--format minimal` is a versioned protocol (`protocolVersion: 1`) built for piping
+straight into an LLM agent's context or a script: one JSON object per line, nothing
+else on stdout.
+
+```sh
+ostia time --samples 10 "bun a.ts" --format minimal
+ostia compare before.json after.json --format minimal
+ostia ci --format minimal; echo $?
+```
+
+Every line is a JSON object with `event` and `protocolVersion: 1`:
+
+| `event` | When | Key fields |
+|---|---|---|
+| `run` | Once per timing measurement, for every command | `workloadId` (join key back to `Workload.id`), `task`, `unit`/`samples`/`batch`/`mean`/`median`/`stddev`/`min`/`max`/`p75`/`p99`/`mad`, `relative`, `noiseFloorPct`, `warnings[]`, and (on `compare`/`ci`) `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }` |
+| `unmatched` | Once per workload present on only one side of `compare`/`ci` | `workloadId`, `task`, `side: "base" \| "cand"` |
+| `summary` | Exactly once, last line - `compare`/`ci` only, never for a bare `time`/`bench` | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched` counts, `cached`/`executed`/`failed`/`missingBaseline` (`ci` only), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct`, `baseline: { name, path }` (`ci` only), `git: { base?, cand? }`, `exportedTo`, `verdict`, `exitCode` |
+
+Stability: keys are never renamed or removed within `protocolVersion: 1` - only ever
+added, so an agent that reads a field it knows keeps working as the protocol grows.
+
+Exit codes are the same across every command that produces a verdict: `0` pass, `1`
+at least one workload regressed (`compare`/`ci` only - `time`/`bench` never return
+`1`), `2` a harness error (a command failed to run cleanly, nothing was compared, a
+bad flag, a missing config/baseline). On any exit `2`, stderr's last line is one more
+JSON object - `{ event: "error", protocolVersion: 1, code, message, data? }`, `code`
+one of `invalid-flag` / `config-missing` / `baseline-missing` / `no-matches` /
+`spawn-failed` / `command-failed` / `timeout` / `time-source-no-match` /
+`document-load-failed` / `no-cpu-evidence` / `internal` - so a script doesn't have to
+pattern-match prose to tell one failure from another. This error line (and only this
+line) is on stderr; every `minimal`/`jsonl`/`json` line above is pure JSON on stdout,
+nothing else mixed in.
+
+`--format jsonl` is the same idea for the full document instead of the condensed
+protocol above: one line per `Measurement`, plus a `document` header line, each
+tagged `kind: "document" | "measurement"` so a consumer doesn't have to guess a
+line's shape.
 
 ## What ostia is for
 
@@ -563,17 +604,17 @@ ostia report out.json --format minimal
 ```
 
 Minimal format - one JSON object per timing run, no header, no raw sample array, no prose.
-Built to pipe straight into an LLM agent's context: the full document carries every
-sample (tens of thousands for a fast task), which is tokens a reviewer never reads.
-Numbers stay in ns so they line up with `compare` deltas and the JSON document.
+See [Using ostia from an AI agent](#using-ostia-from-an-ai-agent) above for the full
+protocol (event types, the exit-code contract, the stderr error line). A `run` event:
 
 ```
-{"task":"diffText()/append at end","group":"diffText()","samples":9282,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"p75":50920,"p99":58011,"mad":1780,"relative":1,"warnings":[],"unit":"ns"}
-{"task":"repaint/4000 chars","group":"repaint","description":"full repaint every keystroke","samples":3,"mean":2.61e9,"median":2.4e9,"stddevPct":15.3,"relative":47800,"warnings":[{"code":"low-sample-count","data":{"samples":3,"target":10}}],"unit":"ns"}
+{"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_1a2b3c4d5e6f7890","task":"diffText()/append at end","group":"diffText()","unit":"ns","samples":9282,"batch":1,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"p75":50920,"p99":58011,"mad":1780,"relative":1,"warnings":[]}
 ```
 
-`ostia compare ... --format minimal` adds `delta: { medianPct, meanPct, verdict, pass }` to
-each line, so "did this PR regress" is `lines.some(l => l.delta?.verdict === "regressed")`.
+`ostia compare`/`ostia ci --format minimal` add `delta: { medianPct, meanPct, verdict, pass,
+ci95?, pValue?, effectiveTimingPct, matched }` to each `run` line, so "did this PR regress" is
+`lines.some(l => l.delta?.verdict === "regressed")` - and a trailing `summary` line carries
+the same verdict for the whole run.
 
 Markdown:
 
@@ -1168,8 +1209,8 @@ Pure functions of a `ProfileDocument`. Each returns `{ text? }` and/or `{ files?
 | `table` | terminal timing / CPU / heap / comparison text |
 | `markdown` | agent- and human-readable report |
 | `json` | pretty JSON document |
-| `jsonl` | one metadata line, then one line per run |
-| `minimal` | one compact line per timing run, no sample array; for LLM/CI consumption |
+| `jsonl` | one `kind: "document"` header line, then one `kind: "measurement"` line per run |
+| `minimal` | protocol v1: one `run`/`unmatched`/`summary` event per line, no sample array; for LLM/CI consumption (see [Using ostia from an AI agent](#using-ostia-from-an-ai-agent)) |
 | `collapsed` | folded stacks (`name;name;name count`) |
 | `mermaid` | top-N call tree |
 | `speedscope` | speedscope.app JSON |

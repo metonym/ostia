@@ -443,6 +443,48 @@ describe("ostia compare - pure stdout for machine formats (task 05.1)", () => {
   }, 20_000)
 })
 
+describe("ostia compare --format minimal - protocol v1 summary event (task 05.3)", () => {
+  test("last line is event: summary, with exitCode matching the process exit code", async () => {
+    const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-minimal-base.json`
+    const candPath = `${import.meta.dir}/../../.ostia-test-cli-compare-minimal-cand.json`
+    try {
+      const base = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      const cand = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      await saveDocument(base, basePath)
+      await saveDocument(cand, candPath)
+
+      const { stdout, exitCode } = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "minimal",
+      ])
+      const lines = stdout
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l))
+      const last = lines[lines.length - 1]!
+      expect(last.event).toBe("summary")
+      expect(last.command).toBe("compare")
+      expect(last.exitCode).toBe(exitCode)
+      expect(lines.filter((l) => l.event === "summary")).toHaveLength(1)
+    } finally {
+      await Bun.spawn(["rm", "-f", basePath, candPath]).exited
+    }
+  }, 20_000)
+})
+
 describe("ostia compare - config thresholds (task 04.3)", () => {
   test("a temp ostia.config.json's timingPct makes a small delta fail where DEFAULT_THRESHOLDS passes", async () => {
     const { mkdtemp } = await import("node:fs/promises")

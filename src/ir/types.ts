@@ -182,6 +182,12 @@ export interface TimingStats {
    * all samples. A robust spread measure that (unlike stddev) isn't skewed
    * by the long right tail typical of wall-clock timings. */
   mad?: number
+  /** In-process trials batched into one timed block (see
+   * `measure/inprocess.ts`'s `sizeBatch`), set only when batching occurred.
+   * Absent for every subprocess timing measurement, and for an in-process
+   * one whose single call already cleared the batching threshold - a
+   * renderer treats an absent value the same as `1`. */
+  batch?: number
 }
 
 export interface Frame {

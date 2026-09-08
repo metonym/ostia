@@ -59,7 +59,16 @@ export type {
   Workload,
 } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
-export type { MinimalLine } from "./renderers/minimal/index.ts"
+export type {
+  MinimalDelta,
+  MinimalEvent,
+  MinimalProtocolContext,
+  MinimalRenderOptions,
+  MinimalRunLine,
+  MinimalSummaryLine,
+  MinimalUnmatchedLine,
+} from "./renderers/minimal/index.ts"
+export { MINIMAL_PROTOCOL_VERSION } from "./renderers/minimal/index.ts"
 export type {
   PrepareFn,
   PrepareHook,

@@ -184,6 +184,7 @@ export async function measureTask(
 
   const wallTimes = trials.map((t) => t.wallNs)
   const timing = computeTimingStats(wallTimes)
+  if (batchSize > 1) timing.batch = batchSize
   const warnings = timingWarnings(timing, [], "inprocess")
 
   // The default floor guarantees the rigor target, so this only fires when an

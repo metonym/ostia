@@ -38,7 +38,8 @@ export { range } from "./bench/range.ts"
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
 export { group, task } from "./bench/registry.ts"
 export { sweep } from "./bench/sweep.ts"
-export { compareDocuments } from "./compare/index.ts"
+export type { CompareResult, Thresholds } from "./compare/index.ts"
+export { compareDocuments, DEFAULT_THRESHOLDS } from "./compare/index.ts"
 export type {
   OstiaConfig,
   OstiaConfigInput,
@@ -51,6 +52,7 @@ export {
   saveDocument,
 } from "./ir/document.ts"
 export type {
+  Comparison,
   ProfileDocument,
   Warning,
   WarningCode,

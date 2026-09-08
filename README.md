@@ -459,8 +459,25 @@ ostia compare after.json --baseline .ostia/baselines/main.json
   timing: +11.2% median, 95% CI [+10.0%, +16.4%], p<0.001 (regressed)
 ```
 
-Exit codes: `0` pass, `1` at least one workload regressed, `2` harness error (documents
-failed to load, or a bad flag).
+Exit codes: `0` pass, `1` at least one workload regressed, `2` nothing was compared (zero
+matched workloads - a stale baseline, a totally rewritten config) or a harness error
+(documents failed to load, or a bad flag).
+
+A workload id present on only one document prints in an `Unmatched` section (table and
+markdown formats) instead of silently vanishing:
+
+```
+Unmatched:
+  baseline only: old-task
+  candidate only: new-task
+```
+
+`--format table` also prints a `threshold` header line when the machine's noise floor
+widened the effective threshold past `thresholds.timingPct`:
+
+```
+threshold 5% (widened to 6.2% by noise floor)
+```
 
 When both documents carry `git` metadata (see below), `ostia compare` prints a summary
 line above the verdicts:
@@ -1061,12 +1078,12 @@ const doc = await bench({
 })
 ```
 
-### `compareDocuments(base, cand, thresholds?)` → `Comparison[]`
+### `compareDocuments(base, cand, thresholds?)` → `CompareResult`
 
 Same matching and thresholds as `ostia compare` / `ostia ci`.
 
 ```ts
-const diffs = compareDocuments(baselineDoc, candidateDoc, {
+const result = compareDocuments(baselineDoc, candidateDoc, {
   timingPct: 5,
   frameSelfPct: 10,
   heapTypePct: 10,
@@ -1074,7 +1091,19 @@ const diffs = compareDocuments(baselineDoc, candidateDoc, {
   alpha: 0.01, // Mann-Whitney significance level
   bootstrapIterations: 2000,
 })
+
+result.comparisons     // Comparison[], one per workload id present on both sides
+result.unmatched       // { baseOnly: Workload[]; candOnly: Workload[] } - present on only one side
+result.summary         // { matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }
 ```
+
+`summary.geomeanPct` is the geometric mean of `cand/base` median ratios over matched timing
+comparisons, as a signed percent (negative: candidate faster on average); `null` when no
+comparison had a finite timing ratio. `summary.verdict` is `"fail"` when any comparison
+failed. `ostia compare` persists `result.comparisons` as `comparisons`, `result.summary` as
+`comparisonSummary`, and `result.unmatched`'s workload ids (not full `Workload`s, to keep the
+document small) as `unmatched: { baseOnly: string[]; candOnly: string[] }` on the candidate
+document it writes/renders.
 
 ### `saveDocument` / `loadDocument`
 

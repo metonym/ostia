@@ -348,3 +348,67 @@ describe("compareWorkload - CPU frame deltas", () => {
     expect(cmp!.verdict).toBe("pass")
   })
 })
+
+describe("compareWorkload - environment-mismatch warning (task 04.5)", () => {
+  test("flags platform/bunVersion/cpuModel/cores differences, on every comparison", () => {
+    const base = timingDoc(
+      ["bun", "a.ts"],
+      [10_000_000, 10_100_000, 10_050_000],
+    )
+    const cand = timingDoc(
+      ["bun", "a.ts"],
+      [10_010_000, 10_110_000, 10_060_000],
+    )
+    base.doc.platform = { os: "darwin", arch: "arm64" }
+    cand.doc.platform = { os: "linux", arch: "arm64" }
+    base.doc.bunVersion = "1.4.0"
+    cand.doc.bunVersion = "1.4.2"
+    const noise = { floorPct: 1, referenceMedianNs: 1000, samples: 100 }
+    base.doc.environment = {
+      cpuModel: "Apple M2",
+      cores: 8,
+      loadAvg1: 1,
+      loadAvg5: 1,
+      noise,
+    }
+    cand.doc.environment = {
+      cpuModel: "Apple M3",
+      cores: 10,
+      loadAvg1: 1,
+      loadAvg5: 1,
+      noise,
+    }
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)!
+    const warning = cmp.warnings?.find((w) => w.code === "environment-mismatch")
+    expect(warning).toBeDefined()
+    const fields = (warning!.data!.fields as { field: string }[]).map(
+      (f) => f.field,
+    )
+    expect(fields).toEqual(
+      expect.arrayContaining([
+        "platform.os",
+        "bunVersion",
+        "cpuModel",
+        "cores",
+      ]),
+    )
+    expect(fields).not.toContain("platform.arch")
+  })
+
+  test("no warning when base and candidate share platform/bunVersion/environment", () => {
+    const base = timingDoc(
+      ["bun", "a.ts"],
+      [10_000_000, 10_100_000, 10_050_000],
+    )
+    const cand = timingDoc(
+      ["bun", "a.ts"],
+      [10_010_000, 10_110_000, 10_060_000],
+    )
+
+    const cmp = compareWorkload(base.doc, cand.doc, base.workload.id)!
+    expect(
+      cmp.warnings?.some((w) => w.code === "environment-mismatch"),
+    ).toBeFalsy()
+  })
+})

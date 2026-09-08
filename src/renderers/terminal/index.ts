@@ -2,6 +2,7 @@ import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import {
   formatDuration,
   formatEnvironmentLine,
+  MIN_DISPLAY_DELTA_PCT,
   pickDurationUnit,
   workloadLabel,
 } from "../format.ts"
@@ -207,6 +208,16 @@ function renderComparisons(
   const lines: string[] = []
   const byMeasurement = new Map(doc.measurements.map((m) => [m.id, m]))
 
+  // `environment-mismatch` is identical on every comparison in this
+  // document (it's about the base/cand document pair, not a single
+  // workload) - print it once here instead of once per comparison below.
+  const environmentMismatch = doc.comparisons
+    .flatMap((c) => c.warnings ?? [])
+    .find((w) => w.code === "environment-mismatch")
+  if (environmentMismatch) lines.push(`⚠ ${environmentMismatch.message}`, "")
+
+  const footnotes: { label: string; message: string }[] = []
+
   for (const cmp of doc.comparisons) {
     const run = byMeasurement.get(cmp.candidateMeasurementId)
     // A skipped candidate has no measurement, so `compareWorkload` falls back
@@ -238,7 +249,7 @@ function renderComparisons(
     }
     if (cmp.frames) {
       for (const f of cmp.frames.slice(0, TOP_FRAMES)) {
-        if (Math.abs(f.deltaPct) < 0.5) continue
+        if (Math.abs(f.deltaPct) < MIN_DISPLAY_DELTA_PCT) continue
         const sign = f.deltaPct > 0 ? "+" : ""
         lines.push(
           `  frame ${f.name}: ${sign}${f.deltaPct.toFixed(1)}% self-time (${(f.baseSelfUs / 1000).toFixed(2)}ms -> ${(f.candSelfUs / 1000).toFixed(2)}ms)`,
@@ -247,13 +258,27 @@ function renderComparisons(
     }
     if (cmp.heapTypes) {
       for (const h of cmp.heapTypes.slice(0, TOP_TYPES)) {
-        if (Math.abs(h.deltaPct) < 0.5) continue
+        if (Math.abs(h.deltaPct) < MIN_DISPLAY_DELTA_PCT) continue
         const sign = h.deltaPct > 0 ? "+" : ""
         lines.push(
           `  heap ${h.type}: ${sign}${h.deltaPct.toFixed(1)}% count (${h.baseCount} -> ${h.candCount})`,
         )
       }
     }
+
+    const otherWarnings = (cmp.warnings ?? []).filter(
+      (w) => w.code !== "environment-mismatch",
+    )
+    if (otherWarnings.length > 0) {
+      lines.push(`  ! ${otherWarnings.map((w) => w.code).join(", ")}`)
+      for (const w of otherWarnings)
+        footnotes.push({ label, message: w.message })
+    }
+  }
+
+  if (footnotes.length > 0) {
+    lines.push("", "Comparison warnings:")
+    for (const f of footnotes) lines.push(`  ${f.label}: ${f.message}`)
   }
 
   return lines

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+import { compareWorkload } from "../../src/compare/index.ts"
 import {
   makeEntryWorkload,
   makeInstrumentedMeasurement,
@@ -715,6 +716,52 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     expect(skipped.group).toBe("g")
     expect(skipped.median).toBeUndefined()
     expect(skipped.samples).toBeUndefined()
+  })
+})
+
+describe("table and minimal renderers - Comparison.warnings (task 04.5)", () => {
+  function thinComparisonDoc() {
+    const workload = makeSubprocessWorkload(["bun", "a.ts"], "bun a.ts")
+    const baseSamples = [10_000_000, 10_100_000, 10_050_000]
+    const candSamples = [12_000_000, 12_100_000, 12_050_000]
+    const baseRun = makeTimingMeasurement({
+      workload,
+      configFingerprint: "cfg_fixed",
+      trials: baseSamples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+      timing: computeTimingStats(baseSamples),
+      warnings: [],
+    })
+    const candRun = makeTimingMeasurement({
+      workload,
+      configFingerprint: "cfg_fixed",
+      trials: candSamples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+      timing: computeTimingStats(candSamples),
+      warnings: [],
+    })
+    const base = newDocument([workload], [baseRun])
+    const cand = newDocument([workload], [candRun])
+    const cmp = compareWorkload(base, cand, workload.id)!
+    cand.comparisons = [cmp]
+    return cand
+  }
+
+  test("table renderer surfaces a thin-comparison warning in the comparison footnotes", async () => {
+    const doc = thinComparisonDoc()
+    const text = (await renderers.table.render(doc, {})).text!
+    expect(text).toContain("thin-comparison")
+  })
+
+  test("minimal renderer surfaces a thin-comparison warning in the task line's warnings[]", async () => {
+    const doc = thinComparisonDoc()
+    const lines = (await renderers.minimal.render(doc, {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    expect(
+      lines[0]!.warnings.some(
+        (w: { code: string }) => w.code === "thin-comparison",
+      ),
+    ).toBe(true)
   })
 })
 

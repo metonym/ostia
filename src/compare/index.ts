@@ -52,6 +52,69 @@ function measurementsFor(
   )
 }
 
+interface EnvironmentMismatchField {
+  field: "platform.os" | "platform.arch" | "bunVersion" | "cpuModel" | "cores"
+  base: string | number
+  cand: string | number
+}
+
+/** Same warning for every comparison in a `base`/`cand` pair - the two
+ * documents were measured on machines/Bun versions different enough that a
+ * timing delta might reflect that instead of the code change under test.
+ * Only compares `cpuModel`/`cores` when both sides have `environment` (e.g.
+ * `noiseCheck: false` skipped it): missing data isn't a mismatch, it's just
+ * unknown. */
+function environmentMismatchWarning(
+  base: ProfileDocument,
+  cand: ProfileDocument,
+): Warning | undefined {
+  const fields: EnvironmentMismatchField[] = []
+  if (base.platform.os !== cand.platform.os) {
+    fields.push({
+      field: "platform.os",
+      base: base.platform.os,
+      cand: cand.platform.os,
+    })
+  }
+  if (base.platform.arch !== cand.platform.arch) {
+    fields.push({
+      field: "platform.arch",
+      base: base.platform.arch,
+      cand: cand.platform.arch,
+    })
+  }
+  if (base.bunVersion !== cand.bunVersion) {
+    fields.push({
+      field: "bunVersion",
+      base: base.bunVersion,
+      cand: cand.bunVersion,
+    })
+  }
+  if (base.environment && cand.environment) {
+    if (base.environment.cpuModel !== cand.environment.cpuModel) {
+      fields.push({
+        field: "cpuModel",
+        base: base.environment.cpuModel,
+        cand: cand.environment.cpuModel,
+      })
+    }
+    if (base.environment.cores !== cand.environment.cores) {
+      fields.push({
+        field: "cores",
+        base: base.environment.cores,
+        cand: cand.environment.cores,
+      })
+    }
+  }
+  if (fields.length === 0) return undefined
+
+  return {
+    code: "environment-mismatch",
+    message: `Base and candidate were measured on different environments (${fields.map((f) => f.field).join(", ")}); a timing delta may reflect that instead of the code change.`,
+    data: { fields },
+  }
+}
+
 export interface CompareResult {
   comparisons: Comparison[]
   unmatched: { baseOnly: Workload[]; candOnly: Workload[] }
@@ -153,6 +216,8 @@ export function compareWorkload(
 
   let failed = false
   const warnings: Warning[] = []
+  const environmentMismatch = environmentMismatchWarning(base, cand)
+  if (environmentMismatch) warnings.push(environmentMismatch)
   const effectiveTimingPct = Math.max(
     thresholds.timingPct,
     base.environment?.noise.floorPct ?? 0,

@@ -1,5 +1,11 @@
 import type { Environment, GitMetadata, Workload } from "../ir/types.ts"
 
+/** Below this absolute percent, a comparison's frame/heap-type delta is
+ * noise, not signal - the terminal and markdown renderers both skip it
+ * rather than list dozens of near-zero rows. Shared so the two can't drift
+ * apart on what counts as "worth showing". */
+export const MIN_DISPLAY_DELTA_PCT = 0.5
+
 export type DurationUnit = "ns" | "µs" | "ms" | "s"
 
 const UNIT_DIVISORS: Record<DurationUnit, number> = {

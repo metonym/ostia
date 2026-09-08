@@ -4,6 +4,7 @@ import {
   type TimeSource,
   timeSourceSpec,
 } from "../spawn/index.ts"
+import { TOOL_VERSION } from "../version.ts"
 import { fp, sortKeysDeep } from "./fp.ts"
 import { captureGitMetadata } from "./git.ts"
 import type {
@@ -22,8 +23,6 @@ import type {
   Warning,
   Workload,
 } from "./types.ts"
-
-export const TOOL_VERSION = "0.1.0"
 
 export function newDocument(
   workloads: Workload[],

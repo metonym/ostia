@@ -9,7 +9,6 @@ import {
   makeSubprocessWorkload,
   makeTimingMeasurement,
   newDocument,
-  TOOL_VERSION,
 } from "../ir/document.ts"
 import type {
   Comparison,
@@ -19,6 +18,7 @@ import type {
 } from "../ir/types.ts"
 import { runTimingPhase } from "../measure/timing.ts"
 import { workloadLabel } from "../renderers/format.ts"
+import { TOOL_VERSION } from "../version.ts"
 
 export interface CiOptions {
   config: OstiaConfig

@@ -3,6 +3,7 @@ import {
   loadDocument,
   makeEntryWorkload,
   newDocument,
+  OstiaDocumentError,
 } from "../../src/ir/document.ts"
 import type { ProfileDocument } from "../../src/ir/types.ts"
 
@@ -140,5 +141,49 @@ describe("newDocument - git metadata (item 17)", () => {
     expect(doc.git!.sha.length).toBeGreaterThan(0)
     expect(typeof doc.git!.branch).toBe("string")
     expect(typeof doc.git!.dirty).toBe("boolean")
+  })
+})
+
+describe("loadDocument - OstiaDocumentError for corrupt/unsupported documents", () => {
+  const path = `${import.meta.dir}/../../.ostia-test-corrupt-fixture.json`
+
+  async function withFixture(
+    content: string,
+    fn: () => Promise<void>,
+  ): Promise<void> {
+    await Bun.write(path, content)
+    try {
+      await fn()
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  }
+
+  test("invalid JSON throws OstiaDocumentError with code 'invalid-json'", async () => {
+    await withFixture("not json {", async () => {
+      const err = await loadDocument(path).catch((e) => e)
+      expect(err).toBeInstanceOf(OstiaDocumentError)
+      expect((err as OstiaDocumentError).code).toBe("invalid-json")
+    })
+  })
+
+  test("valid JSON that isn't a document throws OstiaDocumentError with code 'not-a-document'", async () => {
+    await withFixture("{}", async () => {
+      const err = await loadDocument(path).catch((e) => e)
+      expect(err).toBeInstanceOf(OstiaDocumentError)
+      expect((err as OstiaDocumentError).code).toBe("not-a-document")
+    })
+  })
+
+  test("an unsupported schemaVersion throws OstiaDocumentError with code 'unsupported-schema'", async () => {
+    await withFixture(JSON.stringify({ schemaVersion: 3 }), async () => {
+      const err = await loadDocument(path).catch((e) => e)
+      expect(err).toBeInstanceOf(OstiaDocumentError)
+      expect((err as OstiaDocumentError).code).toBe("unsupported-schema")
+      expect((err as OstiaDocumentError).schemaVersion).toBe(3)
+      expect((err as Error).message).toContain(
+        "unsupported ProfileDocument schemaVersion 3",
+      )
+    })
   })
 })

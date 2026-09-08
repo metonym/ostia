@@ -70,7 +70,7 @@ export interface TimeSource {
  * non-numeric, which are configuration errors, not a per-trial miss).
  * `runTrial` catches this one specifically to record a per-trial miss
  * instead of failing the whole run. */
-export class TimeSourceNoMatchError extends Error {}
+class TimeSourceNoMatchError extends Error {}
 
 /** `TimeSource.pattern` is compiled once per workload and `exec`'d once per
  * trial for the life of the run, so a `g`/`y` flag - which advances
@@ -266,13 +266,101 @@ function excerptForNoMatch(stdout: string, stderr: string): string {
   return `${sliced}…`
 }
 
+const OUTPUT_CAP_BYTES = 1024 * 1024
+const ELIDED_MARKER = (n: number) => `\n…(${n} bytes elided)…\n`
+
+/** Reads a stream into a string capped at `capBytes` total: the first half
+ * and the last half, joined by a marker, with the true memory footprint
+ * bounded to roughly `capBytes` regardless of how much the stream actually
+ * produces (the middle is dropped as it arrives, never buffered). Used for
+ * output that's shown on failure for debugging, not measured or parsed - a
+ * `--prepare` hook that misbehaves and dumps gigabytes to stderr shouldn't
+ * be able to blow up the run's memory just to report why it failed.
+ * Contrast `timeSource`'s own capture (`runTrial`), which deliberately
+ * stays unbounded: a build tool's summary line the regex needs to match
+ * could be anywhere in a large output, so truncating it there would trade
+ * a memory bound for silently-wrong matches. */
+export async function readBoundedText(
+  stream: ReadableStream<Uint8Array>,
+  capBytes: number = OUTPUT_CAP_BYTES,
+): Promise<string> {
+  const halfBytes = Math.floor(capBytes / 2)
+  const reader = stream.getReader()
+  const headChunks: Uint8Array[] = []
+  let headBytes = 0
+  const tailChunks: Uint8Array[] = []
+  let tailBytes = 0
+  let totalBytes = 0
+
+  try {
+    for (;;) {
+      const { done, value } = await reader.read()
+      if (done) break
+      if (!value || value.byteLength === 0) continue
+      totalBytes += value.byteLength
+
+      let chunk = value
+      if (headBytes < halfBytes) {
+        const room = halfBytes - headBytes
+        if (chunk.byteLength <= room) {
+          headChunks.push(chunk)
+          headBytes += chunk.byteLength
+          continue
+        }
+        headChunks.push(chunk.subarray(0, room))
+        headBytes += room
+        chunk = chunk.subarray(room)
+      }
+      tailChunks.push(chunk)
+      tailBytes += chunk.byteLength
+      // Trim the tail buffer down to its last `halfBytes` as it grows, so
+      // memory never scales with the stream's total size.
+      while (tailBytes > halfBytes && tailChunks.length > 0) {
+        const first = tailChunks[0]!
+        const excess = tailBytes - halfBytes
+        if (first.byteLength <= excess) {
+          tailChunks.shift()
+          tailBytes -= first.byteLength
+        } else {
+          tailChunks[0] = first.subarray(excess)
+          tailBytes -= excess
+        }
+      }
+    }
+  } finally {
+    reader.releaseLock()
+  }
+
+  const decoder = new TextDecoder()
+  const head = decoder.decode(concatChunks(headChunks))
+  if (totalBytes <= headBytes + tailBytes) return head
+  const tail = decoder.decode(concatChunks(tailChunks))
+  const elidedBytes = totalBytes - headBytes - tailBytes
+  return `${head}${ELIDED_MARKER(elidedBytes)}${tail}`
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((n, c) => n + c.byteLength, 0)
+  const out = new Uint8Array(total)
+  let offset = 0
+  for (const c of chunks) {
+    out.set(c, offset)
+    offset += c.byteLength
+  }
+  return out
+}
+
 /** Runs a `prepare` hook ahead of one trial. Command forms spawn in the
- * command's `cwd`/`env` with output discarded and must exit 0. `timeoutMs`
+ * command's `cwd`/`env` with stdout discarded and must exit 0. `timeoutMs`
  * (no default: function hooks can't be killed this way and are never timed
  * out) kills a hung command-form hook with SIGKILL and aborts the run with a
  * clear message, the same way a non-zero exit already does. `signal` kills a
  * command-form hook the same way, but silently: a caller-driven cancellation
- * isn't a failure, so it never throws (the run is already stopping). */
+ * isn't a failure, so it never throws (the run is already stopping).
+ * stderr is captured (bounded to 1 MiB, `readBoundedText`) rather than
+ * streamed live, so a hook re-run before every trial doesn't flood the
+ * terminal - it's folded into the thrown error instead, on the (timeout or
+ * non-zero exit) trials where the hook actually failed. */
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
@@ -305,22 +393,31 @@ export async function runPrepare(
     cwd: opts.cwd,
     env: opts.env,
     stdout: "ignore",
-    stderr: "inherit",
+    stderr: "pipe",
     stdin: "ignore",
     ...(signal && { signal, killSignal: "SIGKILL" as const }),
   })
+  // Drains concurrently with waiting on exit regardless of whether the
+  // success path below ever awaits it, so a chatty hook can't block on a
+  // full pipe; `.catch` keeps a stream error from becoming an unhandled
+  // rejection when nothing reads this promise.
+  const stderrText = readBoundedText(proc.stderr as ReadableStream).catch(
+    () => "",
+  )
   const exitCode = await proc.exited
   if (timedOut) {
+    const stderr = (await stderrText).trim()
     throw new Error(
-      `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.`,
+      `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
     )
   }
   // Killed by the caller's signal, not a timeout or the command itself: the
   // run is already winding down, so this isn't a new failure to report.
   if (opts.signal?.aborted) return
   if (exitCode !== 0) {
+    const stderr = (await stderrText).trim()
     throw new Error(
-      `prepare command "${argv.join(" ")}" exited with code ${exitCode} before ${run.phase} trial ${run.index}.`,
+      `prepare command "${argv.join(" ")}" exited with code ${exitCode} before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
     )
   }
 }

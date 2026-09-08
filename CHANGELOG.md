@@ -46,6 +46,16 @@
   captured number - `Number()` already parsed it correctly, now covered by
   a test.
 
+- A `--prepare` hook's stderr is now captured (bounded to 1 MiB: head
+  512 KiB + tail 512 KiB, joined by a `bytes elided` marker) instead of
+  streamed live to the terminal, and folded into the thrown error on the
+  trial where the hook times out or exits non-zero - a hook re-run before
+  every trial no longer floods the terminal on success, and a broken one is
+  easier to debug from the error alone. New `readBoundedText` export bounds
+  any stream's memory footprint to roughly the cap regardless of how much
+  it actually produces, for output that's shown on failure rather than
+  measured or parsed.
+
 **Breaking**
 
 - `ostia time` (and the library `time()`, called from the CLI) now exits
@@ -60,6 +70,9 @@
   `timeSource` is used - `time()`, `ostia ci`/`baseline save`'s config
   workloads, `runTimingPhase`) instead of silently producing intermittent,
   `lastIndex`-dependent matches.
+- A `--prepare` hook's stderr no longer streams live to the terminal (see
+  Features above); it's only visible via the thrown error when the hook
+  actually fails.
 
 **Fixes**
 

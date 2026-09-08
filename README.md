@@ -167,6 +167,15 @@ The prepare command is part of the workload id (and lands on the document as
 caches them separately. The library API also takes a function
 (`prepare: ({ phase, index }) => ...`, see [`time(opts)`](#timeopts--profiledocument)).
 
+A hook's stderr is captured rather than streamed live to the terminal (it would otherwise
+flood it, re-running before every one of possibly hundreds of trials) - bounded to 1 MiB
+(head 512 KiB + tail 512 KiB, joined by a `bytes elided` marker if it goes over) and
+folded into the thrown error on the trial where the hook actually times out or exits
+non-zero, so a broken setup script is still easy to debug without an unbounded capture
+risking the run's memory. Contrast `--time-source`'s own output capture (above), which is
+deliberately *not* bounded: the summary line the regex needs could be anywhere in a large
+output, so truncating it there would trade a memory bound for silently-wrong matches.
+
 `--time-source REGEX` takes each trial's time from the command's *own output* instead of
 its wall clock: the first `REGEX` match in stdout (then stderr), capture group 1, in
 `--time-unit` units (`ns` | `us` | `ms` | `s`, default `ms`). Meant for tools that report a

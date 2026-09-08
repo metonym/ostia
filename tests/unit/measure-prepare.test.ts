@@ -70,6 +70,21 @@ describe("measure/timing - prepare", () => {
     )
   }, 20_000)
 
+  test("a failing hook's captured stderr (bounded, not streamed live) is folded into the thrown error", async () => {
+    await expect(
+      runTimingPhase({
+        argv: ["bun", REPORT],
+        samples: 1,
+        warmup: 0,
+        prepare: [
+          "bun",
+          "-e",
+          "console.error('setup went wrong'); process.exit(1)",
+        ],
+      }),
+    ).rejects.toThrow(/exited with code 1.*setup went wrong/s)
+  }, 20_000)
+
   test("prepareArgv: string form is whitespace-split, argv passes through, functions serialize to nothing", () => {
     expect(prepareArgv("rm  -rf dist")).toEqual(["rm", "-rf", "dist"])
     expect(prepareArgv(["rm", "-rf", "my dir"])).toEqual([

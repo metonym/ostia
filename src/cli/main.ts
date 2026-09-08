@@ -200,6 +200,13 @@ Flags:
                        after this many ms. No default: unset never times out. A timed-out
                        trial contributes no sample; if every trial of a command times out,
                        that command has no timing stats.
+  --ignore-failure[=CODE,...]
+                       treat the given exit codes as success (default with no value: every
+                       code). A matching trial still contributes its sample and gets no
+                       nonzero-exit warning, as if it had exited 0. Repeatable.
+  --fail-on-nonzero   stop a command's trial loop after its first non-zero, non-ignored
+                       exit (that trial's sample is still recorded) instead of always
+                       running its full sample count.
   --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
   --no-noise-check    skip the ~200ms machine noise floor reference measurement
   --export-json PATH  write the full ProfileDocument to PATH
@@ -210,6 +217,11 @@ Flags:
 Instrumented runs (--cpu, --heap) are labeled separately from clean timing and never
 mixed into the timing statistics.
 
+Exit codes: 0 pass, 2 harness error (a command had a non-zero, non-ignored exit; a
+timed-out or --time-source-mismatched command had no timing stats at all; or a bad flag).
+130 if cancelled with Ctrl-C. 1 is never returned by "time" - it's reserved for
+"compare"/"ci" regressions.
+
 Examples:
   ostia time "bun ./fixtures/work.ts"
   ostia time --samples 25 --warmup 3 "bun a.ts" "bun b.ts"
@@ -218,7 +230,13 @@ Examples:
   ostia time --time-source "built in (\\d+)ms" "bun build.ts"
   ostia time --cpu --heap "bun src/server.ts"
   ostia time --format json "bun a.ts"
+  ostia time --ignore-failure=3 "bun flaky.ts"
+  ostia time --fail-on-nonzero "bun might-hang-if-broken.ts"
 `
+
+/** `--ignore-failure` given bare (no `=CODE,...`) means "ignore any exit code" -
+ * POSIX exit codes are 0-255, so listing every non-zero one is exact. */
+const IGNORE_ALL_EXIT_CODES = Array.from({ length: 255 }, (_, i) => i + 1)
 
 const BENCH_HELP = `ostia bench [flags] <suite.ts...>
 
@@ -437,6 +455,8 @@ interface TimeArgs {
   heap: boolean
   cpuIntervalUs?: number
   timeoutMs?: number
+  ignoreExitCodes: number[]
+  failOnNonzero: boolean
   outDir?: string
   noiseCheck: boolean
   exportJson?: string
@@ -452,6 +472,8 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     interleave: true,
     cpu: false,
     heap: false,
+    ignoreExitCodes: [],
+    failOnNonzero: false,
     noiseCheck: true,
     format: "table",
     quiet: false,
@@ -460,6 +482,17 @@ function parseTimeArgs(argv: string[]): TimeArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
+    if (arg === "--ignore-failure" || arg.startsWith("--ignore-failure=")) {
+      const value = arg.startsWith("--ignore-failure=")
+        ? arg.slice("--ignore-failure=".length)
+        : undefined
+      args.ignoreExitCodes.push(
+        ...(value === undefined
+          ? IGNORE_ALL_EXIT_CODES
+          : value.split(",").map(Number)),
+      )
+      continue
+    }
     switch (arg) {
       case "--samples":
         args.samples = parseIntFlag("--samples", argv[++i], { min: 1 })
@@ -498,6 +531,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         break
       case "--timeout":
         args.timeoutMs = Number(argv[++i])
+        break
+      case "--fail-on-nonzero":
+        args.failOnNonzero = true
         break
       case "--out-dir":
         args.outDir = argv[++i]
@@ -615,6 +651,8 @@ async function timeCommand(argv: string[]): Promise<number> {
         heap: parsed.heap,
         cpuIntervalUs: parsed.cpuIntervalUs,
         timeoutMs: parsed.timeoutMs,
+        ignoreExitCodes: parsed.ignoreExitCodes,
+        failOnNonzero: parsed.failOnNonzero,
         outDir: parsed.outDir,
         noiseCheck: parsed.noiseCheck,
         signal,
@@ -629,10 +667,22 @@ async function timeCommand(argv: string[]): Promise<number> {
   if (emitCode !== 0) return emitCode
   if (aborted) return 130
 
-  const anyNonZero = doc.measurements.some((r) =>
-    r.trials.some((t) => t.exitCode !== undefined && t.exitCode !== 0),
+  // 2 (harness error), not 1: a command failing is "the harness couldn't
+  // measure this cleanly", not a regression - 1 stays reserved for
+  // compare/ci's verdict. A workload with no timing stats at all (every
+  // trial timed out, or every trial missed --time-source) is the same kind
+  // of harness-level non-result.
+  const ignore = new Set(parsed.ignoreExitCodes)
+  const anyUnmeasured = doc.workloads.some(
+    (w) => !doc.measurements.some((m) => m.workloadId === w.id && m.timing),
   )
-  return anyNonZero ? 1 : 0
+  const anyNonZero = doc.measurements.some((r) =>
+    r.trials.some(
+      (t) =>
+        t.exitCode !== undefined && t.exitCode !== 0 && !ignore.has(t.exitCode),
+    ),
+  )
+  return anyNonZero || anyUnmeasured ? 2 : 0
 }
 
 interface BenchArgs {

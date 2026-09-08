@@ -22,6 +22,22 @@
   instrumentation and runs `fn` plain. `ostia time` / `ostia bench` wire
   `Ctrl-C` to this: a cancelled run still writes `--export-json` of
   whatever finished and exits `130`.
+- `ignoreExitCodes` / `--ignore-failure[=CODE,...]` (hyperfine's flag name;
+  bare, ignores every code) on `time`/`ostia.config` command workloads
+  treats the listed exit codes as success: the trial still contributes its
+  sample, with no `nonzero-exit` warning. `failOnNonzero` /
+  `--fail-on-nonzero` stops a command's trial loop after its first
+  non-ignored non-zero exit (that trial's sample is still recorded)
+  instead of always running the full sample count.
+
+**Breaking**
+
+- `ostia time` (and the library `time()`, called from the CLI) now exits
+  `2` when a command had a non-ignored non-zero exit, or when a workload
+  ended up with no timing stats at all (every trial timed out, or every
+  trial missed `--time-source`), instead of `1`. `1` is reserved for
+  `compare`/`ci` regressions; `time` never returns it now. Scripts that
+  checked `time`'s exit code for "a command failed" should check for `2`.
 
 **Fixes**
 

@@ -20,6 +20,17 @@ export interface TimingPhaseOptions extends SpawnTrialOptions {
   /** Runs before every trial, warmup included, unmeasured. See
    * `PrepareHook`. */
   prepare?: PrepareHook
+  /** Exit codes to treat as success (hyperfine's `--ignore-failure`): a
+   * trial exiting with one of these still contributes its sample and is
+   * excluded from the `nonzero-exit` warning entirely, as if it had exited
+   * 0. */
+  ignoreExitCodes?: number[]
+  /** Stops this command's trial loop after the first trial whose exit code
+   * is non-zero and not in `ignoreExitCodes` - the failing trial's sample is
+   * still recorded (unchanged), just nothing further is measured for it.
+   * Default false: a failing command still runs its full sample count, the
+   * same as any other command. */
+  failOnNonzero?: boolean
 }
 
 const DEFAULT_MIN_SAMPLES = 10
@@ -66,11 +77,16 @@ export function createTimingPhase(
         : DEFAULT_BUDGET_NS
   const reported = opts.timeSource !== undefined
 
+  const ignoreExitCodes = opts.ignoreExitCodes ?? []
+  const ignoreExitCodeSet = new Set(ignoreExitCodes)
+
   const trials: Trial[] = []
   let totalNs = 0
   let i = 0
+  let failedEarly = false
 
   function done(): boolean {
+    if (failedEarly) return true
     if (samples !== undefined) return i >= samples
     return i >= minSamplesFloor && totalNs >= budgetNs
   }
@@ -120,6 +136,14 @@ export function createTimingPhase(
       // always counts wall time, even when the samples are reported times.
       totalNs += result.wallNs
       i++
+      if (
+        opts.failOnNonzero &&
+        result.exitCode !== null &&
+        result.exitCode !== 0 &&
+        !ignoreExitCodeSet.has(result.exitCode)
+      ) {
+        failedEarly = true
+      }
       return true
     },
     done,
@@ -149,6 +173,7 @@ export function createTimingPhase(
           timing,
           sampled.map((t) => t.exitCode),
           reported ? "reported" : "subprocess",
+          ignoreExitCodes,
         ),
       )
       return { trials, timing, warnings }

@@ -201,6 +201,26 @@ an `aborted` warning on the document's last measurement. `Ctrl-C` on the CLI wir
 for you - `ostia time`/`ostia bench` cancel cleanly, still write `--export-json` of
 whatever finished, and exit `130`, instead of the process just dying mid-spawn.
 
+A non-zero exit doesn't stop a command's trial loop by default: every trial still runs,
+each trial's own exit code lands on `Trial.exitCode`, and the measurement carries a
+`nonzero-exit` warning (`data.exitCodes`) same as always. `--ignore-failure[=CODE,...]`
+(hyperfine's flag; given bare, ignores every exit code) treats the listed codes as
+success - the trial still contributes its sample, just with no warning and no effect on
+the exit code below. `--fail-on-nonzero` stops a command's loop after its *first*
+non-ignored non-zero exit instead of always running its full sample count (that trial's
+sample is still recorded):
+
+```sh
+ostia time --ignore-failure=1 "may-exit-1-harmlessly.sh"
+ostia time --fail-on-nonzero "bun build.ts"
+```
+
+Exit codes: `0` pass, `2` harness error (a command had a non-ignored non-zero exit, or a
+workload has no timing stats at all - see `--timeout`/`--time-source` above - or a bad
+flag/missing command), `130` cancelled with `Ctrl-C`. `1` is never returned by `time` or
+`bench` - it's reserved for `compare`/`ci` regressions, so a script can tell "the
+benchmark itself couldn't run cleanly" apart from "it ran, and got slower."
+
 Timing table (two commands get a Relative column automatically):
 
 ```
@@ -245,6 +265,13 @@ decade of cost, 10 from about 3s up. Cheap tasks are time-bound and collect thou
 trials either way; only the few expensive tasks in a suite pay for the extra rigor, and
 those are exactly where a 3-sample mean is shakiest. Fast calls are batched so a trial
 spans at least 1µs and a full budget yields about 10k trials at most.
+
+Exit codes: `0` pass, `2` harness error (a suite file failed to import/run, a suite or
+isolated task's subprocess timed out - see `--timeout` below - or a bad flag), `130`
+cancelled with `Ctrl-C`. Tasks are in-process function calls, not subprocesses, so there's
+no per-task exit code / `--ignore-failure` the way `ostia time` has; a task that throws
+fails its suite's subprocess the same way it always has. `1` is never returned - it's
+reserved for `compare`/`ci` regressions.
 
 | per-trial cost | fits in 500ms | default floor |
 |---|---|---|
@@ -395,6 +422,9 @@ ostia compare after.json --baseline .ostia/baselines/main.json
 ✗ bun fixtures/work.ts
   timing: +11.2% median, 95% CI [+10.0%, +16.4%], p<0.001 (regressed)
 ```
+
+Exit codes: `0` pass, `1` at least one workload regressed, `2` harness error (documents
+failed to load, or a bad flag).
 
 When both documents carry `git` metadata (see below), `ostia compare` prints a summary
 line above the verdicts:
@@ -623,6 +653,12 @@ with `pattern` a regex source string (or a `RegExp` in `.ts`). Both are part of 
 id. A function-form `prepare` can't be fingerprinted, so that workload never comes from
 cache - it always executes, like a workload with no `inputs`.
 
+`timeoutMs`, `ignoreExitCodes`, and `failOnNonzero` are also `command`-only and mean the
+same as `ostia time`'s `--timeout` / `--ignore-failure` / `--fail-on-nonzero`. `ostia ci`
+defaults every workload's `timeoutMs` to 10 minutes when the workload doesn't set one
+(`bench.timeoutMs` does the same for `suites` workloads); none of the three are part of
+the workload id, so tuning them doesn't orphan a cached run or a saved baseline.
+
 Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
 scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're
 independent - `baselineDir` doesn't move just because you override `outDir`.
@@ -723,6 +759,8 @@ const doc = await time({
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
   timeoutMs: 30_000, // kill a hung trial/prepare hook with SIGKILL; no default
   signal: controller.signal, // abort to cancel: kills in-flight children, keeps partial results
+  ignoreExitCodes: [1], // treat exit code 1 as success; still samples, no nonzero-exit warning
+  failOnNonzero: false, // default; true stops a command's loop after its first bad exit
 })
 ```
 

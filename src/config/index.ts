@@ -24,6 +24,12 @@ export interface WorkloadConfig {
    * after this many ms. Overrides `ostia ci`'s 10-minute default per
    * workload. */
   timeoutMs?: number
+  /** `command` only. Exit codes to treat as success; see
+   * `TimeOptions.ignoreExitCodes`. */
+  ignoreExitCodes?: number[]
+  /** `command` only. Stops this workload's trial loop after its first
+   * non-zero, non-ignored exit; see `TimeOptions.failOnNonzero`. */
+  failOnNonzero?: boolean
 }
 
 export interface BenchConfig {

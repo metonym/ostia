@@ -91,6 +91,20 @@
 - `--format jsonl` lines now carry a `kind: "document" | "measurement"`
   discriminant, so a consumer no longer has to guess a line's shape from
   whether it happens to have a `measurements` key.
+- `ostia ci --format table|json|jsonl|markdown|minimal` (default `table`,
+  unchanged): `ci` previously had bespoke text-only output with no
+  machine-readable path at all. `json`/`jsonl` write the full candidate
+  document (now carrying `comparisonSummary` and `unmatched`, same as
+  `compare`); `minimal` emits the protocol v1 `run`/`unmatched`/`summary`
+  events, with `ci`-only summary fields (`cached`, `executed`, `failed`,
+  `missingBaseline`, `baseline: { name, path }`); `markdown` renders the
+  same report as `compare --format markdown` plus a short CI header;
+  `table` keeps the existing text report, now followed by the comparison
+  table. `--quiet` suppresses stdout entirely, for every format.
+  `CiSummary` gains an `unmatched: { baseOnly, candOnly }` field
+  (`Workload[]`, not just the `missingBaseline` count) and `runCi`'s
+  return value gains `baseline` (the loaded baseline document), both used
+  to build the `minimal` summary event.
 
 **Fixes**
 

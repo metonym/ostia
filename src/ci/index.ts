@@ -1,7 +1,7 @@
 import { bench, expandSuiteGlobs } from "../bench/index.ts"
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts"
 import { readCachedRun, writeCachedRun } from "../cache/store.ts"
-import { compareWorkload } from "../compare/index.ts"
+import { compareWorkload, geomeanTimingPct } from "../compare/index.ts"
 import { baselinePath, type OstiaConfig } from "../config/index.ts"
 import {
   configFingerprint,
@@ -63,6 +63,12 @@ export interface CiSummary {
    * code to 2, regardless of `regressed`. */
   failed: number
   results: CiWorkloadResult[]
+  /** Workload present on only one side of the baseline/candidate pair - a
+   * baseline row with no configured workload behind it anymore, or a
+   * configured workload with no matching baseline row (the same condition
+   * `missingBaseline` counts, exposed here as full `Workload`s instead of a
+   * count so a renderer can name them). */
+  unmatched: { baseOnly: Workload[]; candOnly: Workload[] }
 }
 
 export class BaselineNotFoundError extends Error {
@@ -250,9 +256,14 @@ export async function measureConfigWorkloads(
   return { results, environment }
 }
 
-export async function runCi(
-  opts: CiOptions,
-): Promise<{ document: ProfileDocument; summary: CiSummary }> {
+export async function runCi(opts: CiOptions): Promise<{
+  document: ProfileDocument
+  summary: CiSummary
+  /** The baseline document `document` was compared against - exposed so a
+   * caller can report its `git` alongside the candidate's without a second
+   * `loadDocument` of the same path. */
+  baseline: ProfileDocument
+}> {
   const { config } = opts
   const path = baselinePath(config, opts.baselineName)
   const baselineFile = Bun.file(path)
@@ -307,9 +318,47 @@ export async function runCi(
     }
   }
 
-  candidateDoc.comparisons = results
+  const comparisons = results
     .map((r) => r.comparison)
     .filter((c): c is Comparison => c !== undefined)
+  candidateDoc.comparisons = comparisons
+
+  const baselineWorkloadIds = new Set(baseline.workloads.map((w) => w.id))
+  const candidateWorkloadIds = new Set(candidateDoc.workloads.map((w) => w.id))
+  const unmatched = {
+    baseOnly: baseline.workloads.filter((w) => !candidateWorkloadIds.has(w.id)),
+    candOnly: candidateDoc.workloads.filter(
+      (w) => !baselineWorkloadIds.has(w.id),
+    ),
+  }
+  candidateDoc.unmatched = {
+    baseOnly: unmatched.baseOnly.map((w) => w.id),
+    candOnly: unmatched.candOnly.map((w) => w.id),
+  }
+
+  let regressedTiming = 0
+  let improvedTiming = 0
+  let unchangedTiming = 0
+  for (const c of comparisons) {
+    if (!c.timing) continue
+    if (c.timing.verdict === "regressed") regressedTiming++
+    else if (c.timing.verdict === "improved") improvedTiming++
+    else unchangedTiming++
+  }
+  const effectiveTimingPct = Math.max(
+    config.thresholds.timingPct,
+    baseline.environment?.noise.floorPct ?? 0,
+    environment?.noise.floorPct ?? 0,
+  )
+  candidateDoc.comparisonSummary = {
+    matched: comparisons.length,
+    regressed: regressedTiming,
+    improved: improvedTiming,
+    unchanged: unchangedTiming,
+    geomeanPct: geomeanTimingPct(comparisons),
+    effectiveTimingPct,
+    verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
+  }
 
   return {
     document: candidateDoc,
@@ -322,7 +371,9 @@ export async function runCi(
       missingBaseline,
       failed,
       results,
+      unmatched,
     },
+    baseline,
   }
 }
 

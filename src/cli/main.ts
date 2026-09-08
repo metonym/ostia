@@ -473,12 +473,13 @@ Flags:
                                 just compared against - promotes today's numbers to
                                 tomorrow's floor in one step.
   --export-json PATH           write the resulting document (with comparisons) to PATH
+  --format FORMAT               table | json | jsonl | markdown | minimal (default: table)
   --on-missing-baseline POLICY "warn" or "fail" when a configured workload has no matching
                                 row in the baseline (default: "fail" when every configured
                                 workload is missing, "warn" otherwise)
   --no-noise-check             skip the ~200ms noise-floor reference measurement (default:
                                 on; same as ostia.config's noiseCheck: false)
-  --quiet                      suppress the rendered report (still writes --export-json)
+  --quiet                      suppress the rendered report entirely (still writes --export-json)
   --help                       show this message
 
 Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, every trial of
@@ -1249,6 +1250,7 @@ interface CiArgs {
   baseline?: string
   saveBaseline: boolean
   exportJson?: string
+  format: FormatName
   quiet: boolean
   help: boolean
   onMissingBaseline?: "warn" | "fail"
@@ -1259,6 +1261,7 @@ function parseCiArgs(argv: string[]): CiArgs {
   const args: CiArgs = {
     full: false,
     saveBaseline: false,
+    format: "table",
     quiet: false,
     help: false,
     noNoiseCheck: false,
@@ -1278,6 +1281,9 @@ function parseCiArgs(argv: string[]): CiArgs {
         break
       case "--export-json":
         args.exportJson = argv[++i]
+        break
+      case "--format":
+        args.format = argv[++i] as FormatName
         break
       case "--on-missing-baseline": {
         const raw = argv[++i]
@@ -1318,6 +1324,8 @@ async function ciCommand(argv: string[]): Promise<number> {
     process.stdout.write(CI_HELP)
     return 0
   }
+
+  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
 
   const config = await requireConfig("ostia ci")
   if (!config) return 2
@@ -1364,12 +1372,55 @@ async function ciCommand(argv: string[]): Promise<number> {
     )
   }
 
+  // Decided before rendering, same as `compare`: `minimal`'s trailing
+  // `summary` event needs the real exit code inline.
+  const exitCode =
+    outcome.summary.failed > 0 ? 2 : outcome.summary.regressed > 0 ? 1 : 0
+
   if (!parsed.quiet) {
-    process.stdout.write(renderCiReport(outcome.summary))
+    const resolvedBaselineName = parsed.baseline ?? effectiveConfig.baseline
+    if (parsed.format === "table") {
+      process.stdout.write(renderCiReport(outcome.summary))
+      if (
+        outcome.document.comparisons &&
+        outcome.document.comparisons.length > 0
+      ) {
+        await writeRenderResult(
+          await renderers.table.render(outcome.document, {}),
+        )
+      }
+    } else if (parsed.format === "markdown") {
+      process.stdout.write(
+        `## ostia ci\n\nBaseline: \`${resolvedBaselineName}\` (\`${baselinePath(effectiveConfig, parsed.baseline)}\`) · ${outcome.summary.cached} cached, ${outcome.summary.executed} executed\n\n`,
+      )
+      await writeRenderResult(
+        await renderers.markdown.render(outcome.document, {}),
+      )
+    } else {
+      await writeRenderResult(
+        await renderers[parsed.format].render(outcome.document, {
+          protocol: {
+            command: "ci",
+            exitCode,
+            unmatched: outcome.summary.unmatched,
+            baseGit: outcome.baseline.git,
+            candGit: outcome.document.git,
+            baseline: {
+              name: resolvedBaselineName,
+              path: baselinePath(effectiveConfig, parsed.baseline),
+            },
+            cached: outcome.summary.cached,
+            executed: outcome.summary.executed,
+            failed: outcome.summary.failed,
+            missingBaseline: outcome.summary.missingBaseline,
+            ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
+          } satisfies MinimalProtocolContext,
+        }),
+      )
+    }
   }
 
-  if (outcome.summary.failed > 0) return 2
-  return outcome.summary.regressed > 0 ? 1 : 0
+  return exitCode
 }
 
 const BASELINE_NAME_RE = /^[A-Za-z0-9._-]+$/

@@ -126,7 +126,7 @@ export interface CompareResult {
  * ~4.2% faster on average). `null` when no comparison has a finite ratio -
  * an all-frames-only/all-heap-only document, or every timing delta was
  * `Infinity` (a zero baseline median). */
-function geomeanTimingPct(comparisons: Comparison[]): number | null {
+export function geomeanTimingPct(comparisons: Comparison[]): number | null {
   const logRatios: number[] = []
   for (const c of comparisons) {
     if (!c.timing) continue

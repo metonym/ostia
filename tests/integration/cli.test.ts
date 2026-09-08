@@ -345,6 +345,80 @@ describe("ostia baseline save | list | show (item 16)", () => {
   }, 30_000)
 })
 
+describe("ostia ci --format (task 05.2)", () => {
+  async function setupConfig(): Promise<string> {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(join(tmpdir(), "ostia-cli-ci-format-"))
+    await Bun.write(
+      join(cwd, "ostia.config.json"),
+      JSON.stringify({
+        baseline: "main",
+        runs: 3,
+        warmup: 0,
+        workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
+      }),
+    )
+    const save = await runCli(["baseline", "save"], { cwd })
+    expect(save.exitCode).toBe(0)
+    return cwd
+  }
+
+  test("--format minimal: last line is event: summary, with exitCode equal to the process exit code", async () => {
+    const cwd = await setupConfig()
+    try {
+      const { stdout, exitCode } = await runCli(["ci", "--format", "minimal"], {
+        cwd,
+      })
+      const lines = stdout
+        .trim()
+        .split("\n")
+        .map((l) => JSON.parse(l))
+      const last = lines[lines.length - 1]!
+      expect(last.event).toBe("summary")
+      expect(last.command).toBe("ci")
+      expect(last.exitCode).toBe(exitCode)
+      expect(last.baseline.name).toBe("main")
+      expect(last.baseline.path).toContain(".ostia/baselines/main.json")
+      expect(lines.filter((l) => l.event === "summary")).toHaveLength(1)
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 30_000)
+
+  test("--format jsonl and --format json write only parseable JSON to stdout", async () => {
+    const cwd = await setupConfig()
+    try {
+      const jsonl = await runCli(["ci", "--format", "jsonl"], { cwd })
+      for (const line of jsonl.stdout.trim().split("\n").filter(Boolean)) {
+        expect(() => JSON.parse(line)).not.toThrow()
+      }
+
+      const json = await runCli(["ci", "--format", "json"], { cwd })
+      expect(() => JSON.parse(json.stdout)).not.toThrow()
+      const doc = JSON.parse(json.stdout)
+      expect(doc.comparisonSummary).toBeDefined()
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 30_000)
+
+  test("--quiet suppresses stdout entirely, regardless of format", async () => {
+    const cwd = await setupConfig()
+    try {
+      const { stdout, exitCode } = await runCli(
+        ["ci", "--format", "minimal", "--quiet"],
+        { cwd },
+      )
+      expect(stdout).toBe("")
+      expect(exitCode).toBe(0)
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 30_000)
+})
+
 describe("ostia compare - git metadata line (item 17)", () => {
   test("prints base sha (branch) -> cand sha (branch) above the verdicts when both documents carry git", async () => {
     const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-base.json`

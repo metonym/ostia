@@ -3,6 +3,9 @@
   "version": "0.2.2",
   "description": "Fast profiling and benchmarking for Bun.",
   "type": "module",
+  "engines": {
+    "bun": ">=1.4.0"
+  },
   "exports": {
     ".": "./src/index.ts"
   },

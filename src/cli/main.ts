@@ -2,7 +2,11 @@
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
-import { compareDocuments, DEFAULT_THRESHOLDS } from "../compare/index.ts"
+import {
+  compareDocuments,
+  DEFAULT_THRESHOLDS,
+  type Thresholds,
+} from "../compare/index.ts"
 import {
   baselinePath,
   configFilePath,
@@ -51,6 +55,26 @@ export function parseIntFlag(
       `Invalid ${name} "${raw}": expected an integer ≥ ${min}${
         opts.allowAuto ? ` (or "auto")` : ""
       }`,
+    )
+  }
+  return n
+}
+
+/** Parses `raw` as a finite float flag value (`--timing-pct`, `--alpha`),
+ * throwing `CliUsageError` with a uniform message when it isn't one (or is
+ * below `opts.min`, default 0). Unlike `parseIntFlag`, fractional values are
+ * valid - a threshold percent or a significance level is rarely a whole
+ * number. */
+function parseFloatFlag(
+  name: string,
+  raw: string | undefined,
+  opts: { min?: number } = {},
+): number {
+  const min = opts.min ?? 0
+  const n = Number(raw)
+  if (!Number.isFinite(n) || n < min) {
+    throw new CliUsageError(
+      `Invalid ${name} "${raw}": expected a number ≥ ${min}`,
     )
   }
   return n
@@ -377,8 +401,14 @@ Flags:
   --export-json PATH  write the resulting document (with comparisons) to PATH
   --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
                        "minimal" adds delta: {medianPct, verdict, pass} to each task line
+  --timing-pct N       override thresholds.timingPct (percent)
+  --alpha N            override thresholds.alpha (Mann-Whitney significance level)
+  --no-config          ignore ostia.config.ts/.json; use DEFAULT_THRESHOLDS
   --quiet             suppress the rendered report (still writes --export-json)
   --help              show this message
+
+Reads ostia.config.ts/.json's "thresholds" when present (same discovery as "ostia ci"),
+else DEFAULT_THRESHOLDS; --timing-pct/--alpha override individual fields on top.
 
 Exit codes: 0 pass, 1 at least one workload regressed, 2 nothing was compared (zero
 matched workloads) or a harness error (documents failed to load, or a bad flag).
@@ -890,6 +920,9 @@ interface CompareArgs {
   format: FormatName
   quiet: boolean
   help: boolean
+  timingPct?: number
+  alpha?: number
+  noConfig: boolean
 }
 
 function parseCompareArgs(argv: string[]): CompareArgs {
@@ -898,6 +931,7 @@ function parseCompareArgs(argv: string[]): CompareArgs {
     format: "table",
     quiet: false,
     help: false,
+    noConfig: false,
   }
 
   for (let i = 0; i < argv.length; i++) {
@@ -911,6 +945,15 @@ function parseCompareArgs(argv: string[]): CompareArgs {
         break
       case "--format":
         args.format = argv[++i] as FormatName
+        break
+      case "--timing-pct":
+        args.timingPct = parseFloatFlag("--timing-pct", argv[++i])
+        break
+      case "--alpha":
+        args.alpha = parseFloatFlag("--alpha", argv[++i])
+        break
+      case "--no-config":
+        args.noConfig = true
         break
       case "--quiet":
         args.quiet = true
@@ -928,6 +971,35 @@ function parseCompareArgs(argv: string[]): CompareArgs {
   }
 
   return args
+}
+
+/** Resolves the `Thresholds` `ostia compare` gates on: `ostia.config.*`'s
+ * `thresholds` when present (same discovery as `ostia ci`) and not
+ * `--no-config`, else `DEFAULT_THRESHOLDS` - then `--timing-pct`/`--alpha`
+ * override individual fields on top of whichever base was picked. Returns
+ * the source label a header line reports (`"ostia.config.ts"` /
+ * `"ostia.config.json"` / `"defaults"`), separate from any per-flag
+ * override, since a flag tweaks one field rather than switching sources. */
+async function resolveCompareThresholds(
+  parsed: CompareArgs,
+): Promise<{ thresholds: Thresholds; source: string }> {
+  let thresholds: Thresholds = DEFAULT_THRESHOLDS
+  let source = "defaults"
+  if (!parsed.noConfig) {
+    const config = await loadConfig()
+    if (config) {
+      thresholds = config.thresholds
+      source = (await configFilePath()) ?? "ostia.config.json"
+    }
+  }
+  if (parsed.timingPct !== undefined || parsed.alpha !== undefined) {
+    thresholds = {
+      ...thresholds,
+      ...(parsed.timingPct !== undefined && { timingPct: parsed.timingPct }),
+      ...(parsed.alpha !== undefined && { alpha: parsed.alpha }),
+    }
+  }
+  return { thresholds, source }
 }
 
 async function compareCommand(argv: string[]): Promise<number> {
@@ -970,7 +1042,7 @@ async function compareCommand(argv: string[]): Promise<number> {
     return 2
   }
 
-  const thresholds = DEFAULT_THRESHOLDS
+  const { thresholds, source } = await resolveCompareThresholds(parsed)
   const result = compareDocuments(base, cand, thresholds)
   const outDoc: ProfileDocument = {
     ...cand,
@@ -983,6 +1055,7 @@ async function compareCommand(argv: string[]): Promise<number> {
   }
 
   if (!parsed.quiet) {
+    process.stdout.write(`thresholds: ${source}\n`)
     if (base.git && cand.git) {
       process.stdout.write(
         `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,

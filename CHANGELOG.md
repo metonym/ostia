@@ -4,6 +4,15 @@
 
 **Features**
 
+- `ostia compare` now reads `ostia.config.ts`/`ostia.config.json`'s
+  `thresholds` when present (same discovery as `ostia ci`), instead of
+  always gating on `DEFAULT_THRESHOLDS` regardless of a project's
+  configured thresholds - `compare` and `ci` can no longer disagree on the
+  same pair of documents just because one command ignored the config. New
+  flags `--timing-pct N` / `--alpha N` override individual threshold
+  fields; `--no-config` opts back into `DEFAULT_THRESHOLDS`. The source
+  used prints above the report (`thresholds: ostia.config.ts` /
+  `thresholds: defaults`).
 - `timeoutMs` / `--timeout MS` on `time`/`bench` (`ostia time --timeout MS`,
   `time({ timeoutMs })`, `CommandSpec.timeoutMs`; `ostia bench --timeout MS`,
   `bench({ timeoutMs })`) kills a hung trial, `--prepare` hook, or bench
@@ -84,6 +93,12 @@
   `inprocess`/entry workload ids already worked. Every existing baseline is
   now stale (its rows won't match any candidate's id); re-save with `ostia
   baseline save`. There is no migration command.
+- `ostia compare` run from a directory with an `ostia.config.ts`/
+  `ostia.config.json` now gates on that config's `thresholds` instead of
+  always using `DEFAULT_THRESHOLDS` - a verdict that used to pass under
+  the hardcoded defaults can now fail (or vice versa) if the project's
+  configured thresholds differ. Pass `--no-config` to keep the old
+  behavior.
 - `compareDocuments(base, cand, thresholds?)` now returns `CompareResult`
   (`{ comparisons, unmatched, summary }`) instead of a bare `Comparison[]`;
   callers that destructured the return value as an array need

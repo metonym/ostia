@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { profile, time } from "../../src/index.ts"
-import { saveDocument } from "../../src/ir/document.ts"
+import {
+  makeSubprocessWorkload,
+  makeTimingMeasurement,
+  newDocument,
+  saveDocument,
+} from "../../src/ir/document.ts"
+import { computeTimingStats } from "../../src/stats/index.ts"
 
 const CLI = `${import.meta.dir}/../../src/cli/main.ts`
 const DOC_PATH = `${import.meta.dir}/../../.ostia-test-cli-doc.json`
@@ -368,6 +374,77 @@ describe("ostia compare - git metadata line (item 17)", () => {
       expect(stdout).toContain(`cand ${cand.git!.sha} (${cand.git!.branch}`)
     } finally {
       await Bun.spawn(["rm", "-f", basePath, candPath]).exited
+    }
+  }, 20_000)
+})
+
+describe("ostia compare - config thresholds (task 04.3)", () => {
+  test("a temp ostia.config.json's timingPct makes a small delta fail where DEFAULT_THRESHOLDS passes", async () => {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(join(tmpdir(), "ostia-cli-compare-config-test-"))
+    const basePath = join(cwd, "base.json")
+    const candPath = join(cwd, "cand.json")
+    try {
+      // 30 samples (past MIN_SAMPLES_FOR_TEST, so the bootstrap CI +
+      // Mann-Whitney path runs, not the thin-comparison fallback), ~3%
+      // slower, low noise: below DEFAULT_THRESHOLDS.timingPct (5%) but past
+      // a 1% config override.
+      const baseSamples = Array.from(
+        { length: 30 },
+        (_, i) => 10_000_000 + (i % 5) * 1_000,
+      )
+      const candSamples = Array.from(
+        { length: 30 },
+        (_, i) => 10_300_000 + (i % 5) * 1_000,
+      )
+      const workload = makeSubprocessWorkload(["bun", "-e", "1"])
+      const baseDoc = newDocument(
+        [workload],
+        [
+          makeTimingMeasurement({
+            workload,
+            configFingerprint: "cfg",
+            trials: baseSamples.map((wallNs, i) => ({ i, wallNs })),
+            timing: computeTimingStats(baseSamples),
+            warnings: [],
+          }),
+        ],
+      )
+      const candDoc = newDocument(
+        [workload],
+        [
+          makeTimingMeasurement({
+            workload,
+            configFingerprint: "cfg",
+            trials: candSamples.map((wallNs, i) => ({ i, wallNs })),
+            timing: computeTimingStats(candSamples),
+            warnings: [],
+          }),
+        ],
+      )
+      await saveDocument(baseDoc, basePath)
+      await saveDocument(candDoc, candPath)
+
+      const withDefaults = await runCli(
+        ["compare", basePath, candPath, "--no-config"],
+        { cwd },
+      )
+      expect(withDefaults.stdout).toContain("thresholds: defaults")
+      expect(withDefaults.exitCode).toBe(0)
+
+      await Bun.write(
+        join(cwd, "ostia.config.json"),
+        JSON.stringify({ thresholds: { timingPct: 1 } }),
+      )
+      const withConfig = await runCli(["compare", basePath, candPath], {
+        cwd,
+      })
+      expect(withConfig.stdout).toContain("thresholds: ostia.config.json")
+      expect(withConfig.exitCode).toBe(1)
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
     }
   }, 20_000)
 })

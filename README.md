@@ -607,7 +607,9 @@ on disk; it does not need to be committed.
 `ostia ci` gates against, no comparison) and writes it to `<baselineDir>/<name>.json`
 (default name: config's `"baseline"` field, or `"main"`). `ostia baseline list` shows every
 saved baseline (name, created date, workload count, and git sha/branch when available);
-`ostia baseline show <name> [--format]` renders one (delegates to `ostia report`).
+`ostia baseline show <name> [--format]` renders one (delegates to `ostia report`). A
+baseline name must match `/^[A-Za-z0-9._-]+$/` and can't start with `-` - a typo'd flag
+(`ostia baseline save --verbose`) is a usage error instead of a literal filename.
 
 Every document stamps `git: { sha, branch, dirty }` (from `git rev-parse` / `git status
 --porcelain` in the process's cwd, 200ms timeout, silently absent outside a repo or

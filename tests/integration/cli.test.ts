@@ -114,6 +114,49 @@ describe("ostia numeric flag validation", () => {
   }, 5_000)
 })
 
+describe("ostia unknown flags and single-positional validation", () => {
+  test("ci --bogus exits 2", async () => {
+    const { stderr, exitCode } = await runCli(["ci", "--bogus"])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Unknown flag "--bogus"`)
+  }, 5_000)
+
+  test("baseline save --verbose exits 2 and writes no file", async () => {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(
+      join(tmpdir(), "ostia-cli-baseline-verbose-test-"),
+    )
+    try {
+      await Bun.write(
+        join(cwd, "ostia.config.json"),
+        JSON.stringify({
+          workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
+        }),
+      )
+      const { stderr, exitCode } = await runCli(
+        ["baseline", "save", "--verbose"],
+        { cwd },
+      )
+      expect(exitCode).toBe(2)
+      expect(stderr).toContain("Invalid baseline name")
+      const exists = await Bun.file(
+        join(cwd, ".ostia/baselines/--verbose.json"),
+      ).exists()
+      expect(exists).toBe(false)
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 10_000)
+
+  test("report a.json b.json exits 2 instead of silently using the last path", async () => {
+    const { stderr, exitCode } = await runCli(["report", "a.json", "b.json"])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("takes exactly one document path")
+  }, 5_000)
+})
+
 describe("ostia bench - task.skip/.only (item 10)", () => {
   const OUT_DIR = `${import.meta.dir}/../../.ostia-test-cli-bench`
 

@@ -1,5 +1,27 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- Numeric CLI flags (`--samples`, `--budget`, `--min-samples`, `--warmup`,
+  `--cpu-interval`, `--jobs`) are validated as integers (`--jobs` also
+  accepts `auto`) instead of silently becoming `NaN` - `time --samples abc`
+  used to hang forever instead of erroring. `time()`/`bench()` throw
+  `RangeError` for the same bad values from library callers.
+- Every parser now rejects unknown `--flags` instead of ignoring them
+  (`ostia ci --bogus`) or treating them as positional arguments
+  (`ostia baseline save --verbose` used to write
+  `.ostia/baselines/--verbose.json`). `baseline save`/`show` validate the
+  name against `/^[A-Za-z0-9._-]+$/` and reject anything starting with `-`.
+  `report`/`baseline show` error on more than one document path instead of
+  silently using the last one.
+
+**Breaking**
+
+- Unknown flags on any subcommand now exit 2 instead of being silently
+  ignored or absorbed as positional arguments.
+
 ## 0.2.2 — 2026-09-06
 
 **Fixes**

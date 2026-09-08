@@ -2,6 +2,7 @@ import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import {
   formatDuration,
   formatEnvironmentLine,
+  formatRelative,
   MIN_DISPLAY_DELTA_PCT,
   pickDurationUnit,
   workloadLabel,
@@ -157,13 +158,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       }
       if (showRelative) {
         const relative = t.median / (references.get(row) ?? t.median)
-        if (relative === 1) {
-          line += workload?.baseline ? " 1.00× (baseline)" : " 1.00×"
-        } else if (relative > 1) {
-          line += ` ${relative.toFixed(2)}× slower`
-        } else {
-          line += ` ${(1 / relative).toFixed(2)}× faster`
-        }
+        line += ` ${formatRelative(relative, !!workload?.baseline)}`
       }
       lines.push(line)
       if (run.warnings.length > 0) {

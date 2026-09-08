@@ -345,6 +345,41 @@ describe("ostia baseline save | list | show (item 16)", () => {
   }, 30_000)
 })
 
+describe("ostia error envelope on stderr (task 05.4)", () => {
+  test("compare missing.json other.json: stderr's last line is a parseable error with code document-load-failed", async () => {
+    const { stderr, exitCode } = await runCli([
+      "compare",
+      "missing-base.json",
+      "missing-cand.json",
+    ])
+    expect(exitCode).toBe(2)
+    const lines = stderr.trim().split("\n")
+    const errorLine = JSON.parse(lines[lines.length - 1]!)
+    expect(errorLine.event).toBe("error")
+    expect(errorLine.protocolVersion).toBe(1)
+    expect(errorLine.code).toBe("document-load-failed")
+    expect(typeof errorLine.message).toBe("string")
+  }, 10_000)
+
+  test("an unknown flag exits 2 with a parseable invalid-flag error", async () => {
+    const { stderr, exitCode } = await runCli(["ci", "--bogus"])
+    expect(exitCode).toBe(2)
+    const lines = stderr.trim().split("\n")
+    const errorLine = JSON.parse(lines[lines.length - 1]!)
+    expect(errorLine.event).toBe("error")
+    expect(errorLine.code).toBe("invalid-flag")
+  }, 5_000)
+
+  test("the error line never appears on stdout, only stderr", async () => {
+    const { stdout } = await runCli([
+      "compare",
+      "missing-base.json",
+      "missing-cand.json",
+    ])
+    expect(stdout).not.toContain(`"event":"error"`)
+  }, 10_000)
+})
+
 describe("ostia ci --format (task 05.2)", () => {
   async function setupConfig(): Promise<string> {
     const { mkdtemp } = await import("node:fs/promises")

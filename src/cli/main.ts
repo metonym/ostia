@@ -27,7 +27,10 @@ import {
   type RenderResult,
   renderers,
 } from "../renderers/index.ts"
-import type { MinimalProtocolContext } from "../renderers/minimal/index.ts"
+import {
+  MINIMAL_PROTOCOL_VERSION,
+  type MinimalProtocolContext,
+} from "../renderers/minimal/index.ts"
 import { splitCommand, type TimeSource, type TimeUnit } from "../spawn/index.ts"
 
 function errorMessage(err: unknown): string {
@@ -38,9 +41,54 @@ function errorMessage(err: unknown): string {
  * catches it, prints the message plus a `--help` pointer, and exits 2. */
 export class CliUsageError extends Error {}
 
+/** Every code a `writeCliError` call may use, one per distinct exit-2 cause
+ * across every subcommand - see the machine-output-protocol spec's `error`
+ * event. */
+export type CliErrorCode =
+  | "invalid-flag"
+  | "config-missing"
+  | "baseline-missing"
+  | "no-matches"
+  | "spawn-failed"
+  | "command-failed"
+  | "timeout"
+  | "time-source-no-match"
+  | "document-load-failed"
+  | "no-cpu-evidence"
+  | "internal"
+
+/** Writes `message` to stderr exactly as before (prose, possibly
+ * multi-line - e.g. with a trailing "Run '... --help'." hint), then one more
+ * JSON line with a machine-readable `code` for the same failure - every
+ * exit-2 path writes both, in this order, so a script/agent parsing stderr
+ * can `JSON.parse` the last line instead of pattern-matching prose. Never
+ * written to stdout, which stays pure JSON for `json`/`jsonl`/`minimal` (see
+ * the "pure stdout" fix above). The JSON `message` is just `message`'s first
+ * line - a "Run --help" hint belongs to a human at a terminal, not to a
+ * script's error object. */
+function writeCliError(
+  code: CliErrorCode,
+  message: string,
+  data?: Record<string, unknown>,
+): void {
+  process.stderr.write(message.endsWith("\n") ? message : `${message}\n`)
+  process.stderr.write(
+    `${JSON.stringify({
+      event: "error",
+      protocolVersion: MINIMAL_PROTOCOL_VERSION,
+      code,
+      message: message.split("\n")[0],
+      ...(data && { data }),
+    })}\n`,
+  )
+}
+
 function reportUsageError(err: unknown, command: string): number {
   if (!(err instanceof CliUsageError)) throw err
-  process.stderr.write(`${err.message}\nRun 'ostia ${command} --help'.\n`)
+  writeCliError(
+    "invalid-flag",
+    `${err.message}\nRun 'ostia ${command} --help'.`,
+  )
   return 2
 }
 
@@ -114,8 +162,9 @@ function checkFormat(
   allowed: readonly FormatName[],
 ): format is FormatName {
   if ((allowed as readonly string[]).includes(format)) return true
-  process.stderr.write(
-    `Unknown --format "${format}". Expected one of: ${allowed.join(", ")}\n`,
+  writeCliError(
+    "invalid-flag",
+    `Unknown --format "${format}". Expected one of: ${allowed.join(", ")}`,
   )
   return false
 }
@@ -145,7 +194,7 @@ async function emitDocument(
     (VIZ_FORMATS as readonly string[]).includes(args.format) &&
     !hasCpuMeasurement(doc)
   ) {
-    process.stderr.write(NO_CPU_EVIDENCE)
+    writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
     return 2
   }
   await writeRenderResult(
@@ -161,16 +210,20 @@ async function requireConfig(
 ): Promise<OstiaConfig | undefined> {
   const config = await loadConfig()
   if (!config) {
-    process.stderr.write(
+    writeCliError(
+      "config-missing",
       command
-        ? `No ostia.config.json found. "${command}" needs configured workloads.\n`
-        : `No ostia.config.json found.\n`,
+        ? `No ostia.config.json found. "${command}" needs configured workloads.`
+        : `No ostia.config.json found.`,
     )
     return undefined
   }
   if (command && config.workloads.length === 0) {
     const configFile = (await configFilePath()) ?? "ostia.config.json"
-    process.stderr.write(`${configFile} has no "workloads" configured.\n`)
+    writeCliError(
+      "config-missing",
+      `${configFile} has no "workloads" configured.`,
+    )
     return undefined
   }
   return config
@@ -682,14 +735,16 @@ async function timeCommand(argv: string[]): Promise<number> {
 
   const totalCommands = parsed.commands.length + (hasArgvCommand ? 1 : 0)
   if (parsed.prepare.length > 1 && parsed.prepare.length !== totalCommands) {
-    process.stderr.write(
-      `--prepare given ${parsed.prepare.length} times for ${totalCommands} command(s): give it once (applies to all) or once per command.\n`,
+    writeCliError(
+      "invalid-flag",
+      `--prepare given ${parsed.prepare.length} times for ${totalCommands} command(s): give it once (applies to all) or once per command.`,
     )
     return 2
   }
   if (parsed.timeUnit !== undefined && !TIME_UNITS.includes(parsed.timeUnit)) {
-    process.stderr.write(
-      `Unknown --time-unit "${parsed.timeUnit}". Expected one of: ${TIME_UNITS.join(", ")}\n`,
+    writeCliError(
+      "invalid-flag",
+      `Unknown --time-unit "${parsed.timeUnit}". Expected one of: ${TIME_UNITS.join(", ")}`,
     )
     return 2
   }
@@ -697,8 +752,9 @@ async function timeCommand(argv: string[]): Promise<number> {
     try {
       new RegExp(parsed.timeSource)
     } catch (err) {
-      process.stderr.write(
-        `Invalid --time-source regex: ${errorMessage(err)}\n`,
+      writeCliError(
+        "invalid-flag",
+        `Invalid --time-source regex: ${errorMessage(err)}`,
       )
       return 2
     }
@@ -744,7 +800,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       }),
     ))
   } catch (err) {
-    process.stderr.write(`Run failed: ${errorMessage(err)}\n`)
+    writeCliError("spawn-failed", `Run failed: ${errorMessage(err)}`)
     return 2
   }
 
@@ -767,7 +823,27 @@ async function timeCommand(argv: string[]): Promise<number> {
         t.exitCode !== undefined && t.exitCode !== 0 && !ignore.has(t.exitCode),
     ),
   )
-  return anyNonZero || anyUnmeasured ? 2 : 0
+  if (anyNonZero || anyUnmeasured) {
+    const hasTimeout = doc.measurements.some((m) =>
+      m.warnings.some((w) => w.code === "timeout"),
+    )
+    const hasNoMatch = doc.measurements.some((m) =>
+      m.warnings.some((w) => w.code === "time-source-no-match"),
+    )
+    const code: CliErrorCode = anyNonZero
+      ? "command-failed"
+      : hasTimeout
+        ? "timeout"
+        : hasNoMatch
+          ? "time-source-no-match"
+          : "command-failed"
+    writeCliError(
+      code,
+      "One or more commands failed to produce a clean measurement; see the report above for details.",
+    )
+    return 2
+  }
+  return 0
 }
 
 interface BenchArgs {
@@ -913,7 +989,10 @@ async function benchCommand(argv: string[]): Promise<number> {
     return 2
   }
   if (resolved.jobs !== undefined && !(resolved.jobs >= 1)) {
-    process.stderr.write(`--jobs expects a positive integer or "auto".\n`)
+    writeCliError(
+      "invalid-flag",
+      `--jobs expects a positive integer or "auto".`,
+    )
     return 2
   }
 
@@ -924,7 +1003,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       bench({ ...resolved, signal }),
     ))
   } catch (err) {
-    process.stderr.write(`Bench failed: ${errorMessage(err)}\n`)
+    writeCliError("spawn-failed", `Bench failed: ${errorMessage(err)}`)
     return 2
   }
 
@@ -1058,7 +1137,10 @@ async function compareCommand(argv: string[]): Promise<number> {
       loadDocument(candPath),
     ])
   } catch (err) {
-    process.stderr.write(`Failed to load documents: ${errorMessage(err)}\n`)
+    writeCliError(
+      "document-load-failed",
+      `Failed to load documents: ${errorMessage(err)}`,
+    )
     return 2
   }
 
@@ -1123,6 +1205,13 @@ async function compareCommand(argv: string[]): Promise<number> {
   ) {
     process.stdout.write(
       renderUnmatchedSection(result.unmatched, parsed.format),
+    )
+  }
+
+  if (result.summary.matched === 0) {
+    writeCliError(
+      "no-matches",
+      "No workload matched between base and candidate; nothing was compared.",
     )
   }
 
@@ -1214,8 +1303,9 @@ async function reportCommand(argv: string[]): Promise<number> {
   try {
     doc = await loadDocument(parsed.path)
   } catch (err) {
-    process.stderr.write(
-      `Failed to load ${parsed.path}: ${errorMessage(err)}\n`,
+    writeCliError(
+      "document-load-failed",
+      `Failed to load ${parsed.path}: ${errorMessage(err)}`,
     )
     return 2
   }
@@ -1225,7 +1315,7 @@ async function reportCommand(argv: string[]): Promise<number> {
     !parsed.measurementId &&
     !hasCpuMeasurement(doc)
   ) {
-    process.stderr.write(NO_CPU_EVIDENCE)
+    writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
     return 2
   }
 
@@ -1234,9 +1324,10 @@ async function reportCommand(argv: string[]): Promise<number> {
     measurementId: parsed.measurementId,
   })
   if (!result.text && (!result.files || result.files.length === 0)) {
-    process.stderr.write(
+    writeCliError(
+      "no-cpu-evidence",
       parsed.measurementId
-        ? `No CPU evidence found for measurement "${parsed.measurementId}".\n`
+        ? `No CPU evidence found for measurement "${parsed.measurementId}".`
         : NO_CPU_EVIDENCE,
     )
     return 2
@@ -1350,10 +1441,10 @@ async function ciCommand(argv: string[]): Promise<number> {
       err instanceof BaselineNotFoundError ||
       err instanceof MissingBaselineError
     ) {
-      process.stderr.write(`${err.message}\n`)
+      writeCliError("baseline-missing", err.message)
       return 2
     }
-    process.stderr.write(`CI run failed: ${errorMessage(err)}\n`)
+    writeCliError("spawn-failed", `CI run failed: ${errorMessage(err)}`)
     return 2
   }
 
@@ -1376,6 +1467,16 @@ async function ciCommand(argv: string[]): Promise<number> {
   // `summary` event needs the real exit code inline.
   const exitCode =
     outcome.summary.failed > 0 ? 2 : outcome.summary.regressed > 0 ? 1 : 0
+
+  if (outcome.summary.failed > 0) {
+    const failedLabels = outcome.summary.results
+      .filter((r) => r.harnessFailed)
+      .map((r) => workloadLabel(r.workload))
+    writeCliError(
+      "command-failed",
+      `${outcome.summary.failed} workload(s) failed (harness error, every trial exited non-zero): ${failedLabels.join(", ")}`,
+    )
+  }
 
   if (!parsed.quiet) {
     const resolvedBaselineName = parsed.baseline ?? effectiveConfig.baseline
@@ -1444,8 +1545,9 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
     return 0
   }
   if (argv.length > 1) {
-    process.stderr.write(
-      `"ostia baseline save" takes at most one name argument, got ${argv.length}.\nRun 'ostia baseline --help'.\n`,
+    writeCliError(
+      "invalid-flag",
+      `"ostia baseline save" takes at most one name argument, got ${argv.length}.\nRun 'ostia baseline --help'.`,
     )
     return 2
   }
@@ -1453,7 +1555,7 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
   if (name !== undefined) {
     const nameErr = validateBaselineName(name)
     if (nameErr) {
-      process.stderr.write(`${nameErr}\nRun 'ostia baseline --help'.\n`)
+      writeCliError("invalid-flag", `${nameErr}\nRun 'ostia baseline --help'.`)
       return 2
     }
   }
@@ -1497,7 +1599,7 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
   }
   const nameErr = validateBaselineName(name)
   if (nameErr) {
-    process.stderr.write(`${nameErr}\nRun 'ostia baseline --help'.\n`)
+    writeCliError("invalid-flag", `${nameErr}\nRun 'ostia baseline --help'.`)
     return 2
   }
 
@@ -1522,8 +1624,9 @@ async function baselineCommand(argv: string[]): Promise<number> {
       process.stdout.write(BASELINE_HELP)
       return sub === undefined ? 2 : 0
     default:
-      process.stderr.write(
-        `Unknown "ostia baseline ${sub}". Run "ostia baseline --help".\n`,
+      writeCliError(
+        "invalid-flag",
+        `Unknown "ostia baseline ${sub}". Run "ostia baseline --help".`,
       )
       return 2
   }
@@ -1553,8 +1656,9 @@ async function main(): Promise<number> {
       )
       return subcommand === undefined ? 2 : 0
     default:
-      process.stderr.write(
-        `Unknown subcommand "${subcommand}". Run "ostia --help".\n`,
+      writeCliError(
+        "invalid-flag",
+        `Unknown subcommand "${subcommand}". Run "ostia --help".`,
       )
       return 2
   }

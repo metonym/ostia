@@ -378,6 +378,71 @@ describe("ostia compare - git metadata line (item 17)", () => {
   }, 20_000)
 })
 
+describe("ostia compare - pure stdout for machine formats (task 05.1)", () => {
+  test("--format minimal/jsonl/json write nothing but parseable JSON to stdout, even with git metadata", async () => {
+    const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-pure-base.json`
+    const candPath = `${import.meta.dir}/../../.ostia-test-cli-compare-pure-cand.json`
+    try {
+      const base = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      const cand = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 3,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      // Both real documents carry git - exactly the payload the old prose
+      // banner used to print unconditionally, ahead of any format check.
+      expect(base.git).toBeDefined()
+      expect(cand.git).toBeDefined()
+      await saveDocument(base, basePath)
+      await saveDocument(cand, candPath)
+
+      const minimal = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "minimal",
+      ])
+      expect(minimal.exitCode).toBeLessThan(2)
+      const minimalLines = minimal.stdout.trim().split("\n").filter(Boolean)
+      expect(minimalLines.length).toBeGreaterThan(0)
+      for (const line of minimalLines)
+        expect(() => JSON.parse(line)).not.toThrow()
+
+      const jsonl = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "jsonl",
+      ])
+      expect(jsonl.exitCode).toBeLessThan(2)
+      const jsonlLines = jsonl.stdout.trim().split("\n").filter(Boolean)
+      expect(jsonlLines.length).toBeGreaterThan(0)
+      for (const line of jsonlLines)
+        expect(() => JSON.parse(line)).not.toThrow()
+
+      const json = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "json",
+      ])
+      expect(json.exitCode).toBeLessThan(2)
+      expect(() => JSON.parse(json.stdout)).not.toThrow()
+    } finally {
+      await Bun.spawn(["rm", "-f", basePath, candPath]).exited
+    }
+  }, 20_000)
+})
+
 describe("ostia compare - config thresholds (task 04.3)", () => {
   test("a temp ostia.config.json's timingPct makes a small delta fail where DEFAULT_THRESHOLDS passes", async () => {
     const { mkdtemp } = await import("node:fs/promises")

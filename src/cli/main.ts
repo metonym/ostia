@@ -1066,7 +1066,13 @@ async function compareCommand(argv: string[]): Promise<number> {
     },
   }
 
-  if (!parsed.quiet) {
+  // Prose banners are for the two human formats only: json/jsonl/minimal
+  // must stay pure JSON on stdout, so this same information (thresholds,
+  // git) travels inside the payload instead (summary.git, thresholds
+  // resolved into effectiveTimingPct).
+  const isHumanFormat =
+    parsed.format === "table" || parsed.format === "markdown"
+  if (!parsed.quiet && isHumanFormat) {
     process.stdout.write(`thresholds: ${source}\n`)
     if (base.git && cand.git) {
       process.stdout.write(

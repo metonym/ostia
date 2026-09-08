@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { compareWorkload } from "../../src/compare/index.ts"
+import { compareDocuments, compareWorkload } from "../../src/compare/index.ts"
 import {
   makeEntryWorkload,
   makeInstrumentedMeasurement,
@@ -434,12 +434,14 @@ describe("renderers - golden output on fixed fake data", () => {
     expect(lines).toHaveLength(1 + doc.measurements.length)
 
     const header = JSON.parse(lines[0]!)
+    expect(header.kind).toBe("document")
     expect(header.schemaVersion).toBe(2)
     expect(header.workloads).toHaveLength(2)
     expect(header.measurements).toBeUndefined()
 
     for (let i = 0; i < doc.measurements.length; i++) {
       const run = JSON.parse(lines[i + 1]!)
+      expect(run.kind).toBe("measurement")
       expect(run.id).toBe(doc.measurements[i]!.id)
       expect(run.phase).toBe("timing")
     }
@@ -643,6 +645,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       pass: false,
       ci95: [9.1, 15.8],
       pValue: 0.0005,
+      effectiveTimingPct: 5,
+      matched: true,
     })
     expect(lines[1]!.delta).toBeUndefined()
   })
@@ -716,6 +720,80 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
     expect(skipped.group).toBe("g")
     expect(skipped.median).toBeUndefined()
     expect(skipped.samples).toBeUndefined()
+  })
+})
+
+describe("minimal renderer - protocol v1 run/unmatched/summary events (task 05.3)", () => {
+  test("a run line carries exactly the protocol v1 key set", async () => {
+    const doc = fixedDoc()
+    const line = JSON.parse(
+      (await renderers.minimal.render(doc, {})).text!.trim().split("\n")[0]!,
+    )
+    expect(Object.keys(line).sort()).toEqual(
+      [
+        "batch",
+        "event",
+        "max",
+        "mean",
+        "median",
+        "min",
+        "p75",
+        "p99",
+        "mad",
+        "protocolVersion",
+        "relative",
+        "samples",
+        "schemaVersion",
+        "stddev",
+        "stddevPct",
+        "task",
+        "unit",
+        "warnings",
+        "workloadId",
+      ].sort(),
+    )
+    expect(line.event).toBe("run")
+    expect(line.protocolVersion).toBe(1)
+    expect(line.schemaVersion).toBe(2)
+    expect(line.workloadId).toBe(doc.measurements[0]!.workloadId)
+    expect(line.batch).toBe(1)
+  })
+
+  test("a summary line is present and last when rendered with a protocol context", async () => {
+    const base = fixedDoc()
+    const cand = fixedDoc()
+    const { comparisons, summary, unmatched } = compareDocuments(base, cand)
+    cand.comparisons = comparisons
+    cand.comparisonSummary = summary
+    const lines = (
+      await renderers.minimal.render(cand, {
+        protocol: {
+          command: "compare",
+          exitCode: 0,
+          unmatched: unmatched,
+        },
+      })
+    )
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+
+    const last = lines[lines.length - 1]!
+    expect(last.event).toBe("summary")
+    expect(last.command).toBe("compare")
+    expect(last.matched).toBe(summary.matched)
+    expect(last.exitCode).toBe(0)
+    expect(last.verdict).toBe("pass")
+    expect(lines.filter((l) => l.event === "summary")).toHaveLength(1)
+  })
+
+  test("no summary or unmatched line for a document rendered with no protocol context", async () => {
+    const doc = fixedDoc()
+    const lines = (await renderers.minimal.render(doc, {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    expect(lines.every((l) => l.event === "run")).toBe(true)
   })
 })
 

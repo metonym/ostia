@@ -76,9 +76,29 @@
   form (hyperfine's `-N` behavior; no shell) can't express. Everything
   after `--` becomes one more command, given as argv verbatim and never
   flag-parsed, alongside any given the normal way.
+- `--format minimal` is now a versioned protocol (`protocolVersion: 1`):
+  every line carries `event` (`"run"` | `"unmatched"` | `"summary"`) and a
+  `workloadId` join key back to `Workload.id`. `run` lines gain
+  `noiseFloorPct` (from `document.environment`), `batch` (in-process trial
+  batching, from the new additive `TimingStats.batch`), and
+  `delta.effectiveTimingPct` / `delta.matched` when a comparison is
+  present. `ostia compare --format minimal` now also emits one `unmatched`
+  line per workload present on only one side and a trailing `summary` line
+  carrying the aggregate verdict, the real process `exitCode`, both sides'
+  `git`, and (with `--export-json`) `exportedTo`. New exports:
+  `MINIMAL_PROTOCOL_VERSION`, `MinimalEvent`, `MinimalRunLine`,
+  `MinimalUnmatchedLine`, `MinimalSummaryLine`, `MinimalProtocolContext`.
+- `--format jsonl` lines now carry a `kind: "document" | "measurement"`
+  discriminant, so a consumer no longer has to guess a line's shape from
+  whether it happens to have a `measurements` key.
 
 **Fixes**
 
+- `ostia compare --format json|jsonl|minimal` no longer mixes prose
+  (`thresholds: ...`, `base ... → cand ...`) into stdout - those banner
+  lines are `table`/`markdown`-only now; the same information already
+  travels in the JSON payload (and, for `minimal`, in the new `summary`
+  event).
 - A trial whose `--time-source` pattern doesn't match no longer throws out
   of the whole `time()` call, discarding every other command's
   already-collected samples: it now just contributes no sample, with a new
@@ -105,6 +125,14 @@
 
 **Breaking**
 
+- `minimal`'s exported `MinimalLine` type is replaced by
+  `MinimalRunLine` / `MinimalUnmatchedLine` / `MinimalSummaryLine` (a
+  `MinimalEvent` union) - every line now requires `event` /
+  `protocolVersion` / `schemaVersion` / `workloadId`, and `delta` gains
+  `effectiveTimingPct` / `matched`. `jsonl` lines gain `kind`. Both changes
+  are additive to the JSON shape a consumer parses (new keys, none
+  removed) but break a TypeScript caller importing the old `MinimalLine`
+  type name.
 - `ostia time` (and the library `time()`, called from the CLI) now exits
   `2` when a command had a non-ignored non-zero exit, or when a workload
   ended up with no timing stats at all (every trial timed out, or every

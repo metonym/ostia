@@ -27,6 +27,7 @@ import {
   type RenderResult,
   renderers,
 } from "../renderers/index.ts"
+import type { MinimalProtocolContext } from "../renderers/minimal/index.ts"
 import { splitCommand, type TimeSource, type TimeUnit } from "../spawn/index.ts"
 
 function errorMessage(err: unknown): string {
@@ -129,10 +130,14 @@ function hasCpuMeasurement(doc: ProfileDocument): boolean {
 /** Shared tail of time/bench/compare: optional --export-json, then the
  * rendered report unless --quiet. Guards against a viz format on a document
  * with no CPU evidence, though today only `report` can reach one (the other
- * three are restricted to `DOCUMENT_FORMATS`). */
+ * three are restricted to `DOCUMENT_FORMATS`). `rendererOptions` reaches
+ * `renderers[format].render` verbatim - `compare`/`ci` use it to pass a
+ * `MinimalRenderOptions.protocol` context that only they can build (the
+ * other document's git, `ci`'s baseline info, the real exit code). */
 async function emitDocument(
   doc: ProfileDocument,
   args: { exportJson?: string; format: FormatName; quiet: boolean },
+  rendererOptions: Record<string, unknown> = {},
 ): Promise<number> {
   if (args.exportJson) await saveDocument(doc, args.exportJson)
   if (args.quiet) return 0
@@ -143,7 +148,9 @@ async function emitDocument(
     process.stderr.write(NO_CPU_EVIDENCE)
     return 2
   }
-  await writeRenderResult(await renderers[args.format].render(doc, {}))
+  await writeRenderResult(
+    await renderers[args.format].render(doc, rendererOptions),
+  )
   return 0
 }
 
@@ -1089,7 +1096,22 @@ async function compareCommand(argv: string[]): Promise<number> {
     }
   }
 
-  const emitCode = await emitDocument(outDoc, parsed)
+  // Decided before rendering (not after, like the other commands) because
+  // `minimal`'s trailing `summary` event needs the real exit code inline -
+  // there's no second pass over already-written stdout to patch it in.
+  const exitCode =
+    result.summary.matched === 0 ? 2 : result.summary.verdict === "fail" ? 1 : 0
+
+  const emitCode = await emitDocument(outDoc, parsed, {
+    protocol: {
+      command: "compare",
+      exitCode,
+      unmatched: result.unmatched,
+      baseGit: base.git,
+      candGit: cand.git,
+      ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
+    } satisfies MinimalProtocolContext,
+  })
   if (emitCode !== 0) return emitCode
 
   if (
@@ -1103,8 +1125,7 @@ async function compareCommand(argv: string[]): Promise<number> {
     )
   }
 
-  if (result.summary.matched === 0) return 2
-  return result.summary.verdict === "fail" ? 1 : 0
+  return exitCode
 }
 
 function renderUnmatchedSection(

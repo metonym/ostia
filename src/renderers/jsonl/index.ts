@@ -7,8 +7,8 @@ export const jsonlRenderer: Renderer<Record<string, never>> = {
   async render(doc: ProfileDocument): Promise<RenderResult> {
     const { measurements, ...header } = doc
     const lines = [
-      canonicalJSON(header),
-      ...measurements.map((r) => canonicalJSON(r)),
+      canonicalJSON({ kind: "document", ...header }),
+      ...measurements.map((r) => canonicalJSON({ kind: "measurement", ...r })),
     ]
     return { text: `${lines.join("\n")}\n` }
   },

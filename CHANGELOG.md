@@ -105,6 +105,14 @@
   (`Workload[]`, not just the `missingBaseline` count) and `runCi`'s
   return value gains `baseline` (the loaded baseline document), both used
   to build the `minimal` summary event.
+- Every exit-2 path across every subcommand now writes a second stderr
+  line (in addition to the existing prose, unchanged): one JSON object,
+  `{ event: "error", protocolVersion: 1, code, message, data? }`, with
+  `code` one of `invalid-flag` / `config-missing` / `baseline-missing` /
+  `no-matches` / `spawn-failed` / `command-failed` / `timeout` /
+  `time-source-no-match` / `document-load-failed` / `no-cpu-evidence` /
+  `internal` - a script no longer has to pattern-match prose to tell one
+  harness failure from another. Never written to stdout.
 
 **Fixes**
 

@@ -12,6 +12,16 @@ export interface TrialResult {
   /** Set when `timeoutMs` elapsed before the process exited on its own; it
    * was killed with SIGKILL. A timed-out trial contributes no sample. */
   timedOut?: true
+  /** Set when `timeSource` was configured but its pattern didn't match this
+   * trial's output. A trial with this set has no `reportedNs` and
+   * contributes no sample - it isn't a fallback to `wallNs`, which would
+   * silently mix wall-clock time into a reported-time series. */
+  timeSourceNoMatch?: true
+  /** A 2 KiB-max excerpt of this trial's output, only set alongside
+   * `timeSourceNoMatch`. Not part of the persisted `Trial` (it would bloat
+   * the document once per miss); the timing phase folds one excerpt into
+   * the aggregate `time-source-no-match` warning instead. */
+  timeSourceMissOutput?: string
 }
 
 /** Which trial a `prepare` hook is about to run ahead of. `index` counts
@@ -41,12 +51,41 @@ export type TimeUnit = "ns" | "us" | "ms" | "s"
  * line, which excludes the runtime's startup cost. `pattern` is matched
  * against stdout, then stderr; `group` (default 1) is the capture group
  * holding the number; `unit` (default "ms") is what that number is in. A
- * trial whose output doesn't match aborts the run: the workload asked for a
- * number that isn't there. */
+ * trial whose output doesn't match contributes no sample (a
+ * `time-source-no-match` warning records it) rather than aborting the
+ * whole run; if every trial of a workload misses, that workload has no
+ * timing stats. `pattern` as a `RegExp` must not carry the `g`, `y`, or `d`
+ * flag - `exec` is called on it once per trial, and a `g`/`y` flag makes a
+ * reused `RegExp` alternate match/no-match via `lastIndex` across those
+ * calls. A plain (flagless) pattern, string or `RegExp`, is always safe to
+ * reuse. */
 export interface TimeSource {
   pattern: string | RegExp
   group?: number
   unit?: TimeUnit
+}
+
+/** Thrown by `parseReportedTime` specifically when the pattern didn't match
+ * at all (as opposed to matching but the capture group being missing or
+ * non-numeric, which are configuration errors, not a per-trial miss).
+ * `runTrial` catches this one specifically to record a per-trial miss
+ * instead of failing the whole run. */
+export class TimeSourceNoMatchError extends Error {}
+
+/** `TimeSource.pattern` is compiled once per workload and `exec`'d once per
+ * trial for the life of the run, so a `g`/`y` flag - which advances
+ * `lastIndex` on every match - would make it alternate match/no-match across
+ * trials instead of testing the same thing each time. `d` (hasIndices) is
+ * rejected too since it's never useful here (nothing reads match indices)
+ * and its presence usually signals the same copy-pasted-flags mistake.
+ * Called once per workload (not per trial) so a bad pattern fails fast
+ * before any trial runs. */
+export function assertReusableTimeSource(source: TimeSource): void {
+  if (typeof source.pattern === "string") return
+  const { flags } = source.pattern
+  if (flags.includes("g") || flags.includes("y") || flags.includes("d")) {
+    throw new RangeError("timeSource pattern must not use the g or y flag")
+  }
 }
 
 export interface SpawnTrialOptions {
@@ -144,12 +183,23 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
     // pipes are still drained above either way, so a killed process can't
     // block on a full pipe).
     if (opts.timeSource && !timedOut) {
-      result.reportedNs = parseReportedTime(
-        opts.timeSource,
-        stdout,
-        stderr,
-        opts.argv,
-      )
+      try {
+        result.reportedNs = parseReportedTime(
+          opts.timeSource,
+          stdout,
+          stderr,
+          opts.argv,
+        )
+      } catch (err) {
+        // A flat-out miss is this trial's problem, not the run's: drop the
+        // sample and let the caller decide (a `time-source-no-match`
+        // warning, not a thrown error). A matched-but-malformed capture
+        // (missing group, non-numeric) is a configuration error instead -
+        // every trial would hit it identically, so it still throws.
+        if (!(err instanceof TimeSourceNoMatchError)) throw err
+        result.timeSourceNoMatch = true
+        result.timeSourceMissOutput = excerptForNoMatch(stdout, stderr)
+      }
     }
   }
   return result
@@ -169,7 +219,7 @@ export function parseReportedTime(
   const match = re.exec(stdout) ?? re.exec(stderr)
   const label = argv.length > 0 ? ` for "${argv.join(" ")}"` : ""
   if (!match) {
-    throw new Error(
+    throw new TimeSourceNoMatchError(
       `timeSource pattern ${re} did not match the output${label}. Output was:\n${excerpt(stdout, stderr)}`,
     )
   }
@@ -196,6 +246,24 @@ function excerpt(stdout: string, stderr: string): string {
   if (stdout.trim()) parts.push(`--- stdout ---\n${clip(stdout.trimEnd())}`)
   if (stderr.trim()) parts.push(`--- stderr ---\n${clip(stderr.trimEnd())}`)
   return parts.length > 0 ? parts.join("\n") : "(empty)"
+}
+
+const NO_MATCH_OUTPUT_LIMIT_BYTES = 2048
+
+/** The `output` sample folded into a `time-source-no-match` warning's
+ * `data`, capped at 2 KiB total (not per-stream, unlike `excerpt`): the
+ * warning is meant to show enough to see why the pattern missed, not to
+ * carry the whole capture. */
+function excerptForNoMatch(stdout: string, stderr: string): string {
+  const full = excerpt(stdout, stderr)
+  if (Buffer.byteLength(full, "utf8") <= NO_MATCH_OUTPUT_LIMIT_BYTES) {
+    return full
+  }
+  let sliced = full.slice(0, NO_MATCH_OUTPUT_LIMIT_BYTES)
+  while (Buffer.byteLength(sliced, "utf8") > NO_MATCH_OUTPUT_LIMIT_BYTES) {
+    sliced = sliced.slice(0, -1)
+  }
+  return `${sliced}…`
 }
 
 /** Runs a `prepare` hook ahead of one trial. Command forms spawn in the

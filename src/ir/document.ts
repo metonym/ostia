@@ -1,5 +1,6 @@
 import { renameSync } from "node:fs"
 import {
+  assertReusableTimeSource,
   type PrepareHook,
   prepareArgv,
   type TimeSource,
@@ -58,6 +59,9 @@ export function makeSubprocessWorkload(
   label?: string,
   opts: SubprocessWorkloadOptions = {},
 ): Workload {
+  // Fails fast, once per workload, before any trial runs - not once per
+  // trial deep inside the sampling loop.
+  if (opts.timeSource) assertReusableTimeSource(opts.timeSource)
   const prepare = prepareArgv(opts.prepare)
   const timeSource = timeSourceSpec(opts.timeSource)
   const prepareKey =

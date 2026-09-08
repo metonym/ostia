@@ -30,6 +30,22 @@
   non-ignored non-zero exit (that trial's sample is still recorded)
   instead of always running the full sample count.
 
+**Fixes**
+
+- A trial whose `--time-source` pattern doesn't match no longer throws out
+  of the whole `time()` call, discarding every other command's
+  already-collected samples: it now just contributes no sample, with a new
+  `time-source-no-match` warning (`data: { pattern, trials, output }`,
+  `output` capped at 2 KiB) on that command's measurement. If every trial
+  of a command misses, that command has no timing stats (same as every
+  trial timing out); other commands keep their data.
+- `TimeSource.pattern` as a `RegExp` was compiled once and `exec`'d
+  repeatedly across trials; a `g`/`y` flag made it alternate match/no-match
+  via `lastIndex` instead of testing the same output each time.
+  `parseReportedTime` accepts scientific notation (`1.2e3ms`) in the
+  captured number - `Number()` already parsed it correctly, now covered by
+  a test.
+
 **Breaking**
 
 - `ostia time` (and the library `time()`, called from the CLI) now exits
@@ -38,6 +54,12 @@
   trial missed `--time-source`), instead of `1`. `1` is reserved for
   `compare`/`ci` regressions; `time` never returns it now. Scripts that
   checked `time`'s exit code for "a command failed" should check for `2`.
+- A `TimeSource.pattern` `RegExp` with the `g`, `y`, or `d` flag now throws
+  `RangeError: timeSource pattern must not use the g or y flag` immediately
+  (validated once per workload, before any trial runs, wherever a
+  `timeSource` is used - `time()`, `ostia ci`/`baseline save`'s config
+  workloads, `runTimingPhase`) instead of silently producing intermittent,
+  `lastIndex`-dependent matches.
 
 **Fixes**
 

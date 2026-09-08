@@ -140,6 +140,10 @@ export interface Trial {
    * own. `exitCode` is absent in that case: the kill signal, not the
    * command, decided how the process ended. Contributes no sample. */
   timedOut?: true
+  /** Set when the workload has a `timeSource` and this trial's output didn't
+   * match its pattern. `reportedNs` is absent in that case (never a
+   * fallback to `wallNs`). Contributes no sample. */
+  timeSourceNoMatch?: true
 }
 
 export interface TimingStats {
@@ -236,6 +240,7 @@ export const WARNING_CODES = [
   "jit-cold",
   "timeout",
   "aborted",
+  "time-source-no-match",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

@@ -1,5 +1,6 @@
 import type { TimingStats, Trial, Warning } from "../ir/types.ts"
 import {
+  assertReusableTimeSource,
   type PrepareHook,
   runPrepare,
   runTrial,
@@ -64,6 +65,10 @@ export interface TimingPhaseIterator {
 export function createTimingPhase(
   opts: TimingPhaseOptions,
 ): TimingPhaseIterator {
+  // Once per command's whole trial loop, not once per trial: a bad pattern
+  // fails fast before any trial runs, for `runTimingPhase`/`ci` callers that
+  // never go through `makeSubprocessWorkload`'s own check.
+  if (opts.timeSource) assertReusableTimeSource(opts.timeSource)
   const warmupCount = opts.warmup ?? DEFAULT_WARMUP
   const samples = opts.samples
   const minSamples = opts.minSamples ?? DEFAULT_MIN_SAMPLES
@@ -84,6 +89,9 @@ export function createTimingPhase(
   let totalNs = 0
   let i = 0
   let failedEarly = false
+  // One representative excerpt is enough for the aggregate warning; every
+  // miss's output would bloat it for no benefit.
+  let firstNoMatchOutput: string | undefined
 
   function done(): boolean {
     if (failedEarly) return true
@@ -120,6 +128,9 @@ export function createTimingPhase(
       // Killed by cancellation mid-trial, not a real measurement: drop it
       // and stop, rather than recording a truncated sample.
       if (opts.signal?.aborted) return false
+      if (result.timeSourceNoMatch) {
+        firstNoMatchOutput ??= result.timeSourceMissOutput
+      }
       trials.push({
         i,
         wallNs: result.wallNs,
@@ -131,6 +142,9 @@ export function createTimingPhase(
           reportedNs: result.reportedNs,
         }),
         ...(result.timedOut ? { timedOut: true as const } : {}),
+        ...(result.timeSourceNoMatch
+          ? { timeSourceNoMatch: true as const }
+          : {}),
       })
       // The budget is about how long the loop is allowed to take, so it
       // always counts wall time, even when the samples are reported times.
@@ -148,20 +162,38 @@ export function createTimingPhase(
     },
     done,
     result(): TimingPhaseResult {
-      // A timed-out trial contributes no sample: its wall clock is a
-      // timeout, not a measurement of the command.
-      const sampled = trials.filter((t) => !t.timedOut)
+      // A timed-out or time-source-missed trial contributes no sample: for
+      // a `reported` phase this must be an exclusion, not a fallback to
+      // `wallNs` - that would silently mix wall-clock time into what's
+      // supposed to be a pure reported-time series.
+      const sampled = trials.filter((t) => !t.timedOut && !t.timeSourceNoMatch)
       const timingSamples = sampled.map((t) =>
-        reported ? (t.reportedNs ?? t.wallNs) : t.wallNs,
+        reported ? t.reportedNs! : t.wallNs,
       )
 
       const warnings: Warning[] = []
-      const timedOutCount = trials.length - sampled.length
+      const timedOutCount = trials.filter((t) => t.timedOut).length
       if (timedOutCount > 0) {
         warnings.push({
           code: "timeout",
           message: `${timedOutCount} of ${trials.length} trial(s) timed out after ${opts.timeoutMs}ms.`,
           data: { timeoutMs: opts.timeoutMs, trials: timedOutCount },
+        })
+      }
+
+      const noMatchCount = trials.filter((t) => t.timeSourceNoMatch).length
+      if (noMatchCount > 0 && opts.timeSource) {
+        const { pattern } = opts.timeSource
+        warnings.push({
+          code: "time-source-no-match",
+          message: `${noMatchCount} of ${trials.length} trial(s) didn't match the timeSource pattern.`,
+          data: {
+            pattern: typeof pattern === "string" ? pattern : pattern.source,
+            trials: noMatchCount,
+            ...(firstNoMatchOutput !== undefined && {
+              output: firstNoMatchOutput,
+            }),
+          },
         })
       }
 

@@ -421,7 +421,9 @@ already past 75% of available cores at measurement time.
 Render a saved `ProfileDocument` without re-running anything. `--format` covers
 both the data formats (`table`/`json`/`jsonl`/`markdown`/`minimal`) and the CPU
 visualization formats (`collapsed`/`mermaid`/`speedscope`/`cpuprofile`) - one
-command instead of two.
+command instead of two. `time`/`bench`/`compare --format` only accept the data
+formats; export the document and run `ostia report --format <viz>` on it for
+a visualization.
 
 ```sh
 ostia report out.json                 # table (default)

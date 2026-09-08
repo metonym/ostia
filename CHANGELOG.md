@@ -16,11 +16,20 @@
   name against `/^[A-Za-z0-9._-]+$/` and reject anything starting with `-`.
   `report`/`baseline show` error on more than one document path instead of
   silently using the last one.
+- `time`/`bench`/`compare` reject the CPU-visualization formats
+  (`collapsed`/`mermaid`/`speedscope`/`cpuprofile`) instead of accepting
+  them and printing nothing (`compare` didn't validate `--format` at all,
+  so a viz format there crashed instead of erroring cleanly). `report`
+  still accepts both groups; the "no CPU evidence" check now lives
+  alongside every viz-format render instead of only `report`'s.
 
 **Breaking**
 
 - Unknown flags on any subcommand now exit 2 instead of being silently
   ignored or absorbed as positional arguments.
+- `time`/`bench`/`compare --format` now rejects `collapsed`/`mermaid`/
+  `speedscope`/`cpuprofile`; use `ostia report --format <viz>` on an
+  exported document instead.
 
 ## 0.2.2 — 2026-09-06
 

@@ -51,23 +51,66 @@ export function parseIntFlag(
   return n
 }
 
-function checkFormat(format: string): format is FormatName {
-  if (format in renderers) return true
+/** Formats that render a `ProfileDocument`'s timing/CPU/heap numbers as a
+ * report - what `time`/`bench`/`compare` accept. */
+const DOCUMENT_FORMATS = [
+  "table",
+  "json",
+  "jsonl",
+  "markdown",
+  "minimal",
+] as const
+
+/** Formats that turn CPU evidence into files for other tools - additionally
+ * accepted by `report`, which is the only command that can target a
+ * document with no timing measurements at all. */
+const VIZ_FORMATS = [
+  "collapsed",
+  "mermaid",
+  "speedscope",
+  "cpuprofile",
+] as const
+
+/** `report` is the only command that can target a viz format. */
+const REPORT_FORMATS = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const
+
+function checkFormat(
+  format: string,
+  allowed: readonly FormatName[],
+): format is FormatName {
+  if ((allowed as readonly string[]).includes(format)) return true
   process.stderr.write(
-    `Unknown --format "${format}". Expected one of: ${Object.keys(renderers).join(", ")}\n`,
+    `Unknown --format "${format}". Expected one of: ${allowed.join(", ")}\n`,
   )
   return false
 }
 
+const NO_CPU_EVIDENCE =
+  "No CPU evidence in this document; rerun with --cpu (ostia time) or --cpu (ostia bench)\n"
+
+function hasCpuMeasurement(doc: ProfileDocument): boolean {
+  return doc.measurements.some((m) => m.phase === "cpu")
+}
+
 /** Shared tail of time/bench/compare: optional --export-json, then the
- * rendered report unless --quiet. */
+ * rendered report unless --quiet. Guards against a viz format on a document
+ * with no CPU evidence, though today only `report` can reach one (the other
+ * three are restricted to `DOCUMENT_FORMATS`). */
 async function emitDocument(
   doc: ProfileDocument,
   args: { exportJson?: string; format: FormatName; quiet: boolean },
-): Promise<void> {
+): Promise<number> {
   if (args.exportJson) await saveDocument(doc, args.exportJson)
-  if (args.quiet) return
+  if (args.quiet) return 0
+  if (
+    (VIZ_FORMATS as readonly string[]).includes(args.format) &&
+    !hasCpuMeasurement(doc)
+  ) {
+    process.stderr.write(NO_CPU_EVIDENCE)
+    return 2
+  }
   await writeRenderResult(await renderers[args.format].render(doc, {}))
+  return 0
 }
 
 /** Loads the project config, printing the standard "not found" message
@@ -480,7 +523,7 @@ async function timeCommand(argv: string[]): Promise<number> {
     return parsed.help ? 0 : 2
   }
 
-  if (!checkFormat(parsed.format)) return 2
+  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
 
   if (
     parsed.prepare.length > 1 &&
@@ -538,7 +581,8 @@ async function timeCommand(argv: string[]): Promise<number> {
     return 2
   }
 
-  await emitDocument(doc, parsed)
+  const emitCode = await emitDocument(doc, parsed)
+  if (emitCode !== 0) return emitCode
 
   const anyNonZero = doc.measurements.some((r) =>
     r.trials.some((t) => t.exitCode !== undefined && t.exitCode !== 0),
@@ -667,7 +711,7 @@ async function benchCommand(argv: string[]): Promise<number> {
     return 0
   }
 
-  if (!checkFormat(parsed.format)) return 2
+  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
 
   const config = await loadConfig()
   const resolved = await resolveBenchOptions(parsed, config?.bench)
@@ -689,8 +733,7 @@ async function benchCommand(argv: string[]): Promise<number> {
     return 2
   }
 
-  await emitDocument(doc, parsed)
-  return 0
+  return emitDocument(doc, parsed)
 }
 
 interface CompareArgs {
@@ -752,6 +795,8 @@ async function compareCommand(argv: string[]): Promise<number> {
     return 0
   }
 
+  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
+
   let basePath: string | undefined
   let candPath: string | undefined
   if (parsed.baseline) {
@@ -786,7 +831,8 @@ async function compareCommand(argv: string[]): Promise<number> {
       `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,
     )
   }
-  await emitDocument(outDoc, parsed)
+  const emitCode = await emitDocument(outDoc, parsed)
+  if (emitCode !== 0) return emitCode
 
   const anyFail = comparisons.some((c) => c.verdict === "fail")
   return anyFail ? 1 : 0
@@ -847,7 +893,7 @@ async function reportCommand(argv: string[]): Promise<number> {
     return parsed.help ? 0 : 2
   }
 
-  if (!checkFormat(parsed.format)) return 2
+  if (!checkFormat(parsed.format, REPORT_FORMATS)) return 2
 
   let doc: ProfileDocument
   try {
@@ -859,6 +905,15 @@ async function reportCommand(argv: string[]): Promise<number> {
     return 2
   }
 
+  if (
+    (VIZ_FORMATS as readonly string[]).includes(parsed.format) &&
+    !parsed.measurementId &&
+    !hasCpuMeasurement(doc)
+  ) {
+    process.stderr.write(NO_CPU_EVIDENCE)
+    return 2
+  }
+
   const renderer = renderers[parsed.format]
   const result = await renderer.render(doc, {
     measurementId: parsed.measurementId,
@@ -867,7 +922,7 @@ async function reportCommand(argv: string[]): Promise<number> {
     process.stderr.write(
       parsed.measurementId
         ? `No CPU evidence found for measurement "${parsed.measurementId}".\n`
-        : `No CPU evidence found in this document (no cpu-phase measurements). Capture some with "ostia time --cpu ...".\n`,
+        : NO_CPU_EVIDENCE,
     )
     return 2
   }

@@ -138,6 +138,12 @@ export interface TimeOptions {
    * out, that command has no timing stats. `CommandSpec.timeoutMs` overrides
    * it per command. */
   timeoutMs?: number
+  /** Aborting cancels the run: in-flight trials are killed with SIGKILL, no
+   * further trials are scheduled, and `time()` resolves (never rejects)
+   * with the document built from whatever measurements had already
+   * completed, plus an `aborted` warning on the document's last
+   * measurement. */
+  signal?: AbortSignal
 }
 
 const DEFAULT_CPU_INTERVAL_US = 1000
@@ -219,6 +225,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     prepare: entry.prepare,
     timeSource: entry.timeSource,
     timeoutMs: entry.timeoutMs,
+    signal: opts.signal,
   })
 
   const phases = entries.map((entry) =>
@@ -241,17 +248,22 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       interleaved: interleave ? true : undefined,
     })
     measurements.push(timingMeasurement)
-    measurements.push(
-      ...(await captureInstrumentedPhases({
-        workload,
-        argv,
-        timingMeasurementId: timingMeasurement.id,
-        cfgFp,
-        opts,
-        artifactDir,
-        prepare,
-      })),
-    )
+    // Cancellation stops scheduling new work: an instrumented capture is one
+    // more spawned run of the command, so skip it once the signal has fired
+    // rather than starting fresh work after the caller asked to stop.
+    if (!opts.signal?.aborted) {
+      measurements.push(
+        ...(await captureInstrumentedPhases({
+          workload,
+          argv,
+          timingMeasurementId: timingMeasurement.id,
+          cfgFp,
+          opts,
+          artifactDir,
+          prepare,
+        })),
+      )
+    }
   }
 
   if (interleave) {
@@ -271,7 +283,20 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     }
   }
 
+  if (opts.signal?.aborted && measurements.length > 0) {
+    const last = measurements[measurements.length - 1]!
+    last.warnings = [...last.warnings, abortedWarning()]
+  }
+
   return newDocument(workloads, measurements, environment)
+}
+
+function abortedWarning(): Warning {
+  return {
+    code: "aborted",
+    message:
+      "Run was cancelled before it finished; this document holds whatever measurements had already completed.",
+  }
 }
 
 async function captureInstrumentedPhases({
@@ -398,6 +423,12 @@ interface ProfileOptions {
   // "inspector" (default) uses windowed CDP capture via node:inspector and writes a portable .cpuprofile.
   // "jsc" uses bun:jsc.profile and adds LLInt/Baseline/DFG/FTL tier data.
   origin?: "inspector" | "jsc"
+  /** `profile()` runs `fn` in this process, so there's no child to kill: an
+   * already-aborted signal skips the profiler instrumentation entirely and
+   * just calls `fn` plain (still returning its `result`), with an `aborted`
+   * warning in place of CPU evidence. A signal that fires mid-capture can't
+   * interrupt `fn` once it's running. */
+  signal?: AbortSignal
 }
 
 interface ProfileResult<T> {
@@ -424,6 +455,24 @@ export async function profile<T>(
           },
         ]
       : []
+
+  if (opts.signal?.aborted) {
+    const start = Bun.nanoseconds()
+    const result = await fn()
+    const measurement = makeInstrumentedMeasurement({
+      workload,
+      phase: "cpu",
+      configFingerprint: cfgFp,
+      diagnosticWallNs: Bun.nanoseconds() - start,
+      warnings: [abortedWarning()],
+      artifacts: [],
+    })
+    return {
+      result,
+      measurement,
+      document: newDocument([workload], [measurement]),
+    }
+  }
 
   const captured =
     opts.origin === "jsc"

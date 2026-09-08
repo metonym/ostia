@@ -59,6 +59,25 @@ export interface SpawnTrialOptions {
    * timedOut: true` and contributes no sample. No default: an unset
    * `timeoutMs` never times out. */
   timeoutMs?: number
+  /** Aborting kills this trial's process (if any) with SIGKILL. Distinct
+   * from `timeoutMs`: an aborted trial is discarded by the caller rather
+   * than recorded as `timedOut`, since cancellation isn't something the
+   * command did. */
+  signal?: AbortSignal
+}
+
+/** Combines any number of possibly-absent signals into one: `undefined` when
+ * none are given, the signal itself when exactly one is, `AbortSignal.any`
+ * otherwise. Used everywhere a per-trial timeout signal and a caller's
+ * run-wide cancellation signal both need to be able to kill the same
+ * process. */
+export function combineSignals(
+  ...signals: (AbortSignal | undefined)[]
+): AbortSignal | undefined {
+  const defined = signals.filter((s): s is AbortSignal => s !== undefined)
+  if (defined.length === 0) return undefined
+  if (defined.length === 1) return defined[0]
+  return AbortSignal.any(defined)
 }
 
 const UNIT_NS: Record<TimeUnit, number> = {
@@ -72,22 +91,22 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   const capture = opts.timeSource !== undefined
   const start = Bun.nanoseconds()
 
-  // `AbortSignal.timeout` fires independently of anything the caller passes
-  // in later (e.g. a run-wide cancellation signal); we only listen for it
-  // here to tell "killed because it overran timeoutMs" apart from any other
-  // reason `proc.exited` might resolve.
+  // Tracked separately from `opts.signal` so a caller-driven cancellation
+  // (the run stopping early) is never mistaken for the command overrunning
+  // its own timeout.
   let timedOut = false
-  const signal =
+  const timeoutSignal =
     opts.timeoutMs !== undefined
       ? AbortSignal.timeout(opts.timeoutMs)
       : undefined
-  signal?.addEventListener(
+  timeoutSignal?.addEventListener(
     "abort",
     () => {
       timedOut = true
     },
     { once: true },
   )
+  const signal = combineSignals(timeoutSignal, opts.signal)
 
   const proc = Bun.spawn(opts.argv, {
     cwd: opts.cwd,
@@ -183,11 +202,18 @@ function excerpt(stdout: string, stderr: string): string {
  * command's `cwd`/`env` with output discarded and must exit 0. `timeoutMs`
  * (no default: function hooks can't be killed this way and are never timed
  * out) kills a hung command-form hook with SIGKILL and aborts the run with a
- * clear message, the same way a non-zero exit already does. */
+ * clear message, the same way a non-zero exit already does. `signal` kills a
+ * command-form hook the same way, but silently: a caller-driven cancellation
+ * isn't a failure, so it never throws (the run is already stopping). */
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
-  opts: { cwd?: string; env?: Record<string, string>; timeoutMs?: number },
+  opts: {
+    cwd?: string
+    env?: Record<string, string>
+    timeoutMs?: number
+    signal?: AbortSignal
+  },
 ): Promise<void> {
   if (typeof hook === "function") {
     await hook(run)
@@ -195,17 +221,18 @@ export async function runPrepare(
   }
   const argv = prepareArgv(hook)!
   let timedOut = false
-  const signal =
+  const timeoutSignal =
     opts.timeoutMs !== undefined
       ? AbortSignal.timeout(opts.timeoutMs)
       : undefined
-  signal?.addEventListener(
+  timeoutSignal?.addEventListener(
     "abort",
     () => {
       timedOut = true
     },
     { once: true },
   )
+  const signal = combineSignals(timeoutSignal, opts.signal)
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,
@@ -220,6 +247,9 @@ export async function runPrepare(
       `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.`,
     )
   }
+  // Killed by the caller's signal, not a timeout or the command itself: the
+  // run is already winding down, so this isn't a new failure to report.
+  if (opts.signal?.aborted) return
   if (exitCode !== 0) {
     throw new Error(
       `prepare command "${argv.join(" ")}" exited with code ${exitCode} before ${run.phase} trial ${run.index}.`,

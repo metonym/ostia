@@ -3,6 +3,7 @@ import { scanGlobs } from "../glob.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
+import { combineSignals } from "../spawn/index.ts"
 import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
@@ -67,6 +68,15 @@ export interface BenchOptions {
    * whole subprocess, not per task - the same granularity `isolate` already
    * runs at. */
   timeoutMs?: number
+  /** Aborting cancels the run: in-flight suite/isolated-task subprocesses
+   * are killed with SIGKILL, no new ones are started, and `bench()` resolves
+   * (never rejects) with whatever suites/tasks had already finished when the
+   * signal fired, plus an `aborted` warning on the document's last
+   * measurement. A suite subprocess killed mid-run contributes nothing (it
+   * only writes its result once, at the end), so a suite that was in flight
+   * when the signal fired is dropped entirely rather than partially
+   * represented. */
+  signal?: AbortSignal
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
@@ -215,7 +225,11 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     let failure: Error | undefined
 
     const worker = async (): Promise<void> => {
-      while (failure === undefined && next < argvList.length) {
+      while (
+        failure === undefined &&
+        !opts.signal?.aborted &&
+        next < argvList.length
+      ) {
         const index = next++
         try {
           let timedOut = false
@@ -230,19 +244,21 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
             },
             { once: true },
           )
+          const signal = combineSignals(timeoutSignal, opts.signal)
           const proc = Bun.spawn(argvList[index]!, {
             cwd,
             stdout: "inherit",
             stderr: "inherit",
             stdin: "ignore",
-            ...(timeoutSignal && {
-              signal: timeoutSignal,
-              killSignal: "SIGKILL" as const,
-            }),
+            ...(signal && { signal, killSignal: "SIGKILL" as const }),
           })
           inFlight.add(proc)
           const exitCode = await proc.exited
           inFlight.delete(proc)
+          // Killed by the caller's cancellation, not a timeout or a real
+          // failure: the run is already stopping, so this isn't a new error
+          // to surface - just stop pulling more work.
+          if (opts.signal?.aborted) return
           if (timedOut) {
             throw new Error(
               `Bench suite timed out after ${opts.timeoutMs}ms: ${describe(index)}`,
@@ -297,15 +313,24 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     ])
     await spawnPooled(primaryArgv, (i) => opts.suites[i]!)
 
+    // A suite's subprocess writes its plan/primary files once, at the very
+    // end of its run: if cancellation killed it mid-run, neither file
+    // exists, and that suite contributes nothing to the document rather
+    // than a partial/corrupt read.
     const plans: PlannedTask[][] = await Promise.all(
       planPaths.map(async (p) => {
+        if (!(await Bun.file(p).exists())) return []
         const { tasks } = (await Bun.file(p).json()) as {
           tasks: PlannedTask[]
         }
         return tasks
       }),
     )
-    const primaryDocs = await Promise.all(primaryPaths.map(loadDocument))
+    const primaryDocs: (ProfileDocument | undefined)[] = await Promise.all(
+      primaryPaths.map(async (p) =>
+        (await Bun.file(p).exists()) ? loadDocument(p) : undefined,
+      ),
+    )
 
     // Phase 2: each isolated task gets its own dedicated subprocess, pooled
     // the same way phase 1 was.
@@ -335,7 +360,11 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     ])
     await spawnPooled(itemArgv, (i) => opts.suites[items[i]!.suiteIndex]!)
 
-    const itemDocs = await Promise.all(itemPaths.map(loadDocument))
+    const itemDocs: (ProfileDocument | undefined)[] = await Promise.all(
+      itemPaths.map(async (p) =>
+        (await Bun.file(p).exists()) ? loadDocument(p) : undefined,
+      ),
+    )
 
     // Reassemble each suite's contribution in the plan's order (registration
     // order, filtered) regardless of which item a task landed in, then
@@ -347,7 +376,11 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     const workloads: Workload[] = []
     const measurements: Measurement[] = []
     for (let s = 0; s < plans.length; s++) {
-      const sharedDoc = primaryDocs[s]!
+      // Cancelled before this suite's subprocess finished: nothing was
+      // written for it, so it's absent from the document entirely rather
+      // than represented with zero workloads.
+      const sharedDoc = primaryDocs[s]
+      if (!sharedDoc) continue
       const sharedMeasurementsByWorkloadId = new Map<string, Measurement[]>()
       for (const m of sharedDoc.measurements) {
         const list = sharedMeasurementsByWorkloadId.get(m.workloadId) ?? []
@@ -357,14 +390,18 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       let sharedPtr = 0
       const isolatedDocById = new Map<string, ProfileDocument>()
       items.forEach((it, i) => {
-        if (it.suiteIndex === s) {
-          isolatedDocById.set(it.taskIds[0]!, itemDocs[i]!)
+        const doc = itemDocs[i]
+        if (it.suiteIndex === s && doc) {
+          isolatedDocById.set(it.taskIds[0]!, doc)
         }
       })
 
       for (const t of plans[s]!) {
         if (t.isolate) {
-          const doc = isolatedDocById.get(t.id)!
+          // Cancelled before this isolated task's dedicated subprocess
+          // finished: drop just this task rather than the whole suite.
+          const doc = isolatedDocById.get(t.id)
+          if (!doc) continue
           const workload = doc.workloads[0]!
           workloads.push(workload)
           for (const m of doc.measurements) {
@@ -382,7 +419,23 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       }
     }
 
-    return newDocument(workloads, measurements, primaryDocs[0]?.environment)
+    if (opts.signal?.aborted && measurements.length > 0) {
+      const last = measurements[measurements.length - 1]!
+      last.warnings = [
+        ...last.warnings,
+        {
+          code: "aborted",
+          message:
+            "Run was cancelled before it finished; this document holds whatever suites/tasks had already completed.",
+        },
+      ]
+    }
+
+    return newDocument(
+      workloads,
+      measurements,
+      primaryDocs.find((d) => d !== undefined)?.environment,
+    )
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited
   }

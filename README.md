@@ -194,6 +194,13 @@ never times out); `ostia ci` defaults every workload to 10 minutes unless its co
 contributes no sample; if every trial of a command times out, that command has no timing
 stats and prints like a skipped workload instead of an empty row.
 
+`time(opts)` / `bench(opts)` also take a `signal?: AbortSignal`: aborting kills every
+in-flight child process with SIGKILL, stops scheduling new trials, and resolves (never
+rejects) with the document built from whatever measurements had already completed, plus
+an `aborted` warning on the document's last measurement. `Ctrl-C` on the CLI wires this up
+for you - `ostia time`/`ostia bench` cancel cleanly, still write `--export-json` of
+whatever finished, and exit `130`, instead of the process just dying mid-spawn.
+
 Timing table (two commands get a Relative column automatically):
 
 ```
@@ -714,6 +721,8 @@ const doc = await time({
   cpuIntervalUs: 200,
   outDir: "node_modules/.cache/ostia", // default; artifacts land under here
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
+  timeoutMs: 30_000, // kill a hung trial/prepare hook with SIGKILL; no default
+  signal: controller.signal, // abort to cancel: kills in-flight children, keeps partial results
 })
 ```
 
@@ -740,7 +749,11 @@ const doc = await time({
 In-process capture. `origin: "jsc"` is the only path that reports JIT tiers
 (LLInt / Baseline / DFG / FTL). Default `origin: "inspector"` writes portable CDP-shaped
 evidence instead. `document` is a full `ProfileDocument` (the one workload and
-measurement), so it composes with `renderers.*` or `saveDocument` directly.
+measurement), so it composes with `renderers.*` or `saveDocument` directly. `profile()`
+also takes a `signal?: AbortSignal`, but `fn` runs in this process - there's no child to
+kill, so an already-aborted signal only skips the profiler instrumentation (still running
+`fn` plain and returning its `result`, with an `aborted` warning in place of CPU evidence);
+it can't interrupt `fn` once it's running.
 
 ```ts
 const { result, measurement, document } = await profile(

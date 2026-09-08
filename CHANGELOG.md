@@ -48,6 +48,9 @@
 - `saveDocument` writes atomically (`${path}.tmp-${pid}` then a rename), so
   a killed `ci --save-baseline` (or any interrupted save) never leaves a
   truncated document at the target path.
+- README: `bench(opts)` now has its own `### bench(opts)` heading instead
+  of sitting unheaded between `range()` and `compareDocuments()`, and no
+  longer trails a verbatim duplicate of the `time()` command-object example.
 
 **Breaking**
 

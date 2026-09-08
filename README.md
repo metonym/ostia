@@ -936,6 +936,10 @@ range(100, 10_000)   // -> [100, 800, 6400, 10000]
 range(100, 100_000)  // -> [100, 800, 6400, 51200, 100000]
 ```
 
+### `bench(opts)` → `ProfileDocument`
+
+In-process suite runner, same behavior as `ostia bench`.
+
 ```ts
 // demo.ts
 import { bench } from "ostia"
@@ -947,24 +951,6 @@ const doc = await bench({
   minSamples: 50,
   jobs: 1, // suite files at once; > 1 trades fidelity for wall time
   noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
-})
-```
-
-A command can also be an object - `{ command, label?, prepare?, timeSource? }` - whose
-`prepare`/`timeSource` override the top-level ones for that command. That's how one
-command becomes several labeled workloads in the same document:
-
-```ts
-const build = ["bun", "cli.ts", "build", "fixture"]
-const inMs = { pattern: /in (\d+)ms/ }
-const doc = await time({
-  commands: [
-    { command: build, label: "warm", timeSource: inMs },
-    { command: build, label: "incremental", timeSource: inMs, prepare: () => touchPost() },
-    { command: build, label: "cold", timeSource: inMs, prepare: "rm -rf fixture/dist" },
-    { command: build, label: "wall clock" }, // same command, no timeSource: wall time
-  ],
-  samples: 5,
 })
 ```
 

@@ -28,6 +28,13 @@
   overrides config individually. Each flag now has a `--no-*` counterpart
   (`--no-gc`, `--no-cpu`, `--no-alloc`, `--no-isolate`) and the merge is
   `cli ?? config ?? false`.
+- `requireConfig`'s "no workloads configured" message named
+  `ostia.config.json` even when `ostia.config.ts` was the file actually
+  loaded; it now names the real file (new `configFilePath()` export).
+  Fixed the misaligned `--baseline NAME` line in `ostia ci --help`. Help
+  text and README now say `--samples` is a per-command trial count on
+  `ostia time` (each command gets its own N, not a shared total) the same
+  way it already was documented as per-task on `ostia bench`.
 
 **Breaking**
 

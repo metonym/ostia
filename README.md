@@ -134,11 +134,12 @@ ostia time --samples 25 --warmup 3 --cpu --heap "bun src/server.ts"
 ostia time --format json --export-json out.json "bun a.ts"
 ```
 
-`--samples N` is an exact trial count; `--budget MS`
+`--samples N` is an exact trial count *per command* (with 2+ commands, each gets its
+own N trials, not a total split across them); `--budget MS`
 is a wall-clock time budget instead (default: a hyperfine-style ~3s min-total-time
 loop when neither is given); `--min-samples N` is a hard floor when `--samples` isn't
 given. The same three names work on `ostia bench` (`--budget`/`--samples`/
-`--min-samples`), where `--budget` is a per-task sampling window -
+`--min-samples`), where `--samples`/`--budget` are per-task the same way -
 `warmup` differs by surface, though: a trial count here, a
 *fraction* of the budget for `ostia bench`, since in-process warmup has no natural
 "N calls" unit before the JIT has even seen the function once.

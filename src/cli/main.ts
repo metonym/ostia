@@ -3,7 +3,12 @@ import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
 import { BaselineNotFoundError, renderCiReport, runCi } from "../ci/index.ts"
 import { compareDocuments } from "../compare/index.ts"
-import { baselinePath, loadConfig, type OstiaConfig } from "../config/index.ts"
+import {
+  baselinePath,
+  configFilePath,
+  loadConfig,
+  type OstiaConfig,
+} from "../config/index.ts"
 import { type CommandSpec, time } from "../index.ts"
 import { loadDocument, saveDocument } from "../ir/document.ts"
 import type { ProfileDocument } from "../ir/types.ts"
@@ -128,7 +133,8 @@ async function requireConfig(
     return undefined
   }
   if (command && config.workloads.length === 0) {
-    process.stderr.write(`ostia.config.json has no "workloads" configured.\n`)
+    const configFile = (await configFilePath()) ?? "ostia.config.json"
+    process.stderr.write(`${configFile} has no "workloads" configured.\n`)
     return undefined
   }
   return config
@@ -162,7 +168,8 @@ const TIME_HELP = `ostia time [flags] <command...>
 Time one or more commands N times with warmup and report timing statistics.
 
 Flags:
-  --samples N         exact number of timed trials
+  --samples N         exact number of timed trials per command (each command gets its
+                       own N trials, not a total split across them)
   --budget MS         wall-clock time budget for the sampling loop (default: a
                        hyperfine-style ~3s min-total-time loop when neither
                        --samples nor --budget is given)
@@ -376,7 +383,7 @@ fingerprint is unchanged), compare against the named baseline, and gate on regre
 
 Flags:
   --full              ignore the cache; rerun every configured workload
-  --baseline NAME      baseline name (default: config's "baseline" field, or "main")
+  --baseline NAME     baseline name (default: config's "baseline" field, or "main")
   --save-baseline     after a pass (no regressions), write the just-measured document as
                        the new baseline at the same path just compared against - promotes
                        today's numbers to tomorrow's floor in one step.

@@ -103,6 +103,60 @@ describe("loadConfig", () => {
       await Bun.$`rm -rf ${tmpDir}`
     }
   }, 10_000)
+})
+
+/** `configFilePath()` reads the CURRENT process's cwd (mirroring
+ * `loadConfig()`'s no-arg discovery), so it needs a subprocess the same way
+ * `loadConfigIn` above does. */
+async function configFilePathIn(cwd: string): Promise<string | null> {
+  const proc = Bun.spawn(
+    [
+      "bun",
+      "-e",
+      `import { configFilePath } from "${CONFIG_MODULE}"; console.log(JSON.stringify((await configFilePath()) ?? null))`,
+    ],
+    { cwd, stdout: "pipe", stderr: "pipe" },
+  )
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+  expect(exitCode).toBe(0)
+  if (stderr) throw new Error(stderr)
+  return JSON.parse(stdout.trim())
+}
+
+describe("configFilePath", () => {
+  test("prefers ostia.config.ts over ostia.config.json", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-file-path-ts-"))
+    try {
+      await Bun.write(join(tmpDir, "ostia.config.ts"), "export default {}\n")
+      await Bun.write(join(tmpDir, "ostia.config.json"), "{}")
+      expect(await configFilePathIn(tmpDir)).toBe("ostia.config.ts")
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
+
+  test("falls back to ostia.config.json when no .ts config exists", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-file-path-json-"))
+    try {
+      await Bun.write(join(tmpDir, "ostia.config.json"), "{}")
+      expect(await configFilePathIn(tmpDir)).toBe("ostia.config.json")
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
+
+  test("returns undefined when neither config file exists", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-file-path-none-"))
+    try {
+      expect(await configFilePathIn(tmpDir)).toBeNull()
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }, 10_000)
 
   test("merges minimal config with DEFAULT_CONFIG", async () => {
     const tmpDir = await mkdtemp(join(tmpdir(), "config-test-"))

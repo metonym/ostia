@@ -200,6 +200,27 @@ describe("ostia per-command format lists", () => {
   }, 10_000)
 })
 
+describe("ostia requireConfig wording", () => {
+  test(`"no workloads" error names the actual config file, not a hardcoded ostia.config.json`, async () => {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(join(tmpdir(), "ostia-cli-config-wording-test-"))
+    try {
+      await Bun.write(
+        join(cwd, "ostia.config.ts"),
+        `import { defineConfig } from "${import.meta.dir}/../../src/index.ts"\n` +
+          `export default defineConfig({ workloads: [] })\n`,
+      )
+      const { stderr, exitCode } = await runCli(["ci"], { cwd })
+      expect(exitCode).toBe(2)
+      expect(stderr).toContain(`ostia.config.ts has no "workloads" configured`)
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 10_000)
+})
+
 describe("ostia bench - task.skip/.only (item 10)", () => {
   const OUT_DIR = `${import.meta.dir}/../../.ostia-test-cli-bench`
 

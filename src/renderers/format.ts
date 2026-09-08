@@ -63,3 +63,25 @@ export function workloadLabel(w: Workload | undefined): string {
     w?.label ?? w?.command?.join(" ") ?? w?.entry?.task ?? w?.id ?? "unknown"
   )
 }
+
+/** `1.00× (baseline)` / `1.00×` / `2.43× slower` / `1.95× faster` - a Relative
+ * cell's text, shared by the terminal and markdown renderers so the two
+ * can't drift on what "Relative" means. */
+export function formatRelative(relative: number, baseline: boolean): string {
+  if (relative === 1) return baseline ? "1.00× (baseline)" : "1.00×"
+  if (relative > 1) return `${relative.toFixed(2)}× slower`
+  return `${(1 / relative).toFixed(2)}× faster`
+}
+
+/** Escapes text for a GFM table cell: `|` (column separator), `<`/`>` (raw
+ * HTML), backticks (code spans), and newlines (which would otherwise break
+ * the row) - so a task/frame/param name containing any of these renders as
+ * one intact row instead of corrupting the table. */
+export function escapeMdCell(s: string): string {
+  return s
+    .replace(/\|/g, "\\|")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/`/g, "\\`")
+    .replace(/\r\n|\r|\n/g, "<br>")
+}

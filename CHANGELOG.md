@@ -113,6 +113,16 @@
   `time-source-no-match` / `document-load-failed` / `no-cpu-evidence` /
   `internal` - a script no longer has to pattern-match prose to tell one
   harness failure from another. Never written to stdout.
+- `markdown` now escapes `|`, `<`, `>`, backticks, and newlines in every
+  table cell (task/frame/heap-type labels and pivot table param values) -
+  a task named `a | b` used to corrupt the table by splitting into extra
+  columns. Its flat timing table also gains a `Relative` column once
+  there are 2+ tasks, matching the terminal table (shares the new
+  `formatRelative` helper with it). Its `Comparisons` section now shows
+  `n` (candidate sample count), `95% CI`, `p`, and the effective
+  threshold alongside each timing delta, with a `~` prefix when the
+  verdict is `unchanged` and `pValue` is past `alpha` (a point estimate
+  that looks like a change but isn't a significant one).
 
 **Fixes**
 

@@ -911,6 +911,108 @@ describe("markdown renderer - params: pivot table or key=value suffix", () => {
   })
 })
 
+describe("markdown renderer - table safety and parity (task 05.5)", () => {
+  test("a task named 'weird | label <tag>' renders as one intact, escaped row", async () => {
+    const workload = makeSubprocessWorkload(
+      ["bun", "weird.ts"],
+      "weird | label <tag>",
+    )
+    const samples = [1_000_000, 1_100_000, 900_000]
+    const doc = newDocument(
+      [workload],
+      [
+        makeTimingMeasurement({
+          workload,
+          configFingerprint: "cfg",
+          trials: samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const result = await renderers.markdown.render(doc, {})
+    const timingTableLines = result
+      .text!.split("\n")
+      .filter((l) => l.startsWith("| weird"))
+    // A literal "|" in the label would have split this into two rows (one
+    // starting with "| weird | label <tag..." and a stray "tag> | ...").
+    expect(timingTableLines).toHaveLength(1)
+    expect(timingTableLines[0]).toContain("weird \\| label &lt;tag&gt;")
+    expect(timingTableLines[0]).toMatch(/\| \d.*ms \|.*ms….*ms \|/)
+  })
+
+  test("adds a Relative column to the flat timing table once there are 2+ tasks", async () => {
+    const doc = fixedDoc()
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).toContain(
+      "| Task | Median | Spread (p75…p99) | Mean ± SD | Range | MAD | Relative |",
+    )
+    expect(result.text).toContain("1.00×")
+    expect(result.text).toMatch(/\d\.\d\d× slower/)
+  })
+
+  test("omits the Relative column for a single task", async () => {
+    const doc = fixedDoc()
+    doc.workloads = [doc.workloads[0]!]
+    doc.measurements = [doc.measurements[0]!]
+    const result = await renderers.markdown.render(doc, {})
+    expect(result.text).not.toContain("Relative")
+  })
+
+  test("the Comparisons section shows n, ci95, p, and the effective threshold, with a ~ marker for a thin non-significant delta", async () => {
+    const workload = makeSubprocessWorkload(["bun", "a.ts"], "bun a.ts")
+    const baseSamples = [
+      10_000_000, 10_100_000, 10_050_000, 9_950_000, 10_020_000,
+    ]
+    const candSamples = [
+      10_010_000, 10_090_000, 10_040_000, 9_960_000, 10_030_000,
+    ]
+    const base = newDocument(
+      [workload],
+      [
+        makeTimingMeasurement({
+          workload,
+          configFingerprint: "cfg",
+          trials: baseSamples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+          timing: computeTimingStats(baseSamples),
+          warnings: [],
+        }),
+      ],
+    )
+    const cand = newDocument(
+      [workload],
+      [
+        makeTimingMeasurement({
+          workload,
+          configFingerprint: "cfg",
+          trials: candSamples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+          timing: computeTimingStats(candSamples),
+          warnings: [],
+        }),
+      ],
+    )
+    const cmp = compareWorkload(base, cand, workload.id)!
+    cand.comparisons = [cmp]
+    const result = await renderers.markdown.render(cand, {})
+    const timingLine = result
+      .text!.split("\n")
+      .find((l) => l.startsWith("- timing:"))!
+    expect(timingLine).toContain("n=5")
+    expect(timingLine).toContain(
+      `threshold ${cmp.thresholds.effectiveTimingPct.toFixed(1)}%`,
+    )
+    if (cmp.timing?.ci95) expect(timingLine).toContain("95% CI [")
+    if (cmp.timing?.pValue !== undefined) expect(timingLine).toContain("p=")
+    if (
+      cmp.timing?.verdict === "unchanged" &&
+      cmp.timing.pValue !== undefined &&
+      cmp.timing.pValue >= cmp.thresholds.alpha
+    ) {
+      expect(timingLine).toContain("~")
+    }
+  })
+})
+
 describe("markdown renderer - task.skip() (item 10)", () => {
   test("a skipped workload renders as a '- skipped' row in the Timing table", async () => {
     const w = makeEntryWorkload("suite.ts", "solo", {

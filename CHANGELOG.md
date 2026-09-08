@@ -51,6 +51,8 @@
 - README: `bench(opts)` now has its own `### bench(opts)` heading instead
   of sitting unheaded between `range()` and `compareDocuments()`, and no
   longer trails a verbatim duplicate of the `time()` command-object example.
+- `package.json` declares `"engines": { "bun": ">=1.4.0" }`, carried through
+  into the published package by `scripts/build.ts`.
 
 **Breaking**
 

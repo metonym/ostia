@@ -122,3 +122,13 @@ export async function loadConfig(
 export function baselinePath(config: OstiaConfig, name?: string): string {
   return `${config.baselineDir}/${name ?? config.baseline}.json`
 }
+
+/** Which file `loadConfig()`'s no-arg discovery would read: `ostia.config.ts`
+ * if present, else `ostia.config.json` if present, else undefined - for
+ * messaging (e.g. naming the actual file a "no workloads configured" error
+ * is about), not for loading. */
+export async function configFilePath(): Promise<string | undefined> {
+  if (await Bun.file("ostia.config.ts").exists()) return "ostia.config.ts"
+  if (await Bun.file("ostia.config.json").exists()) return "ostia.config.json"
+  return undefined
+}

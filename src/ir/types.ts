@@ -116,7 +116,6 @@ export interface Measurement {
   jit?: JitTierBreakdown
   warnings: Warning[]
   artifacts: ArtifactRef[]
-  baselineMeasurementId?: string
   /** True when this timing measurement's trials were run round-robin against
    * the other commands in the same `time()` call (`--interleave`, default on
    * for 2+ commands) rather than run to completion before the next command
@@ -194,7 +193,6 @@ export interface HeapEvidence {
   heapSizeBytes?: number
   objectCount?: number
   typeCounts: { type: string; count: number; retainedBytes?: number }[]
-  snapshotArtifactId?: string
 }
 
 export interface MemoryEvidence {
@@ -216,21 +214,25 @@ export interface JitTierBreakdown {
   topFramesByTier?: { tier: string; frameKey: string; samples: number }[]
 }
 
-export type WarningCode =
-  | "slow-first-run"
-  | "outliers-detected"
-  | "fast-command"
-  | "nonzero-exit"
-  | "instrumented-timing"
-  | "artifact-missing"
-  | "empty-profile"
-  | "below-timer-resolution"
-  | "cache-fallback-rerun"
-  | "low-sample-count"
-  | "thin-comparison"
-  | "noisy-machine"
-  | "skipped"
-  | "jit-cold"
+/** Every `Warning.code` a renderer or consumer may see. Kept as a runtime
+ * array (not just a type) so a test can assert every member is actually
+ * emitted somewhere in `src/` - no code can go dead silently again. */
+export const WARNING_CODES = [
+  "slow-first-run",
+  "outliers-detected",
+  "fast-command",
+  "nonzero-exit",
+  "artifact-missing",
+  "empty-profile",
+  "below-timer-resolution",
+  "low-sample-count",
+  "thin-comparison",
+  "noisy-machine",
+  "skipped",
+  "jit-cold",
+] as const
+
+export type WarningCode = (typeof WARNING_CODES)[number]
 
 export interface Warning {
   code: WarningCode

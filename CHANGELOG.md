@@ -56,6 +56,12 @@
 - `time`/`bench`/`compare --format` now rejects `collapsed`/`mermaid`/
   `speedscope`/`cpuprofile`; use `ostia report --format <viz>` on an
   exported document instead.
+- Removed `Measurement.baselineMeasurementId`, `HeapEvidence.snapshotArtifactId`,
+  and the `WarningCode`s `"instrumented-timing"` / `"cache-fallback-rerun"`:
+  none of the three were ever read or emitted. `ProfileDocument.schemaVersion`
+  stays `2` since nothing readable changes shape. A new `WARNING_CODES` export
+  (`src/ir/types.ts`) backs a test asserting every remaining code is emitted
+  somewhere, so this can't happen silently again.
 
 ## 0.2.2 — 2026-09-06
 

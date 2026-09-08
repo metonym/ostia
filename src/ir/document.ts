@@ -273,9 +273,7 @@ interface ProfileDocumentV1 {
   platform: { os: string; arch: string }
   createdAt: string
   workloads: Workload[]
-  runs: (Omit<Measurement, "baselineMeasurementId"> & {
-    baselineRunId?: string
-  })[]
+  runs: (Measurement & { baselineRunId?: string })[]
   comparisons?: (Omit<
     Comparison,
     "baselineMeasurementId" | "candidateMeasurementId"
@@ -287,7 +285,9 @@ interface ProfileDocumentV1 {
 
 /** Upgrades a v1 document (schemaVersion 1: `runs`, `Comparison.baselineRunId`
  * / `candidateRunId`) to the current v2 shape in memory, so a baseline saved
- * before the `Run` -> `Measurement` rename still loads. */
+ * before the `Run` -> `Measurement` rename still loads. `runs[].baselineRunId`
+ * has no v2 home (`Measurement.baselineMeasurementId` was dead and removed)
+ * and is dropped. */
 function upgradeDocument(
   raw: ProfileDocumentV1 | ProfileDocument,
 ): ProfileDocument {
@@ -296,12 +296,7 @@ function upgradeDocument(
   return {
     ...rest,
     schemaVersion: 2,
-    measurements: runs.map(({ baselineRunId, ...m }) => ({
-      ...m,
-      ...(baselineRunId !== undefined && {
-        baselineMeasurementId: baselineRunId,
-      }),
-    })),
+    measurements: runs.map(({ baselineRunId: _baselineRunId, ...m }) => m),
     ...(comparisons !== undefined && {
       comparisons: comparisons.map(
         ({ baselineRunId, candidateRunId, ...c }) => ({

@@ -157,6 +157,49 @@ describe("ostia unknown flags and single-positional validation", () => {
   }, 5_000)
 })
 
+describe("ostia per-command format lists", () => {
+  test("time --format collapsed is rejected (a viz format, not a document format)", async () => {
+    const { stderr, exitCode } = await runCli([
+      "time",
+      "--samples",
+      "1",
+      "--warmup",
+      "0",
+      "--no-noise-check",
+      "--format",
+      "collapsed",
+      "bun -e 1",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Unknown --format "collapsed"`)
+    expect(stderr).not.toContain("cpuprofile")
+  }, 10_000)
+
+  test("report --format collapsed on a document with no CPU evidence exits 2", async () => {
+    const path = `${import.meta.dir}/../../.ostia-test-cli-no-cpu-doc.json`
+    try {
+      const doc = await time({
+        commands: [["bun", "-e", "1"]],
+        samples: 1,
+        warmup: 0,
+        noiseCheck: false,
+      })
+      await saveDocument(doc, path)
+
+      const { stderr, exitCode } = await runCli([
+        "report",
+        path,
+        "--format",
+        "collapsed",
+      ])
+      expect(exitCode).toBe(2)
+      expect(stderr).toContain("No CPU evidence in this document")
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  }, 10_000)
+})
+
 describe("ostia bench - task.skip/.only (item 10)", () => {
   const OUT_DIR = `${import.meta.dir}/../../.ostia-test-cli-bench`
 

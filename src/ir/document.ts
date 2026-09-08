@@ -306,8 +306,54 @@ function upgradeDocument(
   }
 }
 
+export class OstiaDocumentError extends Error {
+  readonly code: "invalid-json" | "not-a-document" | "unsupported-schema"
+  readonly path?: string
+  readonly schemaVersion?: unknown
+
+  constructor(
+    code: OstiaDocumentError["code"],
+    message: string,
+    opts: { path?: string; schemaVersion?: unknown } = {},
+  ) {
+    super(message)
+    this.name = "OstiaDocumentError"
+    this.code = code
+    this.path = opts.path
+    this.schemaVersion = opts.schemaVersion
+  }
+}
+
 export async function loadDocument(path: string): Promise<ProfileDocument> {
   const text = await Bun.file(path).text()
-  const raw = JSON.parse(text) as ProfileDocumentV1 | ProfileDocument
-  return upgradeDocument(raw)
+  let raw: unknown
+  try {
+    raw = JSON.parse(text)
+  } catch (err) {
+    const cause = err instanceof Error ? err.message : String(err)
+    throw new OstiaDocumentError(
+      "invalid-json",
+      `${path}: invalid JSON (${cause})`,
+      { path },
+    )
+  }
+  const schemaVersion =
+    raw !== null && typeof raw === "object"
+      ? (raw as { schemaVersion?: unknown }).schemaVersion
+      : undefined
+  if (typeof schemaVersion !== "number") {
+    throw new OstiaDocumentError(
+      "not-a-document",
+      `${path}: not a ProfileDocument (missing schemaVersion)`,
+      { path },
+    )
+  }
+  if (schemaVersion !== 1 && schemaVersion !== 2) {
+    throw new OstiaDocumentError(
+      "unsupported-schema",
+      `${path}: unsupported ProfileDocument schemaVersion ${schemaVersion} (this ostia reads 1–2)`,
+      { path, schemaVersion },
+    )
+  }
+  return upgradeDocument(raw as ProfileDocumentV1 | ProfileDocument)
 }

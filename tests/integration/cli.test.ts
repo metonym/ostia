@@ -371,3 +371,19 @@ describe("ostia compare - git metadata line (item 17)", () => {
     }
   }, 20_000)
 })
+
+describe("ostia report - garbage document", () => {
+  test("an unsupported schemaVersion exits 2 with the OstiaDocumentError message", async () => {
+    const path = `${import.meta.dir}/../../.ostia-test-cli-garbage-doc.json`
+    try {
+      await Bun.write(path, JSON.stringify({ schemaVersion: 3 }))
+      const { stderr, exitCode } = await runCli(["report", path])
+      expect(exitCode).toBe(2)
+      expect(stderr).toContain(
+        "unsupported ProfileDocument schemaVersion 3 (this ostia reads 1–2)",
+      )
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  }, 10_000)
+})

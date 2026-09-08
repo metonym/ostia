@@ -39,6 +39,12 @@
   of a hardcoded `"0.1.0"` literal, so `toolVersion` on every document and
   baseline, `report --format markdown`'s printed version, and measurement/
   cache fingerprints all track the installed package version
+- `loadDocument` throws a new `OstiaDocumentError` (`code: "invalid-json" |
+  "not-a-document" | "unsupported-schema"`, exported from the library) with
+  a clear message instead of an opaque `TypeError` for invalid JSON, JSON
+  that isn't a `ProfileDocument`, or a `schemaVersion` other than 1 or 2.
+  `compare`, `report`, `baseline show`, and `ci` (baseline load) print the
+  message to stderr and exit 2.
 
 **Breaking**
 

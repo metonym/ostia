@@ -47,6 +47,7 @@ export type {
 export {
   loadDocument,
   newDocument as createDocument,
+  OstiaDocumentError,
   saveDocument,
 } from "./ir/document.ts"
 export type {

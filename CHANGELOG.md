@@ -78,6 +78,12 @@
 - A `--prepare` hook's stderr no longer streams live to the terminal (see
   Features above); it's only visible via the thrown error when the hook
   actually fails.
+- A `command` workload's id no longer includes `process.cwd()`: it now
+  hashes only the command argv, `prepare`, and `timeSource` - what is
+  measured, not where the measuring process ran. This matches how
+  `inprocess`/entry workload ids already worked. Every existing baseline is
+  now stale (its rows won't match any candidate's id); re-save with `ostia
+  baseline save`. There is no migration command.
 
 **Fixes**
 

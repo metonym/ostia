@@ -45,6 +45,15 @@ export interface Environment {
 }
 
 export interface Workload {
+  /** Identifies what is measured, not where or when it ran: for a
+   * `subprocess` workload, a hash of the command argv, `prepare`
+   * (command form or function source), and `timeSource` spec -
+   * deliberately excluding `process.cwd()`, so a baseline saved from one
+   * checkout (a CI runner, a different worktree) still matches a candidate
+   * measured from another. For an `inprocess` workload, a hash of the
+   * function source (or, for a registry entry, the file/task name plus
+   * `params`). `label`, `description`, and `baseline` are annotations and
+   * never affect it. */
   id: string
   kind: "subprocess" | "inprocess"
   label?: string

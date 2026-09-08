@@ -704,6 +704,13 @@ independent - `baselineDir` doesn't move just because you override `outDir`.
 Baselines are JSON under `.ostia/baselines/` (gitignored). `ostia ci` only needs the file
 on disk; it does not need to be committed.
 
+A workload's id identifies *what* is measured, not where the measuring process ran: for a
+`command` workload it hashes the command argv, `prepare`, and `timeSource`, and
+deliberately excludes `process.cwd()`. That means the same command measured from a CI
+runner, a developer's checkout, or a different git worktree of the same repo produces the
+same id and matches the same baseline row - `label` changes and switching directories
+never orphan a baseline.
+
 `ostia baseline save [name]` measures every configured workload (the same code path
 `ostia ci` gates against, no comparison) and writes it to `<baselineDir>/<name>.json`
 (default name: config's `"baseline"` field, or `"main"`). `ostia baseline list` shows every

@@ -26,6 +26,11 @@ export interface CiOptions {
   baselineName?: string
 }
 
+/** `ostia ci` (and `ostia baseline save`, which shares this code path) time
+ * out a hung workload rather than block a CI job indefinitely; a per-workload
+ * `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` overrides this. */
+const DEFAULT_CI_TIMEOUT_MS = 600_000
+
 type WorkloadStatus = "cached" | "executed"
 
 export interface MeasuredWorkload {
@@ -94,6 +99,7 @@ export async function measureConfigWorkloads(
           typeof config.bench?.jobs === "number"
             ? config.bench.jobs
             : undefined,
+        timeoutMs: config.bench?.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
       })
       for (const workload of doc.workloads) {
         const run = doc.measurements.find(
@@ -147,6 +153,7 @@ export async function measureConfigWorkloads(
         warmup: config.warmup,
         prepare: wc.prepare,
         timeSource: wc.timeSource,
+        timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
       })
       run = makeTimingMeasurement({
         workload,

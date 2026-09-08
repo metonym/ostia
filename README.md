@@ -187,6 +187,13 @@ they're two workloads with two verdicts. Note the reported number has whatever r
 the tool printed (usually whole ms), so its confidence interval is coarser than a
 nanosecond wall clock's.
 
+`--timeout MS` kills a trial (or `--prepare` hook) with SIGKILL if it hasn't finished after
+`MS` ms, so a hung command can't stall the whole run. No default for `time`/`bench` (unset
+never times out); `ostia ci` defaults every workload to 10 minutes unless its config sets
+`timeoutMs`. A timed-out trial resolves (never throws) with `Trial.timedOut: true` and
+contributes no sample; if every trial of a command times out, that command has no timing
+stats and prints like a skipped workload instead of an empty row.
+
 Timing table (two commands get a Relative column automatically):
 
 ```
@@ -294,6 +301,12 @@ the JIT never warmed the task up in that 200ms window, so its CPU numbers (and b
 extension its timing) may not reflect steady state - the cpu measurement carries a
 `jit-cold` warning (`{ llintPct, baselinePct, dfgPct, ftlPct }`), printed alongside the
 CPU capture in the terminal table and folded into the task's line in `--format minimal`.
+
+`--timeout MS` kills a suite file's subprocess (or, under `--isolate`, one task's dedicated
+subprocess) with SIGKILL if it hasn't finished after `MS` ms - the same option `ostia time`
+has, applied at the subprocess granularity `--isolate` already runs at rather than per task.
+No default (unset never times out); `ostia ci` defaults every `suites` entry to 10 minutes
+unless its config sets `bench.timeoutMs`.
 
 `--preload PATH` (repeatable) imports a script before each suite file loads, in the same
 subprocess - the same shape as Bun's own `--preload` / `bunfig.toml`'s `preload` array. Use

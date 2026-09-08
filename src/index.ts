@@ -88,6 +88,8 @@ export interface CommandSpec {
   prepare?: PrepareHook
   /** Overrides `TimeOptions.timeSource` for this command. */
   timeSource?: TimeSource
+  /** Overrides `TimeOptions.timeoutMs` for this command. */
+  timeoutMs?: number
 }
 
 export interface TimeOptions {
@@ -130,6 +132,12 @@ export interface TimeOptions {
    * true) and stamp it on the document as `environment`. Set false to skip
    * the ~200ms reference measurement. */
   noiseCheck?: boolean
+  /** Kills a trial (or prepare hook) that hasn't finished after this many
+   * ms, with SIGKILL. No default: an unset `timeoutMs` never times out. A
+   * timed-out trial contributes no sample; if every trial of a command times
+   * out, that command has no timing stats. `CommandSpec.timeoutMs` overrides
+   * it per command. */
+  timeoutMs?: number
 }
 
 const DEFAULT_CPU_INTERVAL_US = 1000
@@ -189,12 +197,13 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       : splitCommand(spec.command)
     const prepare = spec.prepare ?? opts.prepare
     const timeSource = spec.timeSource ?? opts.timeSource
+    const timeoutMs = spec.timeoutMs ?? opts.timeoutMs
     const workload = makeSubprocessWorkload(
       argv,
       spec.label ?? (Array.isArray(spec.command) ? undefined : spec.command),
       { prepare, timeSource },
     )
-    return { argv, workload, prepare, timeSource }
+    return { argv, workload, prepare, timeSource, timeoutMs }
   })
 
   const interleave = (opts.interleave ?? true) && entries.length > 1
@@ -209,6 +218,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     warmup: opts.warmup,
     prepare: entry.prepare,
     timeSource: entry.timeSource,
+    timeoutMs: entry.timeoutMs,
   })
 
   const phases = entries.map((entry) =>

@@ -2,6 +2,18 @@
 
 ## Unreleased
 
+**Features**
+
+- `timeoutMs` / `--timeout MS` on `time`/`bench` (`ostia time --timeout MS`,
+  `time({ timeoutMs })`, `CommandSpec.timeoutMs`; `ostia bench --timeout MS`,
+  `bench({ timeoutMs })`) kills a hung trial, `--prepare` hook, or bench
+  subprocess with SIGKILL instead of blocking the run forever. No default
+  for `time`/`bench`; `ostia ci` defaults every workload to 10 minutes
+  (`WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` override it per
+  workload). A timed-out trial resolves with `Trial.timedOut: true` and
+  contributes no sample; if every trial of a command times out, that
+  command has no timing stats and renders like a skipped workload.
+
 **Fixes**
 
 - Numeric CLI flags (`--samples`, `--budget`, `--min-samples`, `--warmup`,

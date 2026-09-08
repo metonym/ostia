@@ -139,7 +139,11 @@ export interface TimingMeasurementInput {
   workload: Workload
   configFingerprint: string
   trials: Trial[]
-  timing: TimingStats
+  /** Absent when every trial was excluded from sampling (e.g. every trial
+   * timed out or, with a `timeSource`, missed the pattern): the measurement
+   * still records the attempt (trials, warnings) but has no timing stats,
+   * and renderers skip it like a skipped workload. */
+  timing?: TimingStats
   warnings: Warning[]
   interleaved?: boolean
 }

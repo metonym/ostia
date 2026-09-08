@@ -196,6 +196,10 @@ Flags:
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
   --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
+  --timeout MS        kill a trial (or --prepare hook) with SIGKILL if it hasn't finished
+                       after this many ms. No default: unset never times out. A timed-out
+                       trial contributes no sample; if every trial of a command times out,
+                       that command has no timing stats.
   --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
   --no-noise-check    skip the ~200ms machine noise floor reference measurement
   --export-json PATH  write the full ProfileDocument to PATH
@@ -258,6 +262,9 @@ Flags:
                        --jobs then pools across those per-task processes, so pair a
                        higher --jobs with --isolate deliberately: overhead now scales
                        with task count, not file count.
+  --timeout MS        kill a suite file's subprocess (or, under --isolate, one task's
+                       dedicated subprocess) with SIGKILL if it hasn't finished after this
+                       many ms. No default: unset never times out.
   --preload PATH      script imported before each suite file loads, in the same
                        subprocess (repeatable; runs in the order given). Use it to
                        install globals (jsdom's document/window) or register a
@@ -429,6 +436,7 @@ interface TimeArgs {
   cpu: boolean
   heap: boolean
   cpuIntervalUs?: number
+  timeoutMs?: number
   outDir?: string
   noiseCheck: boolean
   exportJson?: string
@@ -487,6 +495,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         args.cpuIntervalUs = parseIntFlag("--cpu-interval", argv[++i], {
           min: 1,
         })
+        break
+      case "--timeout":
+        args.timeoutMs = Number(argv[++i])
         break
       case "--out-dir":
         args.outDir = argv[++i]
@@ -582,6 +593,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       cpu: parsed.cpu,
       heap: parsed.heap,
       cpuIntervalUs: parsed.cpuIntervalUs,
+      timeoutMs: parsed.timeoutMs,
       outDir: parsed.outDir,
       noiseCheck: parsed.noiseCheck,
     })
@@ -612,6 +624,7 @@ interface BenchArgs {
   isolate?: boolean
   preload: string[]
   bunFlags: string[]
+  timeoutMs?: number
   outDir?: string
   noiseCheck: boolean
   exportJson?: string
@@ -685,6 +698,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
         break
       case "--preload":
         args.preload.push(argv[++i]!)
+        break
+      case "--timeout":
+        args.timeoutMs = Number(argv[++i])
         break
       case "--out-dir":
         args.outDir = argv[++i]

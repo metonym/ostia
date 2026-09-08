@@ -180,12 +180,25 @@ ostia time --time-source "built in (\d+)ms" "bun build.ts"
 
 The parsed value becomes `timing.samples`, so `compare`/`ci`/every renderer treat it
 exactly like wall time; each trial keeps `wallNs` alongside `reportedNs` so the document
-has both. A trial whose output doesn't match aborts the run with the output quoted (the
-workload asked for a number that isn't there). To gate wall time *and* the reported time
-independently, declare the command twice - once plain, once with `--time-source` - and
-they're two workloads with two verdicts. Note the reported number has whatever resolution
-the tool printed (usually whole ms), so its confidence interval is coarser than a
-nanosecond wall clock's.
+has both. A trial whose output doesn't match the pattern contributes no sample (it's
+never a fallback to `wallNs`, which would silently mix wall-clock time into a
+reported-time series) and the measurement carries a `time-source-no-match` warning
+(`data: { pattern, trials, output }`, `output` capped at 2 KiB) - it no longer aborts the
+whole run the way it used to. If *every* trial of a command misses, that command has no
+timing stats at all (same as every trial timing out - see `--timeout` above); other
+commands in the same `time()` call keep their data regardless. To gate wall time *and*
+the reported time independently, declare the command twice - once plain, once with
+`--time-source` - and they're two workloads with two verdicts. Note the reported number
+has whatever resolution the tool printed (usually whole ms), so its confidence interval
+is coarser than a nanosecond wall clock's.
+
+A `RegExp` pattern must not carry the `g`, `y`, or `d` flag - the same compiled pattern is
+`exec`'d once per trial for the run's whole life, and `g`/`y` would make it alternate
+match/no-match across trials via `lastIndex` instead of testing the same thing every time.
+Constructing a workload with one throws `RangeError: timeSource pattern must not use the
+g or y flag` immediately, before any trial runs. A plain (flagless) `RegExp` or a string
+pattern is always safe to reuse. (`--time-source` on the CLI is always a plain string, so
+this only comes up with a `RegExp` literal in the library API.)
 
 `--timeout MS` kills a trial (or `--prepare` hook) with SIGKILL if it hasn't finished after
 `MS` ms, so a hung command can't stall the whole run. No default for `time`/`bench` (unset

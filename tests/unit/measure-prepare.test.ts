@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test"
 import { runTimingPhase } from "../../src/measure/timing"
 import {
+  assertReusableTimeSource,
   type PrepareRun,
   parseReportedTime,
   prepareArgv,
@@ -137,6 +138,48 @@ describe("spawn - timeSource", () => {
     expect(timeSourceSpec(undefined)).toBeUndefined()
   })
 
+  test("assertReusableTimeSource: rejects a RegExp with the g, y, or d flag; a plain RegExp or string is fine", () => {
+    expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/g })).toThrow(
+      RangeError,
+    )
+    expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/g })).toThrow(
+      /timeSource pattern must not use the g or y flag/,
+    )
+    expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/y })).toThrow(
+      RangeError,
+    )
+    expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/d })).toThrow(
+      RangeError,
+    )
+    expect(() =>
+      assertReusableTimeSource({ pattern: /in (\d+)ms/ }),
+    ).not.toThrow()
+    expect(() =>
+      assertReusableTimeSource({ pattern: "in (\\d+)ms" }),
+    ).not.toThrow()
+  })
+
+  test("parseReportedTime: accepts scientific notation in the captured number", () => {
+    expect(
+      parseReportedTime(
+        { pattern: /in ([\d.e+-]+)ms/ },
+        "built in 1.2e3ms",
+        "",
+      ),
+    ).toBe(1200e6)
+  })
+
+  test("a workload constructed with a g/y/d-flagged timeSource throws before any trial runs", async () => {
+    await expect(
+      runTimingPhase({
+        argv: ["bun", REPORT],
+        samples: 1,
+        warmup: 0,
+        timeSource: { pattern: /in (\d+)ms/g },
+      }),
+    ).rejects.toThrow(/timeSource pattern must not use the g or y flag/)
+  })
+
   test("a timeSource phase samples the reported number, keeps wallNs, and skips the spawn-overhead warning", async () => {
     const result = await runTimingPhase({
       argv: ["bun", REPORT],
@@ -156,14 +199,47 @@ describe("spawn - timeSource", () => {
     expect(result.warnings.map((w) => w.code)).not.toContain("fast-command")
   }, 20_000)
 
-  test("a trial whose output doesn't match aborts the run", async () => {
-    await expect(
-      runTimingPhase({
-        argv: ["bun", REPORT],
-        samples: 1,
-        warmup: 0,
-        timeSource: { pattern: /compiled in (\d+)ms/ },
-      }),
-    ).rejects.toThrow(/did not match the output for "bun .*report-time.ts"/)
+  test("a trial whose output doesn't match contributes no sample instead of aborting the run", async () => {
+    const result = await runTimingPhase({
+      argv: ["bun", REPORT],
+      samples: 1,
+      warmup: 0,
+      timeSource: { pattern: /compiled in (\d+)ms/ },
+    })
+    expect(result.timing).toBeUndefined()
+    expect(result.trials).toHaveLength(1)
+    expect(result.trials[0]!.timeSourceNoMatch).toBe(true)
+    expect(result.trials[0]!.reportedNs).toBeUndefined()
+    const warning = result.warnings.find(
+      (w) => w.code === "time-source-no-match",
+    )
+    expect(warning).toBeDefined()
+    expect(warning?.data?.trials).toBe(1)
+    expect(warning?.data?.pattern).toBe("compiled in (\\d+)ms")
+  }, 20_000)
+
+  test("a mix of matching and non-matching trials samples only the matches, never falling back to wallNs", async () => {
+    const path = tmpPath()
+    // First trial's output doesn't match (no marker yet); every trial after
+    // that does (marker now exists) - deterministic without timing.
+    const result = await runTimingPhase({
+      argv: [
+        "bun",
+        "-e",
+        `if (await Bun.file(${JSON.stringify(path)}).exists()) { console.log("built in 9ms") } else { await Bun.write(${JSON.stringify(path)}, "1"); console.log("no number here") }`,
+      ],
+      samples: 2,
+      warmup: 0,
+      timeSource: { pattern: /in (\d+)ms/ },
+    })
+    expect(result.trials).toHaveLength(2)
+    expect(result.trials[0]!.timeSourceNoMatch).toBe(true)
+    expect(result.trials[1]!.reportedNs).toBe(9e6)
+    expect(result.timing?.samples).toEqual([9e6])
+    const warning = result.warnings.find(
+      (w) => w.code === "time-source-no-match",
+    )
+    expect(warning?.data).toMatchObject({ trials: 1 })
+    await rm(path)
   }, 20_000)
 })

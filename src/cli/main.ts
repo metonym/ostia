@@ -190,8 +190,10 @@ Flags:
   --time-source REGEX take each trial's time from the first REGEX match in the command's
                        own stdout (then stderr), capture group 1, instead of its wall clock -
                        e.g. --time-source "built in (\\d+)ms" for a build tool whose own
-                       summary excludes runtime startup. Every trial must match or the run
-                       aborts. Trials keep wallNs alongside the reported value.
+                       summary excludes runtime startup. A trial whose output doesn't match
+                       contributes no sample (a time-source-no-match warning records it); if
+                       every trial misses, that command has no timing stats. Trials keep
+                       wallNs alongside the reported value.
   --time-unit UNIT    unit of the --time-source number: ns | us | ms | s (default: ms)
   --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
   --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)

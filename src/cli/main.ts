@@ -230,21 +230,23 @@ Flags:
                        Concurrent CPU-bound processes contend for cores, caches and turbo
                        headroom, so numbers taken at --jobs > 1 are noisier and not
                        like-for-like with a baseline measured at 1. "auto" = CPU count.
-  --gc                Bun.gc(true) between trials (default: off - hides allocation cost).
-                       Per-task { gc } / per-group { gc } override this default.
-  --cpu               capture an extra phase: "cpu" measurement per task (200ms of the
+  --gc / --no-gc      Bun.gc(true) between trials (default: off - hides allocation cost).
+                       Per-task { gc } / per-group { gc } override this default; --no-gc /
+                       --gc on the CLI overrides those and ostia.config.json individually,
+                       so a config-wide default can be turned off for one invocation.
+  --cpu / --no-cpu    capture an extra phase: "cpu" measurement per task (200ms of the
                        task looped under the JSC sampling profiler, JIT tiers included) on
                        top of its timing numbers. Per-task { cpu } / per-group { cpu }
                        override this default. Once captured, "ostia compare" reports
                        per-frame CPU deltas the same way it already does for "ostia time --cpu".
-  --alloc             capture an extra phase: "memstats" measurement per task: bytes
+  --alloc / --no-alloc  capture an extra phase: "memstats" measurement per task: bytes
                        allocated per call, from a Bun.gc(true)-bracketed batch of 100 calls.
                        Per-task { alloc } / per-group { alloc } override this default.
   --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
                        case-sensitive; unmatched tasks are skipped, not timed)
-  --isolate           give every task its own subprocess instead of sharing its suite
-                       file's, isolating JIT tier state and heap shape between tasks the
-                       way suite files are already isolated from each other. Per-task
+  --isolate / --no-isolate  give every task its own subprocess instead of sharing its
+                       suite file's, isolating JIT tier state and heap shape between tasks
+                       the way suite files are already isolated from each other. Per-task
                        { isolate } / per-group { isolate } override this default.
                        --jobs then pools across those per-task processes, so pair a
                        higher --jobs with --isolate deliberately: overhead now scales
@@ -596,11 +598,11 @@ interface BenchArgs {
   samples?: number
   minSamples?: number
   jobs?: number
-  gc: boolean
-  cpu: boolean
-  alloc: boolean
+  gc?: boolean
+  cpu?: boolean
+  alloc?: boolean
   filter?: string
-  isolate: boolean
+  isolate?: boolean
   preload: string[]
   bunFlags: string[]
   outDir?: string
@@ -614,10 +616,6 @@ interface BenchArgs {
 function parseBenchArgs(argv: string[]): BenchArgs {
   const args: BenchArgs = {
     suites: [],
-    gc: false,
-    cpu: false,
-    alloc: false,
-    isolate: false,
     preload: [],
     bunFlags: [],
     noiseCheck: true,
@@ -654,17 +652,29 @@ function parseBenchArgs(argv: string[]): BenchArgs {
       case "--gc":
         args.gc = true
         break
+      case "--no-gc":
+        args.gc = false
+        break
       case "--cpu":
         args.cpu = true
         break
+      case "--no-cpu":
+        args.cpu = false
+        break
       case "--alloc":
         args.alloc = true
+        break
+      case "--no-alloc":
+        args.alloc = false
         break
       case "--filter":
         args.filter = argv[++i]
         break
       case "--isolate":
         args.isolate = true
+        break
+      case "--no-isolate":
+        args.isolate = false
         break
       case "--preload":
         args.preload.push(argv[++i]!)

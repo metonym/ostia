@@ -12,10 +12,6 @@ import type { BenchConfig } from "../../src/config/index.ts"
 function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
   return {
     suites: [],
-    gc: false,
-    cpu: false,
-    alloc: false,
-    isolate: false,
     preload: [],
     noiseCheck: true,
     ...overrides,
@@ -159,6 +155,18 @@ describe("resolveBenchOptions", () => {
     )
     expect(resolved.gc).toBe(true)
     expect(resolved.isolate).toBe(true)
+  })
+
+  test("gc/cpu/alloc/isolate: explicit CLI false (--no-*) overrides a config true", async () => {
+    const resolved = await resolveBenchOptions(
+      cli({ gc: false, cpu: false, alloc: false, isolate: false }),
+      { gc: true, cpu: true, alloc: true, isolate: true },
+      "/tmp",
+    )
+    expect(resolved.gc).toBe(false)
+    expect(resolved.cpu).toBe(false)
+    expect(resolved.alloc).toBe(false)
+    expect(resolved.isolate).toBe(false)
   })
 
   test("preload: CLI list replaces config list entirely", async () => {

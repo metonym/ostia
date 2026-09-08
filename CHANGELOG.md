@@ -22,6 +22,12 @@
   so a viz format there crashed instead of erroring cleanly). `report`
   still accepts both groups; the "no CPU evidence" check now lives
   alongside every viz-format render instead of only `report`'s.
+- `ostia bench --gc`/`--cpu`/`--alloc`/`--isolate` merged with
+  `ostia.config.json` as `cli || config`, so a config `true` couldn't be
+  turned off per invocation even though `BENCH_HELP` said every flag
+  overrides config individually. Each flag now has a `--no-*` counterpart
+  (`--no-gc`, `--no-cpu`, `--no-alloc`, `--no-isolate`) and the merge is
+  `cli ?? config ?? false`.
 
 **Breaking**
 

@@ -479,6 +479,16 @@ widened the effective threshold past `thresholds.timingPct`:
 threshold 5% (widened to 6.2% by noise floor)
 ```
 
+`ostia compare` reads `ostia.config.ts`/`ostia.config.json`'s `thresholds` when present
+(same discovery as `ostia ci`), so a project-tuned threshold applies here too instead of
+only gating `ostia ci`; `--no-config` ignores it and uses `DEFAULT_THRESHOLDS`.
+`--timing-pct N` / `--alpha N` override individual fields on top of whichever base was
+picked. The source is printed above the report:
+
+```
+thresholds: ostia.config.ts
+```
+
 When both documents carry `git` metadata (see below), `ostia compare` prints a summary
 line above the verdicts:
 

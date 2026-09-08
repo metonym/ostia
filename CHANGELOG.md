@@ -1,15 +1,13 @@
 # Changelog
 
-## Unreleased
+## 0.2.3 — 2026-09-08
 
 **Features**
 
-- New README section "Using ostia from an AI agent" (after Quick start):
-  the three copy-paste `--format minimal` commands, the protocol v1 event
-  table, the exit-code contract, the stability rule, and the stderr error
-  line - the `minimal`/`jsonl` descriptions elsewhere in the README and in
-  `--help` text now point here instead of repeating (and drifting from) a
-  stale field list.
+- `run()` in-file entrypoint: suite files executed with `bun suite.ts` measure
+  every `group()`/`task()` registered so far in the current process and print
+  a report, without going through `ostia bench`. Shares the measuring loop
+  with the bench runner subprocess.
 - New `environment-mismatch` `WarningCode`: `compare`/`ci` now flag every
   comparison in a document pair whose `platform.os`, `platform.arch`,
   `bunVersion`, or (when both sides measured it) `cpuModel`/`cores` differ
@@ -251,7 +249,7 @@
   `ostia.config.json` even when `ostia.config.ts` was the file actually
   loaded; it now names the real file (new `configFilePath()` export).
   Fixed the misaligned `--baseline NAME` line in `ostia ci --help`. Help
-  text and README now say `--samples` is a per-command trial count on
+  text now says `--samples` is a per-command trial count on
   `ostia time` (each command gets its own N, not a shared total) the same
   way it already was documented as per-task on `ostia bench`.
 - `TOOL_VERSION` now reads `package.json`'s `version` at bundle time instead
@@ -267,9 +265,6 @@
 - `saveDocument` writes atomically (`${path}.tmp-${pid}` then a rename), so
   a killed `ci --save-baseline` (or any interrupted save) never leaves a
   truncated document at the target path.
-- README: `bench(opts)` now has its own `### bench(opts)` heading instead
-  of sitting unheaded between `range()` and `compareDocuments()`, and no
-  longer trails a verbatim duplicate of the `time()` command-object example.
 - `package.json` declares `"engines": { "bun": ">=1.4.0" }`, carried through
   into the published package by `scripts/build.ts`.
 

@@ -29,6 +29,11 @@
   `--fail-on-nonzero` stops a command's trial loop after its first
   non-ignored non-zero exit (that trial's sample is still recorded)
   instead of always running the full sample count.
+- `ostia time [flags] -- <argv...>`: an escape hatch for a command argument
+  that itself contains a space, which the normal whitespace-split string
+  form (hyperfine's `-N` behavior; no shell) can't express. Everything
+  after `--` becomes one more command, given as argv verbatim and never
+  flag-parsed, alongside any given the normal way.
 
 **Fixes**
 

@@ -164,8 +164,14 @@ async function writeRenderResult(
 }
 
 const TIME_HELP = `ostia time [flags] <command...>
+ostia time [flags] -- <argv...>
 
-Time one or more commands N times with warmup and report timing statistics.
+Time one or more commands N times with warmup and report timing statistics. Each
+<command> is a string, whitespace-split into argv exactly like hyperfine -N (no shell,
+so no quoting/globbing/pipes/redirection) - it can't express an argument containing a
+space. \`-- <argv...>\` is the escape hatch: everything after -- is one command's argv
+verbatim, space-preserving, not further flag-parsed. It's one more command alongside any
+given as regular arguments, not a replacement for them.
 
 Flags:
   --samples N         exact number of timed trials per command (each command gets its
@@ -184,11 +190,14 @@ Flags:
                        command. Interleaved measurements carry Measurement.interleaved: true.
   --prepare CMD       run CMD before every trial (warmup and --cpu/--heap trials
                        included), unmeasured, in the same cwd; it must exit 0. Whitespace-
-                       split like the commands themselves (no shell). Given once it applies
-                       to every command; given once per command it pairs up in order, so the
-                       same command can be timed warm and cold side by side. Its stderr is
-                       captured (bounded to 1 MiB) rather than streamed live, and folded
-                       into the error on a trial where it times out or exits non-zero.
+                       split like the commands themselves (no shell) - there's no --
+                       equivalent for --prepare, so a hook needing an argument with a
+                       space needs ostia.config.ts's array form (prepare: ["a", "b c"])
+                       instead. Given once it applies to every command; given once per
+                       command it pairs up in order, so the same command can be timed
+                       warm and cold side by side. Its stderr is captured (bounded to
+                       1 MiB) rather than streamed live, and folded into the error on a
+                       trial where it times out or exits non-zero.
   --time-source REGEX take each trial's time from the first REGEX match in the command's
                        own stdout (then stderr), capture group 1, instead of its wall clock -
                        e.g. --time-source "built in (\\d+)ms" for a build tool whose own
@@ -236,6 +245,7 @@ Examples:
   ostia time --format json "bun a.ts"
   ostia time --ignore-failure=3 "bun flaky.ts"
   ostia time --fail-on-nonzero "bun might-hang-if-broken.ts"
+  ostia time -- bun -e "console.log('a b')"      # argument with a space, unsplit
 `
 
 /** `--ignore-failure` given bare (no `=CODE,...`) means "ignore any exit code" -
@@ -446,7 +456,12 @@ Examples:
 
 interface TimeArgs {
   commands: string[]
-  /** One entry applies to every command; N entries pair with N commands. */
+  /** `-- <argv...>`: one more command, given as argv with no whitespace
+   * splitting, so an argument containing a space survives. Always exactly
+   * one command - everything after `--` belongs to it, flags included. */
+  argvCommand?: string[]
+  /** One entry applies to every command; N entries pair with N commands
+   * (`commands.length` plus one more if `argvCommand` is set). */
   prepare: string[]
   timeSource?: string
   timeUnit?: TimeUnit
@@ -486,6 +501,13 @@ function parseTimeArgs(argv: string[]): TimeArgs {
 
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i]!
+    if (arg === "--") {
+      // Everything after `--` is one command's argv, verbatim - not
+      // whitespace-split, not further flag-parsed (an argument that happens
+      // to look like a flag still belongs to the command).
+      args.argvCommand = argv.slice(i + 1)
+      break
+    }
     if (arg === "--ignore-failure" || arg.startsWith("--ignore-failure=")) {
       const value = arg.startsWith("--ignore-failure=")
         ? arg.slice("--ignore-failure=".length)
@@ -597,19 +619,18 @@ async function timeCommand(argv: string[]): Promise<number> {
   } catch (err) {
     return reportUsageError(err, "time")
   }
-  if (parsed.help || parsed.commands.length === 0) {
+  const hasArgvCommand = (parsed.argvCommand?.length ?? 0) > 0
+  if (parsed.help || (parsed.commands.length === 0 && !hasArgvCommand)) {
     process.stdout.write(TIME_HELP)
     return parsed.help ? 0 : 2
   }
 
   if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
 
-  if (
-    parsed.prepare.length > 1 &&
-    parsed.prepare.length !== parsed.commands.length
-  ) {
+  const totalCommands = parsed.commands.length + (hasArgvCommand ? 1 : 0)
+  if (parsed.prepare.length > 1 && parsed.prepare.length !== totalCommands) {
     process.stderr.write(
-      `--prepare given ${parsed.prepare.length} times for ${parsed.commands.length} command(s): give it once (applies to all) or once per command.\n`,
+      `--prepare given ${parsed.prepare.length} times for ${totalCommands} command(s): give it once (applies to all) or once per command.\n`,
     )
     return 2
   }
@@ -633,11 +654,18 @@ async function timeCommand(argv: string[]): Promise<number> {
     parsed.timeSource !== undefined
       ? { pattern: parsed.timeSource, unit: parsed.timeUnit }
       : undefined
+  const prepareFor = (i: number) =>
+    parsed.prepare.length === 1 ? parsed.prepare[0] : parsed.prepare[i]
   const commands: CommandSpec[] = parsed.commands.map((command, i) => ({
     command,
-    prepare:
-      parsed.prepare.length === 1 ? parsed.prepare[0] : parsed.prepare[i],
+    prepare: prepareFor(i),
   }))
+  if (hasArgvCommand) {
+    commands.push({
+      command: parsed.argvCommand!,
+      prepare: prepareFor(parsed.commands.length),
+    })
+  }
 
   let doc: ProfileDocument
   let aborted: boolean

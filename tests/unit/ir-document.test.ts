@@ -66,7 +66,7 @@ describe("loadDocument - v1 -> v2 upgrade", () => {
       expect(doc.schemaVersion).toBe(2)
       expect(doc.measurements).toHaveLength(1)
       expect(doc.measurements[0]!.id).toBe("run_a")
-      expect(doc.measurements[0]!.baselineMeasurementId).toBe("run_prior")
+      expect(doc.measurements[0]!).not.toHaveProperty("baselineMeasurementId")
 
       expect(doc.comparisons).toHaveLength(1)
       expect(doc.comparisons![0]!.baselineMeasurementId).toBe("run_prior")

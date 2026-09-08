@@ -4,6 +4,12 @@
 
 **Features**
 
+- New README section "Using ostia from an AI agent" (after Quick start):
+  the three copy-paste `--format minimal` commands, the protocol v1 event
+  table, the exit-code contract, the stability rule, and the stderr error
+  line - the `minimal`/`jsonl` descriptions elsewhere in the README and in
+  `--help` text now point here instead of repeating (and drifting from) a
+  stale field list.
 - New `environment-mismatch` `WarningCode`: `compare`/`ci` now flag every
   comparison in a document pair whose `platform.os`, `platform.arch`,
   `bunVersion`, or (when both sides measured it) `cpuModel`/`cores` differ

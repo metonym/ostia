@@ -45,6 +45,9 @@
   that isn't a `ProfileDocument`, or a `schemaVersion` other than 1 or 2.
   `compare`, `report`, `baseline show`, and `ci` (baseline load) print the
   message to stderr and exit 2.
+- `saveDocument` writes atomically (`${path}.tmp-${pid}` then a rename), so
+  a killed `ci --save-baseline` (or any interrupted save) never leaves a
+  truncated document at the target path.
 
 **Breaking**
 

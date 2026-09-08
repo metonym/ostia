@@ -456,6 +456,9 @@ function parseTimeArgs(argv: string[]): TimeArgs {
         args.help = true
         break
       default:
+        if (arg.startsWith("-")) {
+          throw new CliUsageError(`Unknown flag "${arg}" for "ostia time".`)
+        }
         args.commands.push(arg)
     }
   }
@@ -642,6 +645,9 @@ function parseBenchArgs(argv: string[]): BenchArgs {
         args.help = true
         break
       default:
+        if (arg.startsWith("-")) {
+          throw new CliUsageError(`Unknown flag "${arg}" for "ostia bench".`)
+        }
         args.suites.push(arg)
     }
   }
@@ -724,6 +730,9 @@ function parseCompareArgs(argv: string[]): CompareArgs {
         args.help = true
         break
       default:
+        if (arg.startsWith("-")) {
+          throw new CliUsageError(`Unknown flag "${arg}" for "ostia compare".`)
+        }
         args.paths.push(arg)
     }
   }
@@ -732,7 +741,12 @@ function parseCompareArgs(argv: string[]): CompareArgs {
 }
 
 async function compareCommand(argv: string[]): Promise<number> {
-  const parsed = parseCompareArgs(argv)
+  let parsed: CompareArgs
+  try {
+    parsed = parseCompareArgs(argv)
+  } catch (err) {
+    return reportUsageError(err, "compare")
+  }
   if (parsed.help) {
     process.stdout.write(COMPARE_HELP)
     return 0
@@ -806,6 +820,14 @@ function parseReportArgs(argv: string[]): ReportArgs {
         args.help = true
         break
       default:
+        if (arg.startsWith("-")) {
+          throw new CliUsageError(`Unknown flag "${arg}" for "ostia report".`)
+        }
+        if (args.path !== undefined) {
+          throw new CliUsageError(
+            `"ostia report" takes exactly one document path, got "${args.path}" and "${arg}".`,
+          )
+        }
         args.path = arg
     }
   }
@@ -814,7 +836,12 @@ function parseReportArgs(argv: string[]): ReportArgs {
 }
 
 async function reportCommand(argv: string[]): Promise<number> {
-  const parsed = parseReportArgs(argv)
+  let parsed: ReportArgs
+  try {
+    parsed = parseReportArgs(argv)
+  } catch (err) {
+    return reportUsageError(err, "report")
+  }
   if (parsed.help || !parsed.path) {
     process.stdout.write(REPORT_HELP)
     return parsed.help ? 0 : 2
@@ -887,6 +914,8 @@ function parseCiArgs(argv: string[]): CiArgs {
       case "-h":
         args.help = true
         break
+      default:
+        throw new CliUsageError(`Unknown flag "${arg}" for "ostia ci".`)
     }
   }
 
@@ -894,7 +923,12 @@ function parseCiArgs(argv: string[]): CiArgs {
 }
 
 async function ciCommand(argv: string[]): Promise<number> {
-  const parsed = parseCiArgs(argv)
+  let parsed: CiArgs
+  try {
+    parsed = parseCiArgs(argv)
+  } catch (err) {
+    return reportUsageError(err, "ci")
+  }
   if (parsed.help) {
     process.stdout.write(CI_HELP)
     return 0
@@ -934,12 +968,40 @@ async function ciCommand(argv: string[]): Promise<number> {
   return outcome.summary.regressed > 0 ? 1 : 0
 }
 
+const BASELINE_NAME_RE = /^[A-Za-z0-9._-]+$/
+
+/** `ostia baseline save|show`'s name argument isn't parsed like a flag, so a
+ * typo'd flag (`--verbose`) would otherwise become a literal, surprising
+ * baseline filename instead of an error. */
+function validateBaselineName(name: string): string | undefined {
+  if (name.startsWith("-")) {
+    return `Invalid baseline name "${name}": names can't start with "-".`
+  }
+  if (!BASELINE_NAME_RE.test(name)) {
+    return `Invalid baseline name "${name}": expected to match ${BASELINE_NAME_RE}.`
+  }
+  return undefined
+}
+
 async function baselineSaveCommand(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
     process.stdout.write(BASELINE_HELP)
     return 0
   }
+  if (argv.length > 1) {
+    process.stderr.write(
+      `"ostia baseline save" takes at most one name argument, got ${argv.length}.\nRun 'ostia baseline --help'.\n`,
+    )
+    return 2
+  }
   const name = argv[0]
+  if (name !== undefined) {
+    const nameErr = validateBaselineName(name)
+    if (nameErr) {
+      process.stderr.write(`${nameErr}\nRun 'ostia baseline --help'.\n`)
+      return 2
+    }
+  }
 
   const config = await requireConfig("ostia baseline save")
   if (!config) return 2
@@ -977,6 +1039,11 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
   if (!name || name === "--help" || name === "-h") {
     process.stdout.write(BASELINE_HELP)
     return name ? 0 : 2
+  }
+  const nameErr = validateBaselineName(name)
+  if (nameErr) {
+    process.stderr.write(`${nameErr}\nRun 'ostia baseline --help'.\n`)
+    return 2
   }
 
   const config = await requireConfig()

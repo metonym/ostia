@@ -1161,6 +1161,50 @@ const doc = await bench({
 })
 ```
 
+### `run(opts?)` → `ProfileDocument`
+
+In-file entrypoint: call it at the bottom of a suite file run directly with
+`bun suite.ts` (no `ostia bench` CLI, no `bench({ suites })` call) to execute every
+`group()`/`task()` registered so far, print a report, and return the document.
+
+```ts
+// suite.ts
+import { rm } from "node:fs/promises"
+import { group, run, task } from "ostia"
+
+group("parse", () => {
+  task("small input", () => parse(smallBuf))
+  task("large input", () => parse(largeBuf))
+})
+
+try {
+  await run()
+} finally {
+  await rm(fixtureDir, { recursive: true })
+}
+```
+
+```sh
+bun suite.ts
+```
+
+`run({ filter: "parse" })` narrows to matching `group/name` ids, same regex as `ostia bench
+--filter`/`bench({ filter })` - there's no CLI here to read a `--filter` flag from, so pass it
+as an option, e.g. from `process.argv` or an env var your `run()` call reads itself.
+
+This trades away the isolation `ostia bench`/`bench()` give each suite file (and each
+isolated task under `--isolate`) its own fresh subprocess: everything under `run()` runs in
+the process that already imported the suite, so `TaskOptions.isolate` has nothing to isolate
+into and is ignored. Prefer `ostia bench`/`bench()` for numbers you'll `compare`/`ci`
+against; reach for `run()` for a single suite file's inline edit/run loop, or when a `finally`
+around the run needs to clean up fixtures the suite set up (`ostia bench`'s subprocess model
+has no call in the file that returns after every task finishes, so that cleanup would
+otherwise need a `process.on("exit", ...)` hook instead).
+
+`run(opts)` accepts the same suite-wide `filter`/`budgetMs`/`samples`/`minSamples`/`warmup`/
+`gc`/`cpu`/`alloc`/`noiseCheck` fields as `bench(opts)`, plus `quiet` (skip the printed
+report, still return the document) and `format` (renderer for that report, default `"table"`).
+
 ### `compareDocuments(base, cand, thresholds?)` → `CompareResult`
 
 Same matching and thresholds as `ostia compare` / `ostia ci`.
@@ -1230,6 +1274,7 @@ Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).
 | mitata / hyperfine | ostia |
 |---|---|
 | `bench("name", fn)` | `task("name", fn)` |
+| `run({ filter })` at the bottom of the suite file | `run({ filter })` at the bottom of the suite file (see [`run(opts?)`](#runopts--profiledocument)) |
 | `baseline()` | `{ baseline: true }` on a `task()` |
 | `.range(name, start, end, mult)` | `sweep({ dim: range(start, end, mult) }, ...)` |
 | generator setup (`function* () { ...; yield () => fn() }`) | `task(name, fn, { before, after })` |

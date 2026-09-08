@@ -1,3 +1,4 @@
+import { renameSync } from "node:fs"
 import {
   type PrepareHook,
   prepareArgv,
@@ -251,11 +252,18 @@ export function serializeDocument(doc: ProfileDocument): string {
   return `${JSON.stringify(sortKeysDeep(doc), null, 2)}\n`
 }
 
+/** Writes to `${path}.tmp-${pid}` then renames over `path`, so a process
+ * killed mid-write (e.g. `ci --save-baseline`) never leaves a truncated
+ * document at `path` - the rename is the only step that touches it, and
+ * that step is atomic. */
 export async function saveDocument(
   doc: ProfileDocument,
   path: string,
 ): Promise<void> {
-  await Bun.write(path, serializeDocument(doc))
+  const content = serializeDocument(doc)
+  const tmpPath = `${path}.tmp-${process.pid}`
+  await Bun.write(tmpPath, content)
+  renameSync(tmpPath, path)
 }
 
 interface ProfileDocumentV1 {

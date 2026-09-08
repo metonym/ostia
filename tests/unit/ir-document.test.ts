@@ -4,6 +4,7 @@ import {
   makeEntryWorkload,
   newDocument,
   OstiaDocumentError,
+  saveDocument,
 } from "../../src/ir/document.ts"
 import type { ProfileDocument } from "../../src/ir/types.ts"
 
@@ -185,5 +186,33 @@ describe("loadDocument - OstiaDocumentError for corrupt/unsupported documents", 
         "unsupported ProfileDocument schemaVersion 3",
       )
     })
+  })
+})
+
+describe("saveDocument - atomic write", () => {
+  const path = `${import.meta.dir}/../../.ostia-test-atomic-fixture.json`
+
+  test("leaves no target file when serialization throws", async () => {
+    await Bun.spawn(["rm", "-f", path]).exited
+    try {
+      const doc = { ...newDocument([], []), bogus: 1n } as ProfileDocument
+      await expect(saveDocument(doc, path)).rejects.toThrow()
+      expect(await Bun.file(path).exists()).toBe(false)
+      expect(await Bun.file(`${path}.tmp-${process.pid}`).exists()).toBe(false)
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  })
+
+  test("writes the target file on success", async () => {
+    try {
+      const doc = newDocument([], [])
+      await saveDocument(doc, path)
+      expect(await Bun.file(path).exists()).toBe(true)
+      const loaded = await loadDocument(path)
+      expect(loaded.toolVersion).toBe(doc.toolVersion)
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
   })
 })

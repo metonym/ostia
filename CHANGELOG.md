@@ -35,6 +35,10 @@
   text and README now say `--samples` is a per-command trial count on
   `ostia time` (each command gets its own N, not a shared total) the same
   way it already was documented as per-task on `ostia bench`.
+- `TOOL_VERSION` now reads `package.json`'s `version` at bundle time instead
+  of a hardcoded `"0.1.0"` literal, so `toolVersion` on every document and
+  baseline, `report --format markdown`'s printed version, and measurement/
+  cache fingerprints all track the installed package version
 
 **Breaking**
 

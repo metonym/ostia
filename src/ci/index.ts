@@ -154,6 +154,8 @@ export async function measureConfigWorkloads(
         prepare: wc.prepare,
         timeSource: wc.timeSource,
         timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
+        ignoreExitCodes: wc.ignoreExitCodes,
+        failOnNonzero: wc.failOnNonzero,
       })
       run = makeTimingMeasurement({
         workload,

@@ -90,6 +90,10 @@ export interface CommandSpec {
   timeSource?: TimeSource
   /** Overrides `TimeOptions.timeoutMs` for this command. */
   timeoutMs?: number
+  /** Overrides `TimeOptions.ignoreExitCodes` for this command. */
+  ignoreExitCodes?: number[]
+  /** Overrides `TimeOptions.failOnNonzero` for this command. */
+  failOnNonzero?: boolean
 }
 
 export interface TimeOptions {
@@ -144,6 +148,16 @@ export interface TimeOptions {
    * completed, plus an `aborted` warning on the document's last
    * measurement. */
   signal?: AbortSignal
+  /** Exit codes to treat as success (hyperfine's `--ignore-failure`): a
+   * trial exiting with one of these still contributes its sample and gets
+   * no `nonzero-exit` warning, as if it had exited 0. `CommandSpec.ignoreExitCodes`
+   * overrides it per command. */
+  ignoreExitCodes?: number[]
+  /** Stops a command's trial loop after its first non-zero, non-ignored
+   * exit (that trial's sample is still recorded) instead of running its
+   * full sample count regardless of exit code. `CommandSpec.failOnNonzero`
+   * overrides it per command. */
+  failOnNonzero?: boolean
 }
 
 const DEFAULT_CPU_INTERVAL_US = 1000
@@ -204,12 +218,22 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     const prepare = spec.prepare ?? opts.prepare
     const timeSource = spec.timeSource ?? opts.timeSource
     const timeoutMs = spec.timeoutMs ?? opts.timeoutMs
+    const ignoreExitCodes = spec.ignoreExitCodes ?? opts.ignoreExitCodes
+    const failOnNonzero = spec.failOnNonzero ?? opts.failOnNonzero
     const workload = makeSubprocessWorkload(
       argv,
       spec.label ?? (Array.isArray(spec.command) ? undefined : spec.command),
       { prepare, timeSource },
     )
-    return { argv, workload, prepare, timeSource, timeoutMs }
+    return {
+      argv,
+      workload,
+      prepare,
+      timeSource,
+      timeoutMs,
+      ignoreExitCodes,
+      failOnNonzero,
+    }
   })
 
   const interleave = (opts.interleave ?? true) && entries.length > 1
@@ -225,6 +249,8 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     prepare: entry.prepare,
     timeSource: entry.timeSource,
     timeoutMs: entry.timeoutMs,
+    ignoreExitCodes: entry.ignoreExitCodes,
+    failOnNonzero: entry.failOnNonzero,
     signal: opts.signal,
   })
 

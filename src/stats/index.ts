@@ -86,6 +86,10 @@ export function timingWarnings(
   stats: TimingStats,
   exitCodes: (number | undefined)[],
   mode: TimingMode = "subprocess",
+  /** Exit codes treated as success (`ostia time --ignore-failure`,
+   * `TimeOptions.ignoreExitCodes`): excluded from the `nonzero-exit`
+   * warning's count and `data.exitCodes` entirely. */
+  ignoreExitCodes: number[] = [],
 ): Warning[] {
   const warnings: Warning[] = []
 
@@ -128,7 +132,10 @@ export function timingWarnings(
     })
   }
 
-  const nonZero = exitCodes.filter((c) => c !== undefined && c !== 0)
+  const ignoreSet = new Set(ignoreExitCodes)
+  const nonZero = exitCodes.filter(
+    (c) => c !== undefined && c !== 0 && !ignoreSet.has(c),
+  )
   if (nonZero.length > 0) {
     warnings.push({
       code: "nonzero-exit",

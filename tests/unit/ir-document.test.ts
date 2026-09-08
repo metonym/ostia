@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   loadDocument,
   makeEntryWorkload,
+  makeSubprocessWorkload,
   newDocument,
   OstiaDocumentError,
   saveDocument,
@@ -131,6 +132,36 @@ describe("makeEntryWorkload - params fold into the workload id (item 8)", () => 
     const before = makeEntryWorkload("suite.ts", "t")
     const after = makeEntryWorkload("suite.ts", "t", { params: { size: 100 } })
     expect(before.id).not.toBe(after.id)
+  })
+})
+
+describe("makeSubprocessWorkload - id excludes cwd (task 04.1)", () => {
+  test("the same command from two different cwds yields the same id", () => {
+    const original = process.cwd()
+    try {
+      const a = makeSubprocessWorkload(["bun", "build.ts"])
+      process.chdir("/tmp")
+      const b = makeSubprocessWorkload(["bun", "build.ts"])
+      expect(a.id).toBe(b.id)
+    } finally {
+      process.chdir(original)
+    }
+  })
+
+  test("a label change does not change the id", () => {
+    const a = makeSubprocessWorkload(["bun", "build.ts"], "label-a")
+    const b = makeSubprocessWorkload(["bun", "build.ts"], "label-b")
+    expect(a.id).toBe(b.id)
+  })
+
+  test("a timeSource.unit change does change the id", () => {
+    const ms = makeSubprocessWorkload(["bun", "build.ts"], undefined, {
+      timeSource: { pattern: /in (\d+)(m|u)s/, unit: "ms" },
+    })
+    const us = makeSubprocessWorkload(["bun", "build.ts"], undefined, {
+      timeSource: { pattern: /in (\d+)(m|u)s/, unit: "us" },
+    })
+    expect(ms.id).not.toBe(us.id)
   })
 })
 

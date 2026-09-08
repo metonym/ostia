@@ -53,7 +53,11 @@ export interface SubprocessWorkloadOptions {
 /** `prepare` and `timeSource` join the id only when given, so commands
  * without them keep their pre-existing id (no orphaned baselines). A
  * function-form `prepare` hashes by its source text, like an in-process
- * workload does. */
+ * workload does. The id deliberately excludes `process.cwd()`: it identifies
+ * what is measured (command argv, prepare, timeSource), not where the
+ * measuring process happened to run, so a baseline saved from a CI runner
+ * matches a candidate measured in a developer's checkout or a different
+ * worktree of the same repo. */
 export function makeSubprocessWorkload(
   command: string[],
   label?: string,
@@ -70,7 +74,6 @@ export function makeSubprocessWorkload(
     "wl",
     "subprocess",
     command,
-    process.cwd(),
     ...(prepareKey !== undefined || timeSource !== undefined
       ? [prepareKey ?? null, timeSource ?? null]
       : []),

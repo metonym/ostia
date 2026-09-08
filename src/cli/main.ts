@@ -186,7 +186,9 @@ Flags:
                        included), unmeasured, in the same cwd; it must exit 0. Whitespace-
                        split like the commands themselves (no shell). Given once it applies
                        to every command; given once per command it pairs up in order, so the
-                       same command can be timed warm and cold side by side.
+                       same command can be timed warm and cold side by side. Its stderr is
+                       captured (bounded to 1 MiB) rather than streamed live, and folded
+                       into the error on a trial where it times out or exits non-zero.
   --time-source REGEX take each trial's time from the first REGEX match in the command's
                        own stdout (then stderr), capture group 1, instead of its wall clock -
                        e.g. --time-source "built in (\\d+)ms" for a build tool whose own

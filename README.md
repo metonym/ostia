@@ -134,6 +134,20 @@ ostia time --samples 25 --warmup 3 --cpu --heap "bun src/server.ts"
 ostia time --format json --export-json out.json "bun a.ts"
 ```
 
+Each `<command>` is a string, whitespace-split into argv exactly like hyperfine's `-N`
+(no shell - no quoting, globbing, pipes, or redirection), so it can't express an argument
+that itself contains a space. `ostia time [flags] -- <argv...>` is the escape hatch:
+everything after `--` becomes one more command, given as argv verbatim (space preserved,
+never flag-parsed), alongside any given the normal way:
+
+```sh
+ostia time -- bun -e "console.log('a b')"
+```
+
+There's no `--` equivalent for `--prepare` (below) - a hook that itself needs an argument
+with a space needs `ostia.config.ts`'s array form (`prepare: ["cp", "fixture a", "fixture b"]`)
+instead, since the CLI flag is always one whitespace-split string.
+
 `--samples N` is an exact trial count *per command* (with 2+ commands, each gets its
 own N trials, not a total split across them); `--budget MS`
 is a wall-clock time budget instead (default: a hyperfine-style ~3s min-total-time

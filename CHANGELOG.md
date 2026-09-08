@@ -13,6 +13,15 @@
   workload). A timed-out trial resolves with `Trial.timedOut: true` and
   contributes no sample; if every trial of a command times out, that
   command has no timing stats and renders like a skipped workload.
+- `signal?: AbortSignal` on `time()`, `bench()`, `profile()`. Aborting
+  `time`/`bench` kills every in-flight child process with SIGKILL, stops
+  scheduling new trials, and resolves (never rejects) with the document
+  built from whatever measurements had already completed, plus a new
+  `aborted` warning on the document's last measurement. `profile()` has no
+  child to kill, so an already-aborted signal just skips its profiler
+  instrumentation and runs `fn` plain. `ostia time` / `ostia bench` wire
+  `Ctrl-C` to this: a cancelled run still writes `--export-json` of
+  whatever finished and exits `130`.
 
 **Fixes**
 

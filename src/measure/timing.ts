@@ -80,7 +80,12 @@ export function createTimingPhase(
       await runPrepare(
         opts.prepare,
         { phase, index },
-        { cwd: opts.cwd, env: opts.env, timeoutMs: opts.timeoutMs },
+        {
+          cwd: opts.cwd,
+          env: opts.env,
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+        },
       )
     }
     return runTrial(opts)
@@ -88,11 +93,17 @@ export function createTimingPhase(
 
   return {
     async warmup() {
-      for (let w = 0; w < warmupCount; w++) await trial("warmup", w)
+      for (let w = 0; w < warmupCount; w++) {
+        if (opts.signal?.aborted) return
+        await trial("warmup", w)
+      }
     },
     async step() {
-      if (done()) return false
+      if (done() || opts.signal?.aborted) return false
       const result = await trial("timing", i)
+      // Killed by cancellation mid-trial, not a real measurement: drop it
+      // and stop, rather than recording a truncated sample.
+      if (opts.signal?.aborted) return false
       trials.push({
         i,
         wallNs: result.wallNs,

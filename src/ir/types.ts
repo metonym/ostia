@@ -235,6 +235,7 @@ export const WARNING_CODES = [
   "skipped",
   "jit-cold",
   "timeout",
+  "aborted",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

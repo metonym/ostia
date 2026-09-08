@@ -529,6 +529,25 @@ function parseTimeArgs(argv: string[]): TimeArgs {
   return args
 }
 
+/** Wires SIGINT to an `AbortController` for the duration of `run`, so a
+ * running `time()`/`bench()` call cancels cleanly (partial results, caller
+ * decides the exit code) instead of the process just dying mid-spawn.
+ * Always detaches the listener before returning, whether `run` resolved,
+ * rejected, or was cancelled. */
+async function withSigintAbort<T>(
+  run: (signal: AbortSignal) => Promise<T>,
+): Promise<{ result: T; aborted: boolean }> {
+  const controller = new AbortController()
+  const onSigint = () => controller.abort()
+  process.on("SIGINT", onSigint)
+  try {
+    const result = await run(controller.signal)
+    return { result, aborted: controller.signal.aborted }
+  } finally {
+    process.off("SIGINT", onSigint)
+  }
+}
+
 const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
 
 async function timeCommand(argv: string[]): Promise<number> {
@@ -581,22 +600,26 @@ async function timeCommand(argv: string[]): Promise<number> {
   }))
 
   let doc: ProfileDocument
+  let aborted: boolean
   try {
-    doc = await time({
-      commands,
-      timeSource,
-      samples: parsed.samples,
-      budgetMs: parsed.budgetMs,
-      minSamples: parsed.minSamples,
-      warmup: parsed.warmup,
-      interleave: parsed.interleave,
-      cpu: parsed.cpu,
-      heap: parsed.heap,
-      cpuIntervalUs: parsed.cpuIntervalUs,
-      timeoutMs: parsed.timeoutMs,
-      outDir: parsed.outDir,
-      noiseCheck: parsed.noiseCheck,
-    })
+    ;({ result: doc, aborted } = await withSigintAbort((signal) =>
+      time({
+        commands,
+        timeSource,
+        samples: parsed.samples,
+        budgetMs: parsed.budgetMs,
+        minSamples: parsed.minSamples,
+        warmup: parsed.warmup,
+        interleave: parsed.interleave,
+        cpu: parsed.cpu,
+        heap: parsed.heap,
+        cpuIntervalUs: parsed.cpuIntervalUs,
+        timeoutMs: parsed.timeoutMs,
+        outDir: parsed.outDir,
+        noiseCheck: parsed.noiseCheck,
+        signal,
+      }),
+    ))
   } catch (err) {
     process.stderr.write(`Run failed: ${errorMessage(err)}\n`)
     return 2
@@ -604,6 +627,7 @@ async function timeCommand(argv: string[]): Promise<number> {
 
   const emitCode = await emitDocument(doc, parsed)
   if (emitCode !== 0) return emitCode
+  if (aborted) return 130
 
   const anyNonZero = doc.measurements.some((r) =>
     r.trials.some((t) => t.exitCode !== undefined && t.exitCode !== 0),
@@ -759,14 +783,19 @@ async function benchCommand(argv: string[]): Promise<number> {
   }
 
   let doc: ProfileDocument
+  let aborted: boolean
   try {
-    doc = await bench(resolved)
+    ;({ result: doc, aborted } = await withSigintAbort((signal) =>
+      bench({ ...resolved, signal }),
+    ))
   } catch (err) {
     process.stderr.write(`Bench failed: ${errorMessage(err)}\n`)
     return 2
   }
 
-  return emitDocument(doc, parsed)
+  const emitCode = await emitDocument(doc, parsed)
+  if (emitCode !== 0) return emitCode
+  return aborted ? 130 : 0
 }
 
 interface CompareArgs {

@@ -95,7 +95,11 @@ export function timingWarnings(
   const warnings: Warning[] = []
 
   const first = stats.samples[0]
-  if (first !== undefined && stats.p25 !== undefined && stats.p75 !== undefined) {
+  if (
+    first !== undefined &&
+    stats.p25 !== undefined &&
+    stats.p75 !== undefined
+  ) {
     const iqr = stats.p75 - stats.p25
     if (first > stats.median + 3 * iqr && iqr > 0) {
       warnings.push({

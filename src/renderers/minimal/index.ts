@@ -6,6 +6,7 @@ import type {
   Workload,
 } from "../../ir/types.ts"
 import { relativeReferences } from "../relative.ts"
+import { skippedWorkloads, timingRuns } from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 /** Bumped only on a breaking change to the event shapes below (a key
@@ -226,26 +227,24 @@ function skippedLine(
 function runLines(doc: ProfileDocument): MinimalRunLine[] {
   const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
   const noiseFloorPct = doc.environment?.noise.floorPct
-  const rows = doc.measurements
-    .filter(
-      (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>
-        r.phase === "timing" && r.timing !== undefined,
-    )
-    .map((run) => ({ run, workload: byWorkload.get(run.workloadId) }))
+  const rows = timingRuns(doc).map((run) => ({
+    run,
+    workload: byWorkload.get(run.workloadId),
+  }))
   const refs = rows.length > 1 ? relativeReferences(rows) : undefined
   const comparisonByRun = new Map(
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
-  const measuredWorkloadIds = new Set(rows.map((r) => r.run.workloadId))
   const cpuWarningsByWorkloadId = new Map<string, Measurement["warnings"]>()
   for (const m of doc.measurements) {
     if (m.phase !== "cpu" || m.warnings.length === 0) continue
     const existing = cpuWarningsByWorkloadId.get(m.workloadId) ?? []
     cpuWarningsByWorkloadId.set(m.workloadId, [...existing, ...m.warnings])
   }
-  const skippedLines = doc.workloads
-    .filter((w) => w.skipped && !measuredWorkloadIds.has(w.id))
-    .map((w) => skippedLine(doc, w, comparisonByRun.get(w.id), noiseFloorPct))
+  const skippedLines = skippedWorkloads(
+    doc,
+    rows.map((r) => r.run),
+  ).map((w) => skippedLine(doc, w, comparisonByRun.get(w.id), noiseFloorPct))
 
   const measuredLines = rows.map((row) => {
     const { run, workload } = row

@@ -7,7 +7,7 @@ import {
   timeSourceSpec,
 } from "../spawn/index.ts"
 import { TOOL_VERSION } from "../version.ts"
-import { fp, sortKeysDeep } from "./fp.ts"
+import { canonicalJSON, fp } from "./fp.ts"
 import { captureGitMetadata } from "./git.ts"
 import type {
   ArtifactRef,
@@ -260,7 +260,7 @@ export function configFingerprint(opts: Record<string, unknown>): string {
 }
 
 export function serializeDocument(doc: ProfileDocument): string {
-  return `${JSON.stringify(sortKeysDeep(doc), null, 2)}\n`
+  return `${canonicalJSON(doc, 2)}\n`
 }
 
 /** Writes to `${path}.tmp-${pid}` then renames over `path`, so a process

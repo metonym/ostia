@@ -158,7 +158,7 @@ export interface CompareResult {
  * ~4.2% faster on average). `null` when no comparison has a finite ratio -
  * an all-frames-only/all-heap-only document, or every timing delta was
  * `Infinity` (a zero baseline median). */
-export function geomeanTimingPct(comparisons: Comparison[]): number | null {
+function geomeanTimingPct(comparisons: Comparison[]): number | null {
   const logRatios: number[] = []
   for (const c of comparisons) {
     if (!c.timing) continue
@@ -168,6 +168,60 @@ export function geomeanTimingPct(comparisons: Comparison[]): number | null {
   if (logRatios.length === 0) return null
   const meanLog = logRatios.reduce((a, b) => a + b, 0) / logRatios.length
   return (Math.exp(meanLog) - 1) * 100
+}
+
+/** A base/candidate pair indexed once, exposing per-workload comparison plus
+ * the pair-level facts (`unmatched`, `effectiveTimingPct`) that
+ * `compareDocuments` and `ostia ci` both need. */
+export interface Comparer {
+  effectiveTimingPct: number
+  compare(workloadId: string): Comparison | undefined
+  unmatched(): { baseOnly: Workload[]; candOnly: Workload[] }
+}
+
+export function createComparer(
+  base: ProfileDocument,
+  cand: ProfileDocument,
+  thresholds: Thresholds = DEFAULT_THRESHOLDS,
+): Comparer {
+  const index = buildIndex(base, cand, thresholds)
+  return {
+    effectiveTimingPct: index.effectiveTimingPct,
+    compare: (workloadId) => compareIndexed(index, workloadId, thresholds),
+    unmatched() {
+      const baseIds = new Set(base.workloads.map((w) => w.id))
+      return {
+        baseOnly: base.workloads.filter((w) => !index.candWorkloads.has(w.id)),
+        candOnly: cand.workloads.filter((w) => !baseIds.has(w.id)),
+      }
+    },
+  }
+}
+
+/** Timing-verdict tallies, geomean, and the overall pass/fail over a set of
+ * comparisons - the `comparisonSummary` stamped on a compared document. */
+export function summarizeComparisons(
+  comparisons: Comparison[],
+  effectiveTimingPct: number,
+): ComparisonSummary {
+  let regressed = 0
+  let improved = 0
+  let unchanged = 0
+  for (const c of comparisons) {
+    if (!c.timing) continue
+    if (c.timing.verdict === "regressed") regressed++
+    else if (c.timing.verdict === "improved") improved++
+    else unchanged++
+  }
+  return {
+    matched: comparisons.length,
+    regressed,
+    improved,
+    unchanged,
+    geomeanPct: geomeanTimingPct(comparisons),
+    effectiveTimingPct,
+    verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
+  }
 }
 
 /** Matches `base.workloads` against `cand.workloads` by id, comparing every
@@ -180,41 +234,16 @@ export function compareDocuments(
   cand: ProfileDocument,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): CompareResult {
-  const index = buildIndex(base, cand, thresholds)
-  const baseWorkloadIds = new Set(base.workloads.map((w) => w.id))
-  const candWorkloadIds = index.candWorkloads
+  const comparer = createComparer(base, cand, thresholds)
   const comparisons: Comparison[] = []
   for (const workload of base.workloads) {
-    if (!candWorkloadIds.has(workload.id)) continue
-    const comparison = compareIndexed(index, workload.id, thresholds)
+    const comparison = comparer.compare(workload.id)
     if (comparison) comparisons.push(comparison)
   }
-
-  const baseOnly = base.workloads.filter((w) => !candWorkloadIds.has(w.id))
-  const candOnly = cand.workloads.filter((w) => !baseWorkloadIds.has(w.id))
-
-  let regressed = 0
-  let improved = 0
-  let unchanged = 0
-  for (const c of comparisons) {
-    if (!c.timing) continue
-    if (c.timing.verdict === "regressed") regressed++
-    else if (c.timing.verdict === "improved") improved++
-    else unchanged++
-  }
-
   return {
     comparisons,
-    unmatched: { baseOnly, candOnly },
-    summary: {
-      matched: comparisons.length,
-      regressed,
-      improved,
-      unchanged,
-      geomeanPct: geomeanTimingPct(comparisons),
-      effectiveTimingPct: index.effectiveTimingPct,
-      verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
-    },
+    unmatched: comparer.unmatched(),
+    summary: summarizeComparisons(comparisons, comparer.effectiveTimingPct),
   }
 }
 
@@ -224,7 +253,7 @@ export function compareWorkload(
   workloadId: string,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): Comparison | undefined {
-  return compareIndexed(buildIndex(base, cand, thresholds), workloadId, thresholds)
+  return createComparer(base, cand, thresholds).compare(workloadId)
 }
 
 function compareIndexed(
@@ -259,7 +288,6 @@ function compareIndexed(
     timing = {
       medianDeltaPct: 0,
       meanDeltaPct: 0,
-      effectPct: 0,
       verdict: "unchanged",
     }
     warnings.push({
@@ -298,7 +326,6 @@ function compareIndexed(
       timing = {
         medianDeltaPct,
         meanDeltaPct,
-        effectPct: medianDeltaPct,
         verdict,
       }
       warnings.push({
@@ -322,7 +349,6 @@ function compareIndexed(
       timing = {
         medianDeltaPct,
         meanDeltaPct,
-        effectPct: medianDeltaPct,
         ci95: bootstrap.ci95,
         pValue: mw.pValue,
         seed: bootstrap.seed,

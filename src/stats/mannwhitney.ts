@@ -51,8 +51,7 @@ export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   let j = 0
   let pos = 0 // 0-based rank position consumed so far
   while (i < n1 || j < n2) {
-    const v =
-      j >= n2 || (i < n1 && sa[i]! <= sb[j]!) ? sa[i]! : sb[j]!
+    const v = j >= n2 || (i < n1 && sa[i]! <= sb[j]!) ? sa[i]! : sb[j]!
     let ca = 0
     while (i < n1 && sa[i] === v) {
       ca++

@@ -616,7 +616,6 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
         timing: {
           medianDeltaPct: 12.5,
           meanDeltaPct: 11,
-          effectPct: 12.5,
           ci95: [9.1, 15.8],
           pValue: 0.0005,
           seed: 42,

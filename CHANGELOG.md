@@ -1,5 +1,30 @@
 # Changelog
 
+## Unreleased
+
+**Performance**
+
+- `compareDocuments` / `ostia compare` / `ostia ci`: ~8× faster per workload
+  (143.7 ms → 18.1 ms on a 1000-sample workload in `bench/compare.ts`). The
+  bootstrap resamples through an index histogram over each side's sorted
+  samples instead of allocating and sorting 4000 arrays per comparison
+  (bit-identical `ci95` for a given seed), Mann-Whitney ranks via a merge walk
+  over two typed-array sorts, and the base/candidate measurement index is
+  built once per document pair instead of once per workload.
+- `ostia` CLI startup no longer imports `node:inspector` eagerly (loaded on
+  first `profile(..., { origin: "inspector" })` / in-process `--cpu` use) and
+  writes its output through `Bun.write` instead of `process.stdout`, together
+  ~9 ms less per invocation.
+- `timingWarnings` no longer re-sorts the samples: `TimingStats` gains `p25`
+  (additive) alongside `p75`, and the slow-first-run check uses both.
+- `sortKeysDeep`/`serializeDocument` return primitive-only arrays as is, so
+  large `samples` arrays stay on `JSON.stringify`'s fast path.
+
+**Breaking**
+
+- Removed `Comparison.timing.effectPct` (always equal to `medianDeltaPct`) and
+  the never-written `MemoryEvidence.peakCommitBytes` / `pageFaults` fields.
+
 ## 0.2.3 — 2026-09-08
 
 **Features**

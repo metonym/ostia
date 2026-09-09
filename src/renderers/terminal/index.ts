@@ -8,6 +8,7 @@ import {
   workloadLabel,
 } from "../format.ts"
 import { groupOf, relativeReferences } from "../relative.ts"
+import { environmentMismatch, skippedWorkloads, timingRuns } from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
@@ -38,20 +39,15 @@ type TableRow =
 export const terminalRenderer: Renderer<Record<string, never>> = {
   name: "table",
   async render(doc: ProfileDocument): Promise<RenderResult> {
-    const timingRuns = doc.measurements.filter(
-      (r): r is Measurement & { timing: NonNullable<Measurement["timing"]> } =>
-        r.phase === "timing" && r.timing !== undefined,
-    )
+    const runs = timingRuns(doc)
     const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
 
     const envLine = doc.environment
       ? [formatEnvironmentLine(doc.environment), ""]
       : []
 
-    const skippedWorkloads = doc.workloads.filter(
-      (w) => w.skipped && !timingRuns.some((r) => r.workloadId === w.id),
-    )
-    if (timingRuns.length === 0 && skippedWorkloads.length === 0) {
+    const skipped = skippedWorkloads(doc, runs)
+    if (runs.length === 0 && skipped.length === 0) {
       const comparisonLines = renderComparisons(doc, byWorkload)
       return {
         text:
@@ -64,9 +60,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     // Ordered by doc.workloads (registration order), a measured row where a
     // timing measurement exists, else a skipped row for a task.skip()'d
     // workload, so a skipped task prints in its natural place in its group.
-    const measurementByWorkloadId = new Map(
-      timingRuns.map((r) => [r.workloadId, r]),
-    )
+    const measurementByWorkloadId = new Map(runs.map((r) => [r.workloadId, r]))
     const rows: TableRow[] = []
     const measuredRows: ({ kind: "measured" } & TimingRow)[] = []
     for (const workload of doc.workloads) {
@@ -203,13 +197,8 @@ function renderComparisons(
   const lines: string[] = []
   const byMeasurement = new Map(doc.measurements.map((m) => [m.id, m]))
 
-  // `environment-mismatch` is identical on every comparison in this
-  // document (it's about the base/cand document pair, not a single
-  // workload) - print it once here instead of once per comparison below.
-  const environmentMismatch = doc.comparisons
-    .flatMap((c) => c.warnings ?? [])
-    .find((w) => w.code === "environment-mismatch")
-  if (environmentMismatch) lines.push(`⚠ ${environmentMismatch.message}`, "")
+  const mismatch = environmentMismatch(doc)
+  if (mismatch) lines.push(`⚠ ${mismatch.message}`, "")
 
   const footnotes: { label: string; message: string }[] = []
 

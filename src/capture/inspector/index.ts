@@ -1,4 +1,3 @@
-import { Session } from "node:inspector/promises"
 import type { CpuEvidence } from "../../ir/types.ts"
 import { parseCpuProfile, type RawCpuProfile } from "../cpu/parse.ts"
 
@@ -19,6 +18,9 @@ export async function captureInspectorProfile<T>(
   opts: InspectorCaptureOptions = {},
 ): Promise<InspectorCaptureResult<T>> {
   const intervalUs = opts.intervalUs ?? DEFAULT_INTERVAL_US
+  // Loaded on first use: importing node:inspector costs ~4 ms of process
+  // startup, which every `ostia` invocation would otherwise pay.
+  const { Session } = await import("node:inspector/promises")
   const session = new Session()
   session.connect()
 

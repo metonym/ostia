@@ -233,8 +233,6 @@ export interface MemoryEvidence {
   origin: "resourceUsage" | "memoryUsage" | "heapStats"
   perTrial?: { rssBytes?: number; heapSizeBytes?: number }[]
   maxRssBytes?: number
-  peakCommitBytes?: number
-  pageFaults?: number
   /** Bytes allocated per call, from `ostia bench --alloc`: heap size delta
    * (`bun:jsc`'s `heapStats().heapSize`, falling back to
    * `process.memoryUsage().heapUsed`) around one `Bun.gc(true)`-bracketed
@@ -301,9 +299,6 @@ export interface Comparison {
   timing?: {
     medianDeltaPct: number
     meanDeltaPct: number
-    /** Same value as `medianDeltaPct`, named for what it is used for: the
-     * effect size the verdict rule tests against `thresholds.timingPct`. */
-    effectPct: number
     /** 95% bootstrap confidence interval on the difference of medians,
      * percent of the baseline median. Absent when either side had fewer
      * than 5 samples (see the `thin-comparison` warning). */

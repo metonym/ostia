@@ -1,7 +1,7 @@
 import { bench, expandSuiteGlobs } from "../bench/index.ts"
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts"
 import { readCachedRun, writeCachedRun } from "../cache/store.ts"
-import { compareWorkload, geomeanTimingPct } from "../compare/index.ts"
+import { createComparer, summarizeComparisons } from "../compare/index.ts"
 import { baselinePath, type OstiaConfig } from "../config/index.ts"
 import {
   configFingerprint,
@@ -291,13 +291,9 @@ export async function runCi(opts: CiOptions): Promise<{
   let regressed = 0
   let missingBaseline = 0
 
+  const comparer = createComparer(baseline, candidateDoc, config.thresholds)
   for (const result of results) {
-    const comparison = compareWorkload(
-      baseline,
-      candidateDoc,
-      result.workload.id,
-      config.thresholds,
-    )
+    const comparison = comparer.compare(result.workload.id)
     if (!comparison) {
       missingBaseline++
       continue
@@ -323,42 +319,15 @@ export async function runCi(opts: CiOptions): Promise<{
     .filter((c): c is Comparison => c !== undefined)
   candidateDoc.comparisons = comparisons
 
-  const baselineWorkloadIds = new Set(baseline.workloads.map((w) => w.id))
-  const candidateWorkloadIds = new Set(candidateDoc.workloads.map((w) => w.id))
-  const unmatched = {
-    baseOnly: baseline.workloads.filter((w) => !candidateWorkloadIds.has(w.id)),
-    candOnly: candidateDoc.workloads.filter(
-      (w) => !baselineWorkloadIds.has(w.id),
-    ),
-  }
+  const unmatched = comparer.unmatched()
   candidateDoc.unmatched = {
     baseOnly: unmatched.baseOnly.map((w) => w.id),
     candOnly: unmatched.candOnly.map((w) => w.id),
   }
-
-  let regressedTiming = 0
-  let improvedTiming = 0
-  let unchangedTiming = 0
-  for (const c of comparisons) {
-    if (!c.timing) continue
-    if (c.timing.verdict === "regressed") regressedTiming++
-    else if (c.timing.verdict === "improved") improvedTiming++
-    else unchangedTiming++
-  }
-  const effectiveTimingPct = Math.max(
-    config.thresholds.timingPct,
-    baseline.environment?.noise.floorPct ?? 0,
-    environment?.noise.floorPct ?? 0,
+  candidateDoc.comparisonSummary = summarizeComparisons(
+    comparisons,
+    comparer.effectiveTimingPct,
   )
-  candidateDoc.comparisonSummary = {
-    matched: comparisons.length,
-    regressed: regressedTiming,
-    improved: improvedTiming,
-    unchanged: unchangedTiming,
-    geomeanPct: geomeanTimingPct(comparisons),
-    effectiveTimingPct,
-    verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
-  }
 
   return {
     document: candidateDoc,

@@ -42,14 +42,46 @@ function pctDelta(base: number, cand: number): number {
   return ((cand - base) / base) * 100
 }
 
-function measurementsFor(
-  doc: ProfileDocument,
-  workloadId: string,
-  phase: Measurement["phase"],
-): Measurement | undefined {
-  return doc.measurements.find(
-    (r) => r.workloadId === workloadId && r.phase === phase,
-  )
+/** Everything `compareWorkload` needs from a base/candidate pair, built once
+ * per `compareDocuments` call instead of re-scanning both documents' arrays
+ * for every workload. */
+interface CompareIndex {
+  base: ProfileDocument
+  cand: ProfileDocument
+  baseByPhase: Map<string, Measurement>
+  candByPhase: Map<string, Measurement>
+  candWorkloads: Map<string, Workload>
+  environmentMismatch: Warning | undefined
+  effectiveTimingPct: number
+}
+
+function indexMeasurements(doc: ProfileDocument): Map<string, Measurement> {
+  const byPhase = new Map<string, Measurement>()
+  for (const m of doc.measurements) {
+    const key = `${m.workloadId}\u0000${m.phase}`
+    if (!byPhase.has(key)) byPhase.set(key, m)
+  }
+  return byPhase
+}
+
+function buildIndex(
+  base: ProfileDocument,
+  cand: ProfileDocument,
+  thresholds: Thresholds,
+): CompareIndex {
+  return {
+    base,
+    cand,
+    baseByPhase: indexMeasurements(base),
+    candByPhase: indexMeasurements(cand),
+    candWorkloads: new Map(cand.workloads.map((w) => [w.id, w])),
+    environmentMismatch: environmentMismatchWarning(base, cand),
+    effectiveTimingPct: Math.max(
+      thresholds.timingPct,
+      base.environment?.noise.floorPct ?? 0,
+      cand.environment?.noise.floorPct ?? 0,
+    ),
+  }
 }
 
 interface EnvironmentMismatchField {
@@ -148,12 +180,13 @@ export function compareDocuments(
   cand: ProfileDocument,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): CompareResult {
+  const index = buildIndex(base, cand, thresholds)
   const baseWorkloadIds = new Set(base.workloads.map((w) => w.id))
-  const candWorkloadIds = new Set(cand.workloads.map((w) => w.id))
+  const candWorkloadIds = index.candWorkloads
   const comparisons: Comparison[] = []
   for (const workload of base.workloads) {
     if (!candWorkloadIds.has(workload.id)) continue
-    const comparison = compareWorkload(base, cand, workload.id, thresholds)
+    const comparison = compareIndexed(index, workload.id, thresholds)
     if (comparison) comparisons.push(comparison)
   }
 
@@ -170,12 +203,6 @@ export function compareDocuments(
     else unchanged++
   }
 
-  const effectiveTimingPct = Math.max(
-    thresholds.timingPct,
-    base.environment?.noise.floorPct ?? 0,
-    cand.environment?.noise.floorPct ?? 0,
-  )
-
   return {
     comparisons,
     unmatched: { baseOnly, candOnly },
@@ -185,7 +212,7 @@ export function compareDocuments(
       improved,
       unchanged,
       geomeanPct: geomeanTimingPct(comparisons),
-      effectiveTimingPct,
+      effectiveTimingPct: index.effectiveTimingPct,
       verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
     },
   }
@@ -197,13 +224,22 @@ export function compareWorkload(
   workloadId: string,
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): Comparison | undefined {
-  const baseTiming = measurementsFor(base, workloadId, "timing")
-  const candTiming = measurementsFor(cand, workloadId, "timing")
-  const baseCpu = measurementsFor(base, workloadId, "cpu")
-  const candCpu = measurementsFor(cand, workloadId, "cpu")
-  const baseHeap = measurementsFor(base, workloadId, "heap")
-  const candHeap = measurementsFor(cand, workloadId, "heap")
-  const candWorkload = cand.workloads.find((w) => w.id === workloadId)
+  return compareIndexed(buildIndex(base, cand, thresholds), workloadId, thresholds)
+}
+
+function compareIndexed(
+  index: CompareIndex,
+  workloadId: string,
+  thresholds: Thresholds,
+): Comparison | undefined {
+  const { baseByPhase, candByPhase, effectiveTimingPct } = index
+  const baseTiming = baseByPhase.get(`${workloadId}\u0000timing`)
+  const candTiming = candByPhase.get(`${workloadId}\u0000timing`)
+  const baseCpu = baseByPhase.get(`${workloadId}\u0000cpu`)
+  const candCpu = candByPhase.get(`${workloadId}\u0000cpu`)
+  const baseHeap = baseByPhase.get(`${workloadId}\u0000heap`)
+  const candHeap = candByPhase.get(`${workloadId}\u0000heap`)
+  const candWorkload = index.candWorkloads.get(workloadId)
 
   const baselineMeasurementId = baseTiming?.id ?? baseCpu?.id ?? baseHeap?.id
   // A task.skip()'d candidate has no measurement at all; fall back to its
@@ -216,13 +252,7 @@ export function compareWorkload(
 
   let failed = false
   const warnings: Warning[] = []
-  const environmentMismatch = environmentMismatchWarning(base, cand)
-  if (environmentMismatch) warnings.push(environmentMismatch)
-  const effectiveTimingPct = Math.max(
-    thresholds.timingPct,
-    base.environment?.noise.floorPct ?? 0,
-    cand.environment?.noise.floorPct ?? 0,
-  )
+  if (index.environmentMismatch) warnings.push(index.environmentMismatch)
 
   let timing: Comparison["timing"]
   if (baseTiming?.timing && candWorkload?.skipped && !candTiming?.timing) {

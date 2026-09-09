@@ -50,6 +50,7 @@ export function computeTimingStats(samples: number[]): TimingStats {
     min,
     max,
     outliers: { mild, severe },
+    p25: q1,
     p75: q3,
     p99,
     mad,
@@ -94,11 +95,8 @@ export function timingWarnings(
   const warnings: Warning[] = []
 
   const first = stats.samples[0]
-  if (first !== undefined) {
-    const sorted = sortedCopy(stats.samples)
-    const q1 = percentile(sorted, 0.25)
-    const q3 = percentile(sorted, 0.75)
-    const iqr = q3 - q1
+  if (first !== undefined && stats.p25 !== undefined && stats.p75 !== undefined) {
+    const iqr = stats.p75 - stats.p25
     if (first > stats.median + 3 * iqr && iqr > 0) {
       warnings.push({
         code: "slow-first-run",

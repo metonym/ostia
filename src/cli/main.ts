@@ -19,7 +19,12 @@ import {
   type OstiaConfig,
 } from "../config/index.ts"
 import { type CommandSpec, time } from "../index.ts"
-import { loadDocument, saveDocument } from "../ir/document.ts"
+import {
+  loadDocument,
+  saveDocument,
+  saveDocumentText,
+  serializeDocument,
+} from "../ir/document.ts"
 import type { ProfileDocument, Workload } from "../ir/types.ts"
 import { formatGit, workloadLabel } from "../renderers/format.ts"
 import {
@@ -36,6 +41,14 @@ import { splitCommand, type TimeSource, type TimeUnit } from "../spawn/index.ts"
 function errorMessage(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
+
+/** `process.stdout`/`process.stderr` instantiate Node's stream stack on
+ * first touch, costing real process-startup time for a CLI that's often
+ * just printing one line and exiting - `Bun.write` to `Bun.stdout`/
+ * `Bun.stderr` writes the same fd without paying for that. Every write in
+ * this file goes through these two so none of them re-trigger it. */
+const out = (text: string) => Bun.write(Bun.stdout, text)
+const err = (text: string) => Bun.write(Bun.stderr, text)
 
 /** Thrown by an argument parser for a malformed flag; every `xCommand`
  * catches it, prints the message plus a `--help` pointer, and exits 2. */
@@ -66,13 +79,13 @@ export type CliErrorCode =
  * the "pure stdout" fix above). The JSON `message` is just `message`'s first
  * line - a "Run --help" hint belongs to a human at a terminal, not to a
  * script's error object. */
-function writeCliError(
+async function writeCliError(
   code: CliErrorCode,
   message: string,
   data?: Record<string, unknown>,
-): void {
-  process.stderr.write(message.endsWith("\n") ? message : `${message}\n`)
-  process.stderr.write(
+): Promise<void> {
+  await err(message.endsWith("\n") ? message : `${message}\n`)
+  await err(
     `${JSON.stringify({
       event: "error",
       protocolVersion: MINIMAL_PROTOCOL_VERSION,
@@ -83,11 +96,23 @@ function writeCliError(
   )
 }
 
-function reportUsageError(err: unknown, command: string): number {
-  if (!(err instanceof CliUsageError)) throw err
-  writeCliError(
+/** Prints `text` (a `*_HELP` constant) to stdout and returns the matching
+ * exit code - 0 when help was explicitly requested, 2 when it's being
+ * shown because something required was missing (bare invocation, no
+ * command given, etc). The repeated shape at the top of every command. */
+async function showHelp(text: string, ok: boolean): Promise<number> {
+  await out(text)
+  return ok ? 0 : 2
+}
+
+async function reportUsageError(
+  usageErr: unknown,
+  command: string,
+): Promise<number> {
+  if (!(usageErr instanceof CliUsageError)) throw usageErr
+  await writeCliError(
     "invalid-flag",
-    `${err.message}\nRun 'ostia ${command} --help'.`,
+    `${usageErr.message}\nRun 'ostia ${command} --help'.`,
   )
   return 2
 }
@@ -157,16 +182,15 @@ const VIZ_FORMATS = [
 /** `report` is the only command that can target a viz format. */
 const REPORT_FORMATS = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const
 
-function checkFormat(
-  format: string,
-  allowed: readonly FormatName[],
-): format is FormatName {
-  if ((allowed as readonly string[]).includes(format)) return true
-  writeCliError(
-    "invalid-flag",
+/** Throws when `format` isn't one of `allowed` - synchronous (unlike
+ * `writeCliError`), so every caller runs it inside the same try/catch as
+ * its own argument parsing and lets `reportUsageError` print it, rather
+ * than writing here directly. */
+function checkFormat(format: string, allowed: readonly FormatName[]): void {
+  if ((allowed as readonly string[]).includes(format)) return
+  throw new CliUsageError(
     `Unknown --format "${format}". Expected one of: ${allowed.join(", ")}`,
   )
-  return false
 }
 
 const NO_CPU_EVIDENCE =
@@ -176,6 +200,9 @@ function hasCpuMeasurement(doc: ProfileDocument): boolean {
   return doc.measurements.some((m) => m.phase === "cpu")
 }
 
+/** Saves `doc` to `path` when given - the one export decision every
+ * `emitDocument` caller and `ci` (which can't route through `emitDocument`
+ * itself, see its doc comment below) both need. */
 /** Shared tail of time/bench/compare: optional --export-json, then the
  * rendered report unless --quiet. Guards against a viz format on a document
  * with no CPU evidence, though today only `report` can reach one (the other
@@ -188,13 +215,24 @@ async function emitDocument(
   args: { exportJson?: string; format: FormatName; quiet: boolean },
   rendererOptions: Record<string, unknown> = {},
 ): Promise<number> {
+  // `--format json`'s render output is byte-for-byte `serializeDocument(doc)`
+  // (see the json renderer) - the same text `--export-json` would write.
+  // With both flags given, build that text once and reuse it for both
+  // instead of running the (doc-size-proportional) canonical-JSON serializer
+  // twice on the same document.
+  if (args.format === "json" && args.exportJson) {
+    const text = serializeDocument(doc)
+    await saveDocumentText(text, args.exportJson)
+    if (!args.quiet) await out(text)
+    return 0
+  }
   if (args.exportJson) await saveDocument(doc, args.exportJson)
   if (args.quiet) return 0
   if (
     (VIZ_FORMATS as readonly string[]).includes(args.format) &&
     !hasCpuMeasurement(doc)
   ) {
-    writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
+    await writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
     return 2
   }
   await writeRenderResult(
@@ -210,7 +248,7 @@ async function requireConfig(
 ): Promise<OstiaConfig | undefined> {
   const config = await loadConfig()
   if (!config) {
-    writeCliError(
+    await writeCliError(
       "config-missing",
       command
         ? `No ostia.config.json found. "${command}" needs configured workloads.`
@@ -220,7 +258,7 @@ async function requireConfig(
   }
   if (command && config.workloads.length === 0) {
     const configFile = (await configFilePath()) ?? "ostia.config.json"
-    writeCliError(
+    await writeCliError(
       "config-missing",
       `${configFile} has no "workloads" configured.`,
     )
@@ -233,7 +271,7 @@ async function writeRenderResult(
   result: RenderResult,
   outDir?: string,
 ): Promise<void> {
-  if (result.text) process.stdout.write(result.text)
+  if (result.text) await out(result.text)
 
   if (!result.files || result.files.length === 0) return
 
@@ -241,13 +279,13 @@ async function writeRenderResult(
     for (const f of result.files) {
       const path = f.path ? `${outDir}/${f.path}` : outDir
       await Bun.write(path, f.content)
-      process.stdout.write(`wrote ${path}\n`)
+      await out(`wrote ${path}\n`)
     }
   } else if (result.files.length === 1) {
-    process.stdout.write(result.files[0]!.content)
+    await out(result.files[0]!.content)
   } else {
     for (const f of result.files) {
-      process.stdout.write(`--- ${f.path ?? "(unnamed)"} ---\n${f.content}\n`)
+      await out(`--- ${f.path ?? "(unnamed)"} ---\n${f.content}\n`)
     }
   }
 }
@@ -566,6 +604,87 @@ Examples:
   ostia baseline show main --format markdown
 `
 
+/** One flag's shape for the declarative tables below: what `argv[++i]`
+ * becomes and how it's validated. `"string"`/`"enum"`'s underlying type
+ * (e.g. `FormatName`) isn't checked here - callers validate those
+ * separately (`checkFormat`, `TIME_UNITS.includes`) since the same raw
+ * value needs an error message naming the actual command/flag. */
+type FlagSpec =
+  | { kind: "string" }
+  | { kind: "int"; min?: number; allowAuto?: boolean }
+  | { kind: "float"; min?: number }
+  | { kind: "bool"; value: boolean }
+  | { kind: "enum"; values: readonly string[] }
+  | { kind: "list" }
+
+interface FlagDef {
+  dest: string
+  spec: FlagSpec
+}
+
+/** Generic engine behind every `parse*Args` below: walks `argv`, and for
+ * each token either hands it to `special` (irregular forms a keyed table
+ * can't express - `--`'s argv escape, `--ignore-failure[=..]`,
+ * `--bun-flags[=..]` - which returns the index parsing should resume from,
+ * or `undefined` to fall through), looks it up in `table` and assigns the
+ * parsed value onto `args[dest]`, or - when it matches neither - routes it
+ * to `onPositional` (a bare word) or throws the uniform "Unknown flag"
+ * `CliUsageError` (anything starting with "-"). */
+function parseFlags<T extends object>(
+  argv: string[],
+  command: string,
+  table: Record<string, FlagDef>,
+  args: T,
+  onPositional: (arg: string, args: T) => void,
+  special?: (arg: string, i: number, args: T) => number | undefined,
+): T {
+  const bag = args as unknown as Record<string, unknown>
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i]!
+    const handled = special?.(arg, i, args)
+    if (handled !== undefined) {
+      i = handled
+      continue
+    }
+    const def = table[arg]
+    if (!def) {
+      if (arg.startsWith("-")) {
+        throw new CliUsageError(`Unknown flag "${arg}" for "ostia ${command}".`)
+      }
+      onPositional(arg, args)
+      continue
+    }
+    switch (def.spec.kind) {
+      case "string":
+        bag[def.dest] = argv[++i]
+        break
+      case "int":
+        bag[def.dest] = parseIntFlag(arg, argv[++i], def.spec)
+        break
+      case "float":
+        bag[def.dest] = parseFloatFlag(arg, argv[++i], def.spec)
+        break
+      case "bool":
+        bag[def.dest] = def.spec.value
+        break
+      case "list":
+        ;(bag[def.dest] as string[]).push(argv[++i] ?? "")
+        break
+      case "enum": {
+        const raw = argv[++i]
+        if (!def.spec.values.includes(raw as string)) {
+          throw new CliUsageError(
+            `Invalid ${arg} "${raw}": expected one of: ${def.spec.values.join(", ")}`,
+          )
+        }
+        bag[def.dest] = raw
+        break
+      }
+    }
+  }
+  return args
+}
+
 interface TimeArgs {
   commands: string[]
   /** `-- <argv...>`: one more command, given as argv with no whitespace
@@ -596,6 +715,38 @@ interface TimeArgs {
   help: boolean
 }
 
+const TIME_FLAGS: Record<string, FlagDef> = {
+  "--samples": { dest: "samples", spec: { kind: "int", min: 1 } },
+  "--budget": { dest: "budgetMs", spec: { kind: "int", min: 1 } },
+  "--min-samples": { dest: "minSamples", spec: { kind: "int", min: 1 } },
+  "--warmup": { dest: "warmup", spec: { kind: "int", min: 0 } },
+  "--no-interleave": {
+    dest: "interleave",
+    spec: { kind: "bool", value: false },
+  },
+  "--prepare": { dest: "prepare", spec: { kind: "list" } },
+  "--time-source": { dest: "timeSource", spec: { kind: "string" } },
+  "--time-unit": { dest: "timeUnit", spec: { kind: "string" } },
+  "--cpu": { dest: "cpu", spec: { kind: "bool", value: true } },
+  "--heap": { dest: "heap", spec: { kind: "bool", value: true } },
+  "--cpu-interval": { dest: "cpuIntervalUs", spec: { kind: "int", min: 1 } },
+  "--timeout": { dest: "timeoutMs", spec: { kind: "int", min: 1 } },
+  "--fail-on-nonzero": {
+    dest: "failOnNonzero",
+    spec: { kind: "bool", value: true },
+  },
+  "--out-dir": { dest: "outDir", spec: { kind: "string" } },
+  "--no-noise-check": {
+    dest: "noiseCheck",
+    spec: { kind: "bool", value: false },
+  },
+  "--export-json": { dest: "exportJson", spec: { kind: "string" } },
+  "--format": { dest: "format", spec: { kind: "string" } },
+  "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
 function parseTimeArgs(argv: string[]): TimeArgs {
   const args: TimeArgs = {
     commands: [],
@@ -610,97 +761,34 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     quiet: false,
     help: false,
   }
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    if (arg === "--") {
-      // Everything after `--` is one command's argv, verbatim - not
-      // whitespace-split, not further flag-parsed (an argument that happens
-      // to look like a flag still belongs to the command).
-      args.argvCommand = argv.slice(i + 1)
-      break
-    }
-    if (arg === "--ignore-failure" || arg.startsWith("--ignore-failure=")) {
-      const value = arg.startsWith("--ignore-failure=")
-        ? arg.slice("--ignore-failure=".length)
-        : undefined
-      args.ignoreExitCodes.push(
-        ...(value === undefined
-          ? IGNORE_ALL_EXIT_CODES
-          : value.split(",").map(Number)),
-      )
-      continue
-    }
-    switch (arg) {
-      case "--samples":
-        args.samples = parseIntFlag("--samples", argv[++i], { min: 1 })
-        break
-      case "--budget":
-        args.budgetMs = parseIntFlag("--budget", argv[++i], { min: 1 })
-        break
-      case "--min-samples":
-        args.minSamples = parseIntFlag("--min-samples", argv[++i], { min: 1 })
-        break
-      case "--warmup":
-        args.warmup = parseIntFlag("--warmup", argv[++i], { min: 0 })
-        break
-      case "--no-interleave":
-        args.interleave = false
-        break
-      case "--prepare":
-        args.prepare.push(argv[++i] ?? "")
-        break
-      case "--time-source":
-        args.timeSource = argv[++i]
-        break
-      case "--time-unit":
-        args.timeUnit = argv[++i] as TimeUnit
-        break
-      case "--cpu":
-        args.cpu = true
-        break
-      case "--heap":
-        args.heap = true
-        break
-      case "--cpu-interval":
-        args.cpuIntervalUs = parseIntFlag("--cpu-interval", argv[++i], {
-          min: 1,
-        })
-        break
-      case "--timeout":
-        args.timeoutMs = Number(argv[++i])
-        break
-      case "--fail-on-nonzero":
-        args.failOnNonzero = true
-        break
-      case "--out-dir":
-        args.outDir = argv[++i]
-        break
-      case "--no-noise-check":
-        args.noiseCheck = false
-        break
-      case "--export-json":
-        args.exportJson = argv[++i]
-        break
-      case "--format":
-        args.format = argv[++i] as FormatName
-        break
-      case "--quiet":
-        args.quiet = true
-        break
-      case "--help":
-      case "-h":
-        args.help = true
-        break
-      default:
-        if (arg.startsWith("-")) {
-          throw new CliUsageError(`Unknown flag "${arg}" for "ostia time".`)
-        }
-        args.commands.push(arg)
-    }
-  }
-
-  return args
+  return parseFlags(
+    argv,
+    "time",
+    TIME_FLAGS,
+    args,
+    (arg, a) => a.commands.push(arg),
+    (arg, i, a) => {
+      if (arg === "--") {
+        // Everything after `--` is one command's argv, verbatim - not
+        // whitespace-split, not further flag-parsed (an argument that
+        // happens to look like a flag still belongs to the command).
+        a.argvCommand = argv.slice(i + 1)
+        return argv.length
+      }
+      if (arg === "--ignore-failure" || arg.startsWith("--ignore-failure=")) {
+        const value = arg.startsWith("--ignore-failure=")
+          ? arg.slice("--ignore-failure=".length)
+          : undefined
+        a.ignoreExitCodes.push(
+          ...(value === undefined
+            ? IGNORE_ALL_EXIT_CODES
+            : value.split(",").map(Number)),
+        )
+        return i
+      }
+      return undefined
+    },
+  )
 }
 
 /** Wires SIGINT to an `AbortController` for the duration of `run`, so a
@@ -725,30 +813,24 @@ async function withSigintAbort<T>(
 const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
 
 async function timeCommand(argv: string[]): Promise<number> {
-  let parsed: TimeArgs
-  try {
-    parsed = parseTimeArgs(argv)
-  } catch (err) {
-    return reportUsageError(err, "time")
-  }
+  const parsed = parseTimeArgs(argv)
   const hasArgvCommand = (parsed.argvCommand?.length ?? 0) > 0
   if (parsed.help || (parsed.commands.length === 0 && !hasArgvCommand)) {
-    process.stdout.write(TIME_HELP)
-    return parsed.help ? 0 : 2
+    return showHelp(TIME_HELP, parsed.help)
   }
 
-  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
+  checkFormat(parsed.format, DOCUMENT_FORMATS)
 
   const totalCommands = parsed.commands.length + (hasArgvCommand ? 1 : 0)
   if (parsed.prepare.length > 1 && parsed.prepare.length !== totalCommands) {
-    writeCliError(
+    await writeCliError(
       "invalid-flag",
       `--prepare given ${parsed.prepare.length} times for ${totalCommands} command(s): give it once (applies to all) or once per command.`,
     )
     return 2
   }
   if (parsed.timeUnit !== undefined && !TIME_UNITS.includes(parsed.timeUnit)) {
-    writeCliError(
+    await writeCliError(
       "invalid-flag",
       `Unknown --time-unit "${parsed.timeUnit}". Expected one of: ${TIME_UNITS.join(", ")}`,
     )
@@ -758,7 +840,7 @@ async function timeCommand(argv: string[]): Promise<number> {
     try {
       new RegExp(parsed.timeSource)
     } catch (err) {
-      writeCliError(
+      await writeCliError(
         "invalid-flag",
         `Invalid --time-source regex: ${errorMessage(err)}`,
       )
@@ -806,7 +888,7 @@ async function timeCommand(argv: string[]): Promise<number> {
       }),
     ))
   } catch (err) {
-    writeCliError("spawn-failed", `Run failed: ${errorMessage(err)}`)
+    await writeCliError("spawn-failed", `Run failed: ${errorMessage(err)}`)
     return 2
   }
 
@@ -843,7 +925,7 @@ async function timeCommand(argv: string[]): Promise<number> {
         : hasNoMatch
           ? "time-source-no-match"
           : "command-failed"
-    writeCliError(
+    await writeCliError(
       code,
       "One or more commands failed to produce a clean measurement; see the report above for details.",
     )
@@ -874,6 +956,34 @@ interface BenchArgs {
   help: boolean
 }
 
+const BENCH_FLAGS: Record<string, FlagDef> = {
+  "--budget": { dest: "budgetMs", spec: { kind: "int", min: 1 } },
+  "--samples": { dest: "samples", spec: { kind: "int", min: 1 } },
+  "--min-samples": { dest: "minSamples", spec: { kind: "int", min: 1 } },
+  "--jobs": { dest: "jobs", spec: { kind: "int", min: 1, allowAuto: true } },
+  "--gc": { dest: "gc", spec: { kind: "bool", value: true } },
+  "--no-gc": { dest: "gc", spec: { kind: "bool", value: false } },
+  "--cpu": { dest: "cpu", spec: { kind: "bool", value: true } },
+  "--no-cpu": { dest: "cpu", spec: { kind: "bool", value: false } },
+  "--alloc": { dest: "alloc", spec: { kind: "bool", value: true } },
+  "--no-alloc": { dest: "alloc", spec: { kind: "bool", value: false } },
+  "--filter": { dest: "filter", spec: { kind: "string" } },
+  "--isolate": { dest: "isolate", spec: { kind: "bool", value: true } },
+  "--no-isolate": { dest: "isolate", spec: { kind: "bool", value: false } },
+  "--preload": { dest: "preload", spec: { kind: "list" } },
+  "--timeout": { dest: "timeoutMs", spec: { kind: "int", min: 1 } },
+  "--out-dir": { dest: "outDir", spec: { kind: "string" } },
+  "--no-noise-check": {
+    dest: "noiseCheck",
+    spec: { kind: "bool", value: false },
+  },
+  "--export-json": { dest: "exportJson", spec: { kind: "string" } },
+  "--format": { dest: "format", spec: { kind: "string" } },
+  "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
 function parseBenchArgs(argv: string[]): BenchArgs {
   const args: BenchArgs = {
     suites: [],
@@ -884,118 +994,38 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     quiet: false,
     help: false,
   }
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    if (arg === "--bun-flags" || arg.startsWith("--bun-flags=")) {
-      const value = arg.startsWith("--bun-flags=")
-        ? arg.slice("--bun-flags=".length)
-        : (argv[++i] ?? "")
-      args.bunFlags.push(...splitCommand(value))
-      continue
-    }
-    switch (arg) {
-      case "--budget":
-        args.budgetMs = parseIntFlag("--budget", argv[++i], { min: 1 })
-        break
-      case "--samples":
-        args.samples = parseIntFlag("--samples", argv[++i], { min: 1 })
-        break
-      case "--min-samples":
-        args.minSamples = parseIntFlag("--min-samples", argv[++i], { min: 1 })
-        break
-      case "--jobs":
-        args.jobs = parseIntFlag("--jobs", argv[++i], {
-          min: 1,
-          allowAuto: true,
-        })
-        break
-      case "--gc":
-        args.gc = true
-        break
-      case "--no-gc":
-        args.gc = false
-        break
-      case "--cpu":
-        args.cpu = true
-        break
-      case "--no-cpu":
-        args.cpu = false
-        break
-      case "--alloc":
-        args.alloc = true
-        break
-      case "--no-alloc":
-        args.alloc = false
-        break
-      case "--filter":
-        args.filter = argv[++i]
-        break
-      case "--isolate":
-        args.isolate = true
-        break
-      case "--no-isolate":
-        args.isolate = false
-        break
-      case "--preload":
-        args.preload.push(argv[++i]!)
-        break
-      case "--timeout":
-        args.timeoutMs = Number(argv[++i])
-        break
-      case "--out-dir":
-        args.outDir = argv[++i]
-        break
-      case "--no-noise-check":
-        args.noiseCheck = false
-        break
-      case "--export-json":
-        args.exportJson = argv[++i]
-        break
-      case "--format":
-        args.format = argv[++i] as FormatName
-        break
-      case "--quiet":
-        args.quiet = true
-        break
-      case "--help":
-      case "-h":
-        args.help = true
-        break
-      default:
-        if (arg.startsWith("-")) {
-          throw new CliUsageError(`Unknown flag "${arg}" for "ostia bench".`)
-        }
-        args.suites.push(arg)
-    }
-  }
-
-  return args
+  return parseFlags(
+    argv,
+    "bench",
+    BENCH_FLAGS,
+    args,
+    (arg, a) => a.suites.push(arg),
+    (arg, i, a) => {
+      if (arg === "--bun-flags") {
+        a.bunFlags.push(...splitCommand(argv[i + 1] ?? ""))
+        return i + 1
+      }
+      if (arg.startsWith("--bun-flags=")) {
+        a.bunFlags.push(...splitCommand(arg.slice("--bun-flags=".length)))
+        return i
+      }
+      return undefined
+    },
+  )
 }
 
 async function benchCommand(argv: string[]): Promise<number> {
-  let parsed: BenchArgs
-  try {
-    parsed = parseBenchArgs(argv)
-  } catch (err) {
-    return reportUsageError(err, "bench")
-  }
-  if (parsed.help) {
-    process.stdout.write(BENCH_HELP)
-    return 0
-  }
+  const parsed = parseBenchArgs(argv)
+  if (parsed.help) return showHelp(BENCH_HELP, true)
 
-  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
+  checkFormat(parsed.format, DOCUMENT_FORMATS)
 
   const config = await loadConfig()
   const resolved = await resolveBenchOptions(parsed, config?.bench)
 
-  if (resolved.suites.length === 0) {
-    process.stdout.write(BENCH_HELP)
-    return 2
-  }
+  if (resolved.suites.length === 0) return showHelp(BENCH_HELP, false)
   if (resolved.jobs !== undefined && !(resolved.jobs >= 1)) {
-    writeCliError(
+    await writeCliError(
       "invalid-flag",
       `--jobs expects a positive integer or "auto".`,
     )
@@ -1009,7 +1039,7 @@ async function benchCommand(argv: string[]): Promise<number> {
       bench({ ...resolved, signal }),
     ))
   } catch (err) {
-    writeCliError("spawn-failed", `Bench failed: ${errorMessage(err)}`)
+    await writeCliError("spawn-failed", `Bench failed: ${errorMessage(err)}`)
     return 2
   }
 
@@ -1030,6 +1060,18 @@ interface CompareArgs {
   noConfig: boolean
 }
 
+const COMPARE_FLAGS: Record<string, FlagDef> = {
+  "--baseline": { dest: "baseline", spec: { kind: "string" } },
+  "--export-json": { dest: "exportJson", spec: { kind: "string" } },
+  "--format": { dest: "format", spec: { kind: "string" } },
+  "--timing-pct": { dest: "timingPct", spec: { kind: "float" } },
+  "--alpha": { dest: "alpha", spec: { kind: "float" } },
+  "--no-config": { dest: "noConfig", spec: { kind: "bool", value: true } },
+  "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
 function parseCompareArgs(argv: string[]): CompareArgs {
   const args: CompareArgs = {
     paths: [],
@@ -1038,44 +1080,9 @@ function parseCompareArgs(argv: string[]): CompareArgs {
     help: false,
     noConfig: false,
   }
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    switch (arg) {
-      case "--baseline":
-        args.baseline = argv[++i]
-        break
-      case "--export-json":
-        args.exportJson = argv[++i]
-        break
-      case "--format":
-        args.format = argv[++i] as FormatName
-        break
-      case "--timing-pct":
-        args.timingPct = parseFloatFlag("--timing-pct", argv[++i])
-        break
-      case "--alpha":
-        args.alpha = parseFloatFlag("--alpha", argv[++i])
-        break
-      case "--no-config":
-        args.noConfig = true
-        break
-      case "--quiet":
-        args.quiet = true
-        break
-      case "--help":
-      case "-h":
-        args.help = true
-        break
-      default:
-        if (arg.startsWith("-")) {
-          throw new CliUsageError(`Unknown flag "${arg}" for "ostia compare".`)
-        }
-        args.paths.push(arg)
-    }
-  }
-
-  return args
+  return parseFlags(argv, "compare", COMPARE_FLAGS, args, (arg, a) =>
+    a.paths.push(arg),
+  )
 }
 
 /** Resolves the `Thresholds` `ostia compare` gates on: `ostia.config.*`'s
@@ -1108,18 +1115,10 @@ async function resolveCompareThresholds(
 }
 
 async function compareCommand(argv: string[]): Promise<number> {
-  let parsed: CompareArgs
-  try {
-    parsed = parseCompareArgs(argv)
-  } catch (err) {
-    return reportUsageError(err, "compare")
-  }
-  if (parsed.help) {
-    process.stdout.write(COMPARE_HELP)
-    return 0
-  }
+  const parsed = parseCompareArgs(argv)
+  if (parsed.help) return showHelp(COMPARE_HELP, true)
 
-  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
+  checkFormat(parsed.format, DOCUMENT_FORMATS)
 
   let basePath: string | undefined
   let candPath: string | undefined
@@ -1131,10 +1130,7 @@ async function compareCommand(argv: string[]): Promise<number> {
     candPath = parsed.paths[1]
   }
 
-  if (!basePath || !candPath) {
-    process.stdout.write(COMPARE_HELP)
-    return 2
-  }
+  if (!basePath || !candPath) return showHelp(COMPARE_HELP, false)
 
   let base: ProfileDocument, cand: ProfileDocument
   try {
@@ -1143,7 +1139,7 @@ async function compareCommand(argv: string[]): Promise<number> {
       loadDocument(candPath),
     ])
   } catch (err) {
-    writeCliError(
+    await writeCliError(
       "document-load-failed",
       `Failed to load documents: ${errorMessage(err)}`,
     )
@@ -1169,17 +1165,15 @@ async function compareCommand(argv: string[]): Promise<number> {
   const isHumanFormat =
     parsed.format === "table" || parsed.format === "markdown"
   if (!parsed.quiet && isHumanFormat) {
-    process.stdout.write(`thresholds: ${source}\n`)
+    await out(`thresholds: ${source}\n`)
     if (base.git && cand.git) {
-      process.stdout.write(
-        `base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`,
-      )
+      await out(`base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`)
     }
     if (
       parsed.format === "table" &&
       result.summary.effectiveTimingPct > thresholds.timingPct
     ) {
-      process.stdout.write(
+      await out(
         `threshold ${thresholds.timingPct}% (widened to ${result.summary.effectiveTimingPct.toFixed(1)}% by noise floor)\n`,
       )
     }
@@ -1209,13 +1203,11 @@ async function compareCommand(argv: string[]): Promise<number> {
     (result.unmatched.baseOnly.length > 0 ||
       result.unmatched.candOnly.length > 0)
   ) {
-    process.stdout.write(
-      renderUnmatchedSection(result.unmatched, parsed.format),
-    )
+    await out(renderUnmatchedSection(result.unmatched, parsed.format))
   }
 
   if (result.summary.matched === 0) {
-    writeCliError(
+    await writeCliError(
       "no-matches",
       "No workload matched between base and candidate; nothing was compared.",
     )
@@ -1256,60 +1248,39 @@ interface ReportArgs {
   help: boolean
 }
 
+const REPORT_FLAGS: Record<string, FlagDef> = {
+  "--format": { dest: "format", spec: { kind: "string" } },
+  "--measurement": { dest: "measurementId", spec: { kind: "string" } },
+  "--out-dir": { dest: "outDir", spec: { kind: "string" } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
 function parseReportArgs(argv: string[]): ReportArgs {
   const args: ReportArgs = { format: "table", help: false }
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    switch (arg) {
-      case "--format":
-        args.format = (argv[++i] ?? "") as FormatName
-        break
-      case "--measurement":
-        args.measurementId = argv[++i]
-        break
-      case "--out-dir":
-        args.outDir = argv[++i]
-        break
-      case "--help":
-      case "-h":
-        args.help = true
-        break
-      default:
-        if (arg.startsWith("-")) {
-          throw new CliUsageError(`Unknown flag "${arg}" for "ostia report".`)
-        }
-        if (args.path !== undefined) {
-          throw new CliUsageError(
-            `"ostia report" takes exactly one document path, got "${args.path}" and "${arg}".`,
-          )
-        }
-        args.path = arg
+  return parseFlags(argv, "report", REPORT_FLAGS, args, (arg, a) => {
+    if (a.path !== undefined) {
+      throw new CliUsageError(
+        `"ostia report" takes exactly one document path, got "${a.path}" and "${arg}".`,
+      )
     }
-  }
-
-  return args
+    a.path = arg
+  })
 }
 
 async function reportCommand(argv: string[]): Promise<number> {
-  let parsed: ReportArgs
-  try {
-    parsed = parseReportArgs(argv)
-  } catch (err) {
-    return reportUsageError(err, "report")
-  }
+  const parsed = parseReportArgs(argv)
   if (parsed.help || !parsed.path) {
-    process.stdout.write(REPORT_HELP)
-    return parsed.help ? 0 : 2
+    return showHelp(REPORT_HELP, parsed.help)
   }
 
-  if (!checkFormat(parsed.format, REPORT_FORMATS)) return 2
+  checkFormat(parsed.format, REPORT_FORMATS)
 
   let doc: ProfileDocument
   try {
     doc = await loadDocument(parsed.path)
   } catch (err) {
-    writeCliError(
+    await writeCliError(
       "document-load-failed",
       `Failed to load ${parsed.path}: ${errorMessage(err)}`,
     )
@@ -1321,7 +1292,7 @@ async function reportCommand(argv: string[]): Promise<number> {
     !parsed.measurementId &&
     !hasCpuMeasurement(doc)
   ) {
-    writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
+    await writeCliError("no-cpu-evidence", NO_CPU_EVIDENCE)
     return 2
   }
 
@@ -1330,7 +1301,7 @@ async function reportCommand(argv: string[]): Promise<number> {
     measurementId: parsed.measurementId,
   })
   if (!result.text && (!result.files || result.files.length === 0)) {
-    writeCliError(
+    await writeCliError(
       "no-cpu-evidence",
       parsed.measurementId
         ? `No CPU evidence found for measurement "${parsed.measurementId}".`
@@ -1354,6 +1325,32 @@ interface CiArgs {
   noNoiseCheck: boolean
 }
 
+const CI_FLAGS: Record<string, FlagDef> = {
+  "--full": { dest: "full", spec: { kind: "bool", value: true } },
+  "--baseline": { dest: "baseline", spec: { kind: "string" } },
+  "--save-baseline": {
+    dest: "saveBaseline",
+    spec: { kind: "bool", value: true },
+  },
+  "--export-json": { dest: "exportJson", spec: { kind: "string" } },
+  "--format": { dest: "format", spec: { kind: "string" } },
+  "--on-missing-baseline": {
+    dest: "onMissingBaseline",
+    spec: { kind: "enum", values: ["warn", "fail"] },
+  },
+  "--no-noise-check": {
+    dest: "noNoiseCheck",
+    spec: { kind: "bool", value: true },
+  },
+  "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
+/** `ci` has no positional arguments at all - unlike the other four commands,
+ * a bare word is just as much an error as a `-`-prefixed one, so this always
+ * throws with the same wording `parseFlags` already uses for unknown flags,
+ * whether or not `arg` happens to start with "-". */
 function parseCiArgs(argv: string[]): CiArgs {
   const args: CiArgs = {
     full: false,
@@ -1363,66 +1360,16 @@ function parseCiArgs(argv: string[]): CiArgs {
     help: false,
     noNoiseCheck: false,
   }
-
-  for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!
-    switch (arg) {
-      case "--full":
-        args.full = true
-        break
-      case "--baseline":
-        args.baseline = argv[++i]
-        break
-      case "--save-baseline":
-        args.saveBaseline = true
-        break
-      case "--export-json":
-        args.exportJson = argv[++i]
-        break
-      case "--format":
-        args.format = argv[++i] as FormatName
-        break
-      case "--on-missing-baseline": {
-        const raw = argv[++i]
-        if (raw !== "warn" && raw !== "fail") {
-          throw new CliUsageError(
-            `Invalid --on-missing-baseline "${raw}": expected "warn" or "fail".`,
-          )
-        }
-        args.onMissingBaseline = raw
-        break
-      }
-      case "--no-noise-check":
-        args.noNoiseCheck = true
-        break
-      case "--quiet":
-        args.quiet = true
-        break
-      case "--help":
-      case "-h":
-        args.help = true
-        break
-      default:
-        throw new CliUsageError(`Unknown flag "${arg}" for "ostia ci".`)
-    }
-  }
-
-  return args
+  return parseFlags(argv, "ci", CI_FLAGS, args, (arg) => {
+    throw new CliUsageError(`Unknown flag "${arg}" for "ostia ci".`)
+  })
 }
 
 async function ciCommand(argv: string[]): Promise<number> {
-  let parsed: CiArgs
-  try {
-    parsed = parseCiArgs(argv)
-  } catch (err) {
-    return reportUsageError(err, "ci")
-  }
-  if (parsed.help) {
-    process.stdout.write(CI_HELP)
-    return 0
-  }
+  const parsed = parseCiArgs(argv)
+  if (parsed.help) return showHelp(CI_HELP, true)
 
-  if (!checkFormat(parsed.format, DOCUMENT_FORMATS)) return 2
+  checkFormat(parsed.format, DOCUMENT_FORMATS)
 
   const config = await requireConfig("ostia ci")
   if (!config) return 2
@@ -1447,15 +1394,22 @@ async function ciCommand(argv: string[]): Promise<number> {
       err instanceof BaselineNotFoundError ||
       err instanceof MissingBaselineError
     ) {
-      writeCliError("baseline-missing", err.message)
+      await writeCliError("baseline-missing", err.message)
       return 2
     }
-    writeCliError("spawn-failed", `CI run failed: ${errorMessage(err)}`)
+    await writeCliError("spawn-failed", `CI run failed: ${errorMessage(err)}`)
     return 2
   }
 
+  // As in emitDocument: `--format json` prints exactly what `--export-json`
+  // writes, so serialize once when both are wanted.
+  const jsonText =
+    parsed.format === "json" && !parsed.quiet
+      ? serializeDocument(outcome.document)
+      : undefined
   if (parsed.exportJson) {
-    await saveDocument(outcome.document, parsed.exportJson)
+    if (jsonText) await saveDocumentText(jsonText, parsed.exportJson)
+    else await saveDocument(outcome.document, parsed.exportJson)
   }
 
   if (
@@ -1478,7 +1432,7 @@ async function ciCommand(argv: string[]): Promise<number> {
     const failedLabels = outcome.summary.results
       .filter((r) => r.harnessFailed)
       .map((r) => workloadLabel(r.workload))
-    writeCliError(
+    await writeCliError(
       "command-failed",
       `${outcome.summary.failed} workload(s) failed (harness error, every trial exited non-zero): ${failedLabels.join(", ")}`,
     )
@@ -1487,7 +1441,7 @@ async function ciCommand(argv: string[]): Promise<number> {
   if (!parsed.quiet) {
     const resolvedBaselineName = parsed.baseline ?? effectiveConfig.baseline
     if (parsed.format === "table") {
-      process.stdout.write(renderCiReport(outcome.summary))
+      await out(renderCiReport(outcome.summary))
       if (
         outcome.document.comparisons &&
         outcome.document.comparisons.length > 0
@@ -1496,8 +1450,10 @@ async function ciCommand(argv: string[]): Promise<number> {
           await renderers.table.render(outcome.document, {}),
         )
       }
+    } else if (jsonText !== undefined) {
+      await out(jsonText)
     } else if (parsed.format === "markdown") {
-      process.stdout.write(
+      await out(
         `## ostia ci\n\nBaseline: \`${resolvedBaselineName}\` (\`${baselinePath(effectiveConfig, parsed.baseline)}\`) · ${outcome.summary.cached} cached, ${outcome.summary.executed} executed\n\n`,
       )
       await writeRenderResult(
@@ -1547,11 +1503,10 @@ function validateBaselineName(name: string): string | undefined {
 
 async function baselineSaveCommand(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(BASELINE_HELP)
-    return 0
+    return showHelp(BASELINE_HELP, true)
   }
   if (argv.length > 1) {
-    writeCliError(
+    await writeCliError(
       "invalid-flag",
       `"ostia baseline save" takes at most one name argument, got ${argv.length}.\nRun 'ostia baseline --help'.`,
     )
@@ -1561,7 +1516,10 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
   if (name !== undefined) {
     const nameErr = validateBaselineName(name)
     if (nameErr) {
-      writeCliError("invalid-flag", `${nameErr}\nRun 'ostia baseline --help'.`)
+      await writeCliError(
+        "invalid-flag",
+        `${nameErr}\nRun 'ostia baseline --help'.`,
+      )
       return 2
     }
   }
@@ -1570,14 +1528,13 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
   if (!config) return 2
 
   const path = await saveBaseline(config, name)
-  process.stdout.write(`Wrote ${path}\n`)
+  await out(`Wrote ${path}\n`)
   return 0
 }
 
 async function baselineListCommand(argv: string[]): Promise<number> {
   if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(BASELINE_HELP)
-    return 0
+    return showHelp(BASELINE_HELP, true)
   }
 
   const config = await requireConfig()
@@ -1585,12 +1542,12 @@ async function baselineListCommand(argv: string[]): Promise<number> {
 
   const infos = await listBaselines(config)
   if (infos.length === 0) {
-    process.stdout.write(`No baselines found in ${config.baselineDir}.\n`)
+    await out(`No baselines found in ${config.baselineDir}.\n`)
     return 0
   }
   for (const info of infos) {
     const gitSuffix = info.git ? `\t${formatGit(info.git)}` : ""
-    process.stdout.write(
+    await out(
       `${info.name}\t${info.workloads} workloads\tcreated ${info.createdAt}\ttoolVersion ${info.toolVersion}${gitSuffix}\n`,
     )
   }
@@ -1600,12 +1557,14 @@ async function baselineListCommand(argv: string[]): Promise<number> {
 async function baselineShowCommand(argv: string[]): Promise<number> {
   const [name, ...rest] = argv
   if (!name || name === "--help" || name === "-h") {
-    process.stdout.write(BASELINE_HELP)
-    return name ? 0 : 2
+    return showHelp(BASELINE_HELP, !!name)
   }
   const nameErr = validateBaselineName(name)
   if (nameErr) {
-    writeCliError("invalid-flag", `${nameErr}\nRun 'ostia baseline --help'.`)
+    await writeCliError(
+      "invalid-flag",
+      `${nameErr}\nRun 'ostia baseline --help'.`,
+    )
     return 2
   }
 
@@ -1615,59 +1574,80 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
   return reportCommand([baselinePath(config, name), ...rest])
 }
 
-async function baselineCommand(argv: string[]): Promise<number> {
-  const [sub, ...rest] = argv
-  switch (sub) {
-    case "save":
-      return baselineSaveCommand(rest)
-    case "list":
-      return baselineListCommand(rest)
-    case "show":
-      return baselineShowCommand(rest)
-    case undefined:
-    case "--help":
-    case "-h":
-      process.stdout.write(BASELINE_HELP)
-      return sub === undefined ? 2 : 0
-    default:
-      writeCliError(
-        "invalid-flag",
-        `Unknown "ostia baseline ${sub}". Run "ostia baseline --help".`,
-      )
-      return 2
+/** Shared shape of `main()` and `baselineCommand()`: no sub-name (or bare
+ * `--help`/`-h`) prints `help` and exits 0/2, a matching name in `handlers`
+ * runs it, anything else is an `unknownMessage`-worded exit 2. */
+async function dispatchSubcommand(
+  sub: string | undefined,
+  rest: string[],
+  handlers: Record<string, (argv: string[]) => Promise<number>>,
+  help: string,
+  unknownMessage: (sub: string) => string,
+  commandPrefix = "",
+): Promise<number> {
+  if (sub === undefined || sub === "--help" || sub === "-h") {
+    return showHelp(help, sub !== undefined)
+  }
+  const handler = handlers[sub]
+  if (!handler) {
+    await writeCliError("invalid-flag", unknownMessage(sub))
+    return 2
+  }
+  try {
+    return await handler(rest)
+  } catch (err) {
+    // Every command's argument parsing and format check throw
+    // CliUsageError; this is the one place that turns it into the
+    // "message + Run 'ostia <cmd> --help'" exit-2 report.
+    return reportUsageError(err, `${commandPrefix}${sub}`)
   }
 }
 
+async function baselineCommand(argv: string[]): Promise<number> {
+  const [sub, ...rest] = argv
+  return dispatchSubcommand(
+    sub,
+    rest,
+    {
+      save: baselineSaveCommand,
+      list: baselineListCommand,
+      show: baselineShowCommand,
+    },
+    BASELINE_HELP,
+    (s) => `Unknown "ostia baseline ${s}". Run "ostia baseline --help".`,
+    "baseline ",
+  )
+}
+
+const MAIN_HELP = `ostia - Bun-native profile IR engine
+
+Commands:
+  time      Time commands N times and report timing/CPU/heap
+  bench     Run in-process benchmark suites (group()/task())
+  compare   Compare two ProfileDocuments
+  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)
+  ci        Run configured workloads against a baseline, gate on regressions
+  baseline  Manage baseline ProfileDocuments (save/list/show)
+
+Run "ostia <command> --help" for details.
+`
+
 async function main(): Promise<number> {
   const [subcommand, ...rest] = process.argv.slice(2)
-
-  switch (subcommand) {
-    case "time":
-      return timeCommand(rest)
-    case "bench":
-      return benchCommand(rest)
-    case "compare":
-      return compareCommand(rest)
-    case "report":
-      return reportCommand(rest)
-    case "ci":
-      return ciCommand(rest)
-    case "baseline":
-      return baselineCommand(rest)
-    case undefined:
-    case "--help":
-    case "-h":
-      process.stdout.write(
-        `ostia - Bun-native profile IR engine\n\nCommands:\n  time      Time commands N times and report timing/CPU/heap\n  bench     Run in-process benchmark suites (group()/task())\n  compare   Compare two ProfileDocuments\n  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)\n  ci        Run configured workloads against a baseline, gate on regressions\n  baseline  Manage baseline ProfileDocuments (save/list/show)\n\nRun "ostia <command> --help" for details.\n`,
-      )
-      return subcommand === undefined ? 2 : 0
-    default:
-      writeCliError(
-        "invalid-flag",
-        `Unknown subcommand "${subcommand}". Run "ostia --help".`,
-      )
-      return 2
-  }
+  return dispatchSubcommand(
+    subcommand,
+    rest,
+    {
+      time: timeCommand,
+      bench: benchCommand,
+      compare: compareCommand,
+      report: reportCommand,
+      ci: ciCommand,
+      baseline: baselineCommand,
+    },
+    MAIN_HELP,
+    (s) => `Unknown subcommand "${s}". Run "ostia --help".`,
+  )
 }
 
 if (import.meta.main) {

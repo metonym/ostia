@@ -22,6 +22,8 @@
 
 **Fixes**
 
+- `ostia time --timeout abc` / `ostia bench --timeout abc` are clean exit-2
+  usage errors instead of an uncaught `RangeError` from `AbortSignal.timeout`.
 - `ostia ci` now attaches the `noisy-machine` warning to the measurements it
   takes under high load, the same way `time()`/`bench()` already did; it was
   stamping `environment` on the document without the per-measurement flag.

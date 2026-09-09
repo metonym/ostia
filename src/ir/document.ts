@@ -263,18 +263,27 @@ export function serializeDocument(doc: ProfileDocument): string {
   return `${canonicalJSON(doc, 2)}\n`
 }
 
-/** Writes to `${path}.tmp-${pid}` then renames over `path`, so a process
- * killed mid-write (e.g. `ci --save-baseline`) never leaves a truncated
- * document at `path` - the rename is the only step that touches it, and
- * that step is atomic. */
+/** Writes `text` to `${path}.tmp-${pid}` then renames over `path`, so a
+ * process killed mid-write (e.g. `ci --save-baseline`) never leaves a
+ * truncated document at `path` - the rename is the only step that touches
+ * it, and that step is atomic. Split out from `saveDocument` so a caller
+ * that already has the serialized text on hand (e.g. the CLI's `--format
+ * json` alongside `--export-json`) can reuse it instead of paying for
+ * `serializeDocument` a second time. */
+export async function saveDocumentText(
+  text: string,
+  path: string,
+): Promise<void> {
+  const tmpPath = `${path}.tmp-${process.pid}`
+  await Bun.write(tmpPath, text)
+  renameSync(tmpPath, path)
+}
+
 export async function saveDocument(
   doc: ProfileDocument,
   path: string,
 ): Promise<void> {
-  const content = serializeDocument(doc)
-  const tmpPath = `${path}.tmp-${process.pid}`
-  await Bun.write(tmpPath, content)
-  renameSync(tmpPath, path)
+  await saveDocumentText(serializeDocument(doc), path)
 }
 
 interface ProfileDocumentV1 {

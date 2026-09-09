@@ -118,6 +118,18 @@ describe("ostia numeric flag validation", () => {
     expect(exitCode).toBe(2)
     expect(stderr).toContain(`Invalid --jobs "x"`)
   }, 5_000)
+
+  test("time --timeout abc exits 2 with a usage error instead of crashing", async () => {
+    const { stderr, exitCode } = await runCli([
+      "time",
+      "--timeout",
+      "abc",
+      "--no-noise-check",
+      "bun -e 1",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain(`Invalid --timeout "abc"`)
+  }, 5_000)
 })
 
 describe("ostia unknown flags and single-positional validation", () => {

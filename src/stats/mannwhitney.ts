@@ -31,32 +31,44 @@ function normalCdf(z: number): number {
 /** Mann-Whitney U test (two-sided, normal approximation, tie-corrected):
  * whether `a` and `b` are drawn from the same distribution, without assuming
  * normality the way a t-test would - the right fit for wall-clock timing
- * samples, which are usually right-skewed. */
+ * samples, which are usually right-skewed. Ranks come from a merge walk over
+ * the two independently sorted sides, so no per-sample objects are built. */
 export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   const n1 = a.length
   const n2 = b.length
   const n = n1 + n2
 
-  const combined = [
-    ...a.map((v) => ({ v, group: 0 as const })),
-    ...b.map((v) => ({ v, group: 1 as const })),
-  ].sort((x, y) => x.v - y.v)
+  const sa = new Float64Array(a)
+  const sb = new Float64Array(b)
+  sa.sort()
+  sb.sort()
 
-  const ranks = new Float64Array(n)
+  // Walk both sorted sides together, one tie group (distinct value) at a
+  // time: every member of the group gets the group's average rank.
+  let r1 = 0 // rank sum of `a`
   let tieCorrection = 0
   let i = 0
-  while (i < n) {
-    let j = i
-    while (j + 1 < n && combined[j + 1]!.v === combined[i]!.v) j++
-    const rank = (i + j) / 2 + 1 // average rank, 1-based
-    for (let k = i; k <= j; k++) ranks[k] = rank
-    const tieCount = j - i + 1
-    if (tieCount > 1) tieCorrection += tieCount ** 3 - tieCount
-    i = j + 1
+  let j = 0
+  let pos = 0 // 0-based rank position consumed so far
+  while (i < n1 || j < n2) {
+    const v =
+      j >= n2 || (i < n1 && sa[i]! <= sb[j]!) ? sa[i]! : sb[j]!
+    let ca = 0
+    while (i < n1 && sa[i] === v) {
+      ca++
+      i++
+    }
+    let cb = 0
+    while (j < n2 && sb[j] === v) {
+      cb++
+      j++
+    }
+    const t = ca + cb
+    const avgRank = pos + (t + 1) / 2
+    r1 += ca * avgRank
+    if (t > 1) tieCorrection += t ** 3 - t
+    pos += t
   }
-
-  let r1 = 0
-  for (let k = 0; k < n; k++) if (combined[k]!.group === 0) r1 += ranks[k]!
 
   const u1 = r1 - (n1 * (n1 + 1)) / 2
   const muU = (n1 * n2) / 2

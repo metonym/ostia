@@ -173,8 +173,10 @@ export interface TimingStats {
   min: number
   max: number
   outliers: { mild: number; severe: number }
-  /** 75th percentile, ns. Optional: absent on documents saved before this
+  /** 25th percentile, ns. Optional: absent on documents saved before this
    * field existed (`loadDocument` never backfills it). */
+  p25?: number
+  /** 75th percentile, ns. Same caveat as `p25`. */
   p75?: number
   /** 99th percentile, ns. Same caveat as `p75`. */
   p99?: number

@@ -58,14 +58,56 @@ function subsample(
   return pool.slice(0, max)
 }
 
-function resampleMedian(samples: number[], rng: () => number): number {
-  const n = samples.length
-  const resampled = new Float64Array(n)
-  for (let i = 0; i < n; i++) {
-    resampled[i] = samples[Math.floor(rng() * n)]!
+/** One side of the bootstrap: the sorted sample plus a reusable histogram of
+ * how many times each sorted index was drawn in the current round. */
+class Side {
+  readonly sorted: Float64Array
+  /** Sorted position of each original sample, so a draw of original index
+   * `i` (what a literal `samples[floor(rng() * n)]` resample would pick)
+   * lands on the same value: results for a given seed match a naive
+   * resample bit for bit. */
+  readonly rankOf: Uint32Array
+  readonly counts: Uint32Array
+  readonly n: number
+  constructor(samples: number[]) {
+    const n = samples.length
+    const order = new Uint32Array(n)
+    for (let i = 0; i < n; i++) order[i] = i
+    order.sort((x, y) => samples[x]! - samples[y]!)
+    this.sorted = new Float64Array(n)
+    this.rankOf = new Uint32Array(n)
+    for (let k = 0; k < n; k++) {
+      this.sorted[k] = samples[order[k]!]!
+      this.rankOf[order[k]!] = k
+    }
+    this.n = n
+    this.counts = new Uint32Array(n)
   }
-  resampled.sort()
-  return median(resampled)
+
+  /** Median of a with-replacement resample. Drawing index `k` of the sorted
+   * array is the same as drawing `sorted[k]`, so the resample's median is the
+   * value at the median of the drawn indices - found with one O(n) walk over
+   * an index histogram instead of sorting `n` values per round. Consumes
+   * exactly `n` rng values, one per draw, like a literal resample would. */
+  resampleMedian(rng: () => number): number {
+    const { n, counts, sorted, rankOf } = this
+    counts.fill(0)
+    for (let i = 0; i < n; i++) counts[rankOf[Math.floor(rng() * n)]!]!++
+    // 1-based order statistics of the drawn indices: for odd n the middle
+    // one; for even n the mean of the two middle ones.
+    const loRank = (n + 1) >> 1
+    const hiRank = n % 2 === 0 ? loRank + 1 : loRank
+    let seen = 0
+    let lo = -1
+    for (let k = 0; k < n; k++) {
+      seen += counts[k]!
+      if (lo < 0 && seen >= loRank) lo = k
+      if (seen >= hiRank) {
+        return lo === k ? sorted[k]! : (sorted[lo]! + sorted[k]!) / 2
+      }
+    }
+    return sorted[n - 1]!
+  }
 }
 
 /** Bootstrap 95% CI on the difference of medians between `base` and `cand`,
@@ -87,17 +129,14 @@ export function bootstrapMedianDiffCi(
 
   const subsampled =
     base.length > MAX_SAMPLES_PER_SIDE || cand.length > MAX_SAMPLES_PER_SIDE
-  const baseSample = subsample(base, rng, MAX_SAMPLES_PER_SIDE)
-  const candSample = subsample(cand, rng, MAX_SAMPLES_PER_SIDE)
-
-  const baseSorted = new Float64Array(baseSample)
-  baseSorted.sort()
-  const baseMedian = median(baseSorted)
+  const baseSide = new Side(subsample(base, rng, MAX_SAMPLES_PER_SIDE))
+  const candSide = new Side(subsample(cand, rng, MAX_SAMPLES_PER_SIDE))
+  const baseMedian = median(baseSide.sorted)
 
   const deltas = new Float64Array(iterations)
   for (let i = 0; i < iterations; i++) {
-    const b = resampleMedian(baseSample, rng)
-    const c = resampleMedian(candSample, rng)
+    const b = baseSide.resampleMedian(rng)
+    const c = candSide.resampleMedian(rng)
     deltas[i] =
       baseMedian === 0
         ? c - b === 0

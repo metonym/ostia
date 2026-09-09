@@ -3,7 +3,7 @@ import { scanGlobs } from "../glob.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
-import { combineSignals } from "../spawn/index.ts"
+import { killSwitch } from "../spawn/index.ts"
 import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
@@ -232,25 +232,13 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       ) {
         const index = next++
         try {
-          let timedOut = false
-          const timeoutSignal =
-            opts.timeoutMs !== undefined
-              ? AbortSignal.timeout(opts.timeoutMs)
-              : undefined
-          timeoutSignal?.addEventListener(
-            "abort",
-            () => {
-              timedOut = true
-            },
-            { once: true },
-          )
-          const signal = combineSignals(timeoutSignal, opts.signal)
+          const kill = killSwitch(opts.timeoutMs, opts.signal)
           const proc = Bun.spawn(argvList[index]!, {
             cwd,
             stdout: "inherit",
             stderr: "inherit",
             stdin: "ignore",
-            ...(signal && { signal, killSignal: "SIGKILL" as const }),
+            ...kill.spawn,
           })
           inFlight.add(proc)
           const exitCode = await proc.exited
@@ -259,7 +247,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           // failure: the run is already stopping, so this isn't a new error
           // to surface - just stop pulling more work.
           if (opts.signal?.aborted) return
-          if (timedOut) {
+          if (kill.timedOut()) {
             throw new Error(
               `Bench suite timed out after ${opts.timeoutMs}ms: ${describe(index)}`,
             )

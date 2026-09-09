@@ -18,7 +18,10 @@ import type {
   Trial,
   Workload,
 } from "../ir/types.ts"
-import { captureEnvironment } from "../measure/environment.ts"
+import {
+  captureEnvironment,
+  noisyMachineWarning,
+} from "../measure/environment.ts"
 import { runTimingPhase } from "../measure/timing.ts"
 import { workloadLabel } from "../renderers/format.ts"
 import { TOOL_VERSION } from "../version.ts"
@@ -143,6 +146,12 @@ export async function measureConfigWorkloads(
 ): Promise<MeasureConfigWorkloadsResult> {
   const environment =
     config.noiseCheck === false ? undefined : captureEnvironment()
+  // Same `noisy-machine` stamp `time()`/`bench()` put on their measurements:
+  // attached to every measurement taken now, never to a cached one (that
+  // was measured under whatever load its own run saw).
+  const noiseWarning = environment
+    ? noisyMachineWarning(environment)
+    : undefined
   const results: MeasuredWorkload[] = []
 
   for (const wc of config.workloads) {
@@ -180,6 +189,7 @@ export async function measureConfigWorkloads(
         // A task.skip()'d task has a workload but no timing measurement:
         // nothing to gate, so it contributes nothing here.
         if (!run) continue
+        if (noiseWarning) run.warnings.push(noiseWarning)
         results.push({
           workload,
           status: "executed",
@@ -239,7 +249,9 @@ export async function measureConfigWorkloads(
         configFingerprint: cfgFp,
         trials: phaseResult.trials,
         timing: phaseResult.timing,
-        warnings: phaseResult.warnings,
+        warnings: noiseWarning
+          ? [...phaseResult.warnings, noiseWarning]
+          : phaseResult.warnings,
       })
       if (cacheable) await writeCachedRun(config.outDir, cacheKey, run)
       status = "executed"

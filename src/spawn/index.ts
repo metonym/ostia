@@ -110,7 +110,7 @@ export interface SpawnTrialOptions {
  * otherwise. Used everywhere a per-trial timeout signal and a caller's
  * run-wide cancellation signal both need to be able to kill the same
  * process. */
-export function combineSignals(
+function combineSignals(
   ...signals: (AbortSignal | undefined)[]
 ): AbortSignal | undefined {
   const defined = signals.filter((s): s is AbortSignal => s !== undefined)
@@ -126,34 +126,38 @@ const UNIT_NS: Record<TimeUnit, number> = {
   s: 1e9,
 }
 
+/** The kill switch for one spawned process: `timeoutMs` (per process) and
+ * the caller's run-wide `signal`, folded into spawn options that SIGKILL on
+ * either, plus `timedOut()` to tell a timeout apart from a caller-driven
+ * cancellation after the fact. */
+export function killSwitch(
+  timeoutMs: number | undefined,
+  signal: AbortSignal | undefined,
+): {
+  spawn: { signal?: AbortSignal; killSignal?: "SIGKILL" }
+  timedOut: () => boolean
+} {
+  const timeout =
+    timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined
+  const combined = combineSignals(timeout, signal)
+  return {
+    spawn: combined ? { signal: combined, killSignal: "SIGKILL" } : {},
+    timedOut: () => timeout?.aborted ?? false,
+  }
+}
+
 export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   const capture = opts.timeSource !== undefined
   const start = Bun.nanoseconds()
 
-  // Tracked separately from `opts.signal` so a caller-driven cancellation
-  // (the run stopping early) is never mistaken for the command overrunning
-  // its own timeout.
-  let timedOut = false
-  const timeoutSignal =
-    opts.timeoutMs !== undefined
-      ? AbortSignal.timeout(opts.timeoutMs)
-      : undefined
-  timeoutSignal?.addEventListener(
-    "abort",
-    () => {
-      timedOut = true
-    },
-    { once: true },
-  )
-  const signal = combineSignals(timeoutSignal, opts.signal)
-
+  const kill = killSwitch(opts.timeoutMs, opts.signal)
   const proc = Bun.spawn(opts.argv, {
     cwd: opts.cwd,
     env: opts.env,
     stdout: capture ? "pipe" : "ignore",
     stderr: capture ? "pipe" : "ignore",
     stdin: "ignore",
-    ...(signal && { signal, killSignal: "SIGKILL" as const }),
+    ...kill.spawn,
   })
   // Drain the pipes concurrently with waiting on exit: a command writing more
   // than the pipe buffer would otherwise block on a full pipe and inflate
@@ -167,6 +171,7 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   const exitCode = await proc.exited
   const end = Bun.nanoseconds()
   const usage = proc.resourceUsage?.()
+  const timedOut = kill.timedOut()
 
   const result: TrialResult = {
     wallNs: end - start,
@@ -376,26 +381,14 @@ export async function runPrepare(
     return
   }
   const argv = prepareArgv(hook)!
-  let timedOut = false
-  const timeoutSignal =
-    opts.timeoutMs !== undefined
-      ? AbortSignal.timeout(opts.timeoutMs)
-      : undefined
-  timeoutSignal?.addEventListener(
-    "abort",
-    () => {
-      timedOut = true
-    },
-    { once: true },
-  )
-  const signal = combineSignals(timeoutSignal, opts.signal)
+  const kill = killSwitch(opts.timeoutMs, opts.signal)
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,
     stdout: "ignore",
     stderr: "pipe",
     stdin: "ignore",
-    ...(signal && { signal, killSignal: "SIGKILL" as const }),
+    ...kill.spawn,
   })
   // Drains concurrently with waiting on exit regardless of whether the
   // success path below ever awaits it, so a chatty hook can't block on a
@@ -405,7 +398,7 @@ export async function runPrepare(
     () => "",
   )
   const exitCode = await proc.exited
-  if (timedOut) {
+  if (kill.timedOut()) {
     const stderr = (await stderrText).trim()
     throw new Error(
       `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,

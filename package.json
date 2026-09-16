@@ -10,7 +10,7 @@
     ".": "./src/index.ts"
   },
   "bin": {
-    "ostia": "./src/cli/main.ts"
+    "ostia": "src/cli/main.ts"
   },
   "scripts": {
     "build": "bun scripts/build.ts",

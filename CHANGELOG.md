@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.5 — 2026-09-15
+
+- publish with npm provenance (`repository` metadata; CI `--provenance`)
+- normalize `bin.ostia` path (drop leading `./`)
+
 ## 0.2.4 — 2026-09-08
 
 **Performance**

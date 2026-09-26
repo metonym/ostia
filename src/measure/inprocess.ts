@@ -106,8 +106,12 @@ export function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   )
 }
 
-type TaskFn = () => unknown | Promise<unknown>
-type Loop = (fn: TaskFn, sink: unknown[], n: number) => number | Promise<number>
+type TaskBody = () => unknown | Promise<unknown>
+type Loop = (
+  fn: TaskBody,
+  sink: unknown[],
+  n: number,
+) => number | Promise<number>
 
 const AsyncFunction = (async () => {}).constructor as FunctionConstructor
 let loopSerial = 0
@@ -142,7 +146,7 @@ function medianOf(values: number[]): number {
 }
 
 export async function measureTask(
-  fn: TaskFn,
+  fn: TaskBody,
   opts: InprocessTimingOptions = {},
 ): Promise<InprocessTimingResult> {
   const timeBudgetNs = (opts.budgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6

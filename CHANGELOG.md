@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- The published `index.d.ts` types `task` correctly again. 0.2.6 bound it to
+  an unrelated internal `TaskFn` alias, so `task(name, fn)` failed with
+  "Expected 0 arguments" and `task.skip`/`task.only` didn't exist. The
+  runtime was unaffected. The d.ts bundler now resolves each type reference
+  within its own module, and the build fails if two modules' declarations
+  would collide in the bundled file. CI and publish typecheck a consumer
+  file against the built declarations.
+
 ## 0.2.6 — 2026-09-26
 
 **Fixes**

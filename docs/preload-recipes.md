@@ -1,6 +1,6 @@
 # preload recipes
 
-`--preload PATH` (see the README's `--preload` section) is a hook, not a feature - ostia
+`--preload PATH` (see [cli.md](cli.md#--preload-and---bun-flags)) is a hook, not a feature - ostia
 runs your script before each suite file loads and otherwise has no opinion on what's in
 it. In practice, almost every adopter benchmarking DOM or framework-component code ends
 up writing one of two scripts: something that installs DOM globals, or something that
@@ -12,8 +12,8 @@ whichever one your suite actually needs.
 ## jsdom
 
 The naive version of this script does `Object.assign(globalThis, { document, window })`
-- see the tiny example in the README. That's enough for suites that only ever touch
-`document`, but it breaks the moment a suite does an `instanceof` check
+- see the tiny example in [cli.md](cli.md#--preload-and---bun-flags). That's enough for
+suites that only ever touch `document`, but it breaks the moment a suite does an `instanceof` check
 (`node instanceof HTMLElement`, `event instanceof Event`, ...): `HTMLElement` and `Event`
 still resolve to `undefined` on `globalThis`, or worse, to some other realm's version of
 the same class if another preload script or dependency defined one. DOM constructors all

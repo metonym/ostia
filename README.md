@@ -1,21 +1,14 @@
 # ostia
 
-ostia is a profiling and benchmarking toolkit for Bun. One schema-versioned JSON
-document (`ProfileDocument`) holds wall-clock timing, CPU hotspots, heap summaries,
-JIT tier data, and allocation counts for a subprocess command or an in-process
-function - the CLI and the library speak the same language, so anything you can do
-with `ostia time`/`ostia bench` you can do with `time()`/`bench()` too.
-
-Comparing two documents reports a bootstrap confidence interval and a Mann-Whitney
-p-value, not a bare percentage past a threshold, and widens the regression bar to
-the machine's own noise floor so ambient jitter is never mistaken for a real
-regression. `ostia ci` gates a whole `ostia.config.json`/`ostia.config.ts` of
-workloads - subprocess commands and in-process `group()`/`task()` suites alike -
-against a saved baseline, skipping anything whose input fingerprint hasn't changed.
-Any task can run in its own subprocess for clean JIT/heap isolation from its
-suite-mates, and every command has a `--format minimal` mode - a versioned JSON
-protocol built for piping straight into an LLM agent's context (see
-[Using ostia from an AI agent](#using-ostia-from-an-ai-agent)).
+ostia is a profiling and benchmarking toolkit for Bun. It times subprocess commands
+(like hyperfine) and in-process functions (like mitata), optionally captures CPU
+profiles, heap snapshots, JIT tiers and allocation counts, and writes everything to one
+schema-versioned JSON document (`ProfileDocument`). Two documents compare with a
+bootstrap confidence interval and a Mann-Whitney test, with the regression threshold
+widened to the machine's measured noise floor. `ostia ci` gates a config file of
+workloads against a saved baseline, and `--format minimal` gives scripts and LLM agents
+a compact JSON line protocol. The CLI is a thin wrapper over the library, so anything
+`ostia time`/`ostia bench` do, `time()`/`bench()` do too.
 
 Zero runtime dependencies. Requires Bun ≥ 1.4.
 
@@ -27,86 +20,94 @@ bun add ostia
 
 ## Quick start
 
-Compare two commands:
+### Time two commands
 
 ```sh
-ostia time --samples 10 --warmup 2 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
+ostia time --samples 10 "bun fixtures/fast.ts" "bun fixtures/slow.ts"
 ```
 
 ```
-Apple M2 · 8 cores · load 10.1 · noise floor 6.2%
+Apple M2 · 8 cores · load 3.6 · noise floor 0.5%
 
-Task                   Median     Spread             Range              Relative
---------------------------------------------------------------------------------
-bun fixtures/fast.ts   16.6 ms    25.3 ms…32.8 ms    10.4 ms…33.2 ms    1.00×
-  ! noisy-machine
-bun fixtures/slow.ts   40.2 ms    48.2 ms…63.9 ms    28.6 ms…64.7 ms    2.43× slower
+Task                   Median     Spread             Range              User/Sys           Relative
+---------------------------------------------------------------------------------------------------
+bun fixtures/fast.ts   9.38 ms    9.52 ms…9.74 ms    9.10 ms…9.76 ms    6.98 ms/3.06 ms    1.00×
+bun fixtures/slow.ts   23.2 ms    23.3 ms…23.8 ms    23.0 ms…23.9 ms    20.9 ms/2.89 ms    2.47× slower
+  ! outliers-detected
 
 Warnings:
-  bun fixtures/fast.ts: Load average 10.10 exceeds 75% of 8 available core(s); timing noise may be elevated.
+  bun fixtures/slow.ts: 1 outlier(s) detected (1 severe, 0 mild).
 ```
 
-The header line (machine, cores, load, noise floor) prints whenever a document
-carries an `environment` - on by default; skip the ~200ms reference
-measurement with `--no-noise-check`. `compare`/`ci` widen the regression
-threshold to at least the noise floor, so a change smaller than the machine's
-own jitter is never called a regression - see
-[Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)
-below.
+The header line shows the machine, its load average, and the noise floor from a ~200ms
+reference measurement taken once per run (`--no-noise-check` skips it). Spread is
+p75…p99; User/Sys is the median user/system CPU time per trial.
 
-Find a CPU hotspot (profiler runs as a separate labeled trial, never mixed into the
-timing numbers above):
+### Benchmark a function
+
+```ts
+// suite.ts
+import { group, task } from "ostia"
+
+const input = Array.from({ length: 2_000 }, (_, i) => i % 500)
+
+group("dedupe", () => {
+  task("naive (indexOf scan, O(n²))", () => dedupeNaive(input))
+  task("Set-based (O(n))", () => [...new Set(input)])
+})
+```
 
 ```sh
-ostia time --samples 5 --cpu --cpu-interval 200 --export-json node_modules/.cache/ostia/doc.json "bun fixtures/work.ts"
+ostia bench suite.ts
 ```
 
 ```
-Apple M2 · 8 cores · load 8.5 · noise floor 0.9%
+Apple M2 · 8 cores · load 3.5 · noise floor 0.4%
 
-Task                   Median     Spread             Range
------------------------------------------------------------------------
-bun fixtures/work.ts   470.6 ms   478.7 ms…499.3 ms  400.8 ms…500.1 ms
-  ! noisy-machine
-
-Warnings:
-  bun fixtures/work.ts: Load average 8.48 exceeds 75% of 8 available core(s); timing noise may be elevated.
-
-CPU capture - bun fixtures/work.ts (instrumented, 200µs interval, diagnostic wall 531.143ms)
-  100.0%    502.67ms self  hashLoop
-    0.0%      0.00ms self  (root)
-    0.0%      0.00ms self  (module)
-  artifact: node_modules/.cache/ostia/artifacts/<run-id>-cpu.cpuprofile
+Task                                   Median     Spread             Range              Relative
+------------------------------------------------------------------------------------------------
+dedupe:
+  dedupe/naive (indexOf scan, O(n²))   173.9 µs   180.4 µs…205.8 µs  170.1 µs…635.5 µs  7.40× slower
+  dedupe/Set-based (O(n))              23.5 µs    24.9 µs…72.5 µs    18.7 µs…208.3 µs   1.00×
 ```
 
-Scratch/artifact output defaults to `node_modules/.cache/ostia` (already gitignored
-everywhere, no setup needed - same convention as Babel/ESLint/Jest caches). Baselines are
-the one exception: they default to `.ostia/baselines/` at the repo root instead, since
-they need to survive `node_modules` reinstalls between branches and CI jobs, so gitignore
-`.ostia/` if you use `ostia ci`.
+### Gate CI on a baseline
 
-Gate a change against a local baseline:
+```json
+// ostia.config.json
+{
+  "samples": 10,
+  "workloads": [
+    { "label": "work", "command": ["bun", "fixtures/work.ts"], "inputs": ["fixtures/**"] }
+  ]
+}
+```
 
 ```sh
-ostia baseline save   # on known-good: measure ostia.config.json -> .ostia/baselines/main.json
-ostia ci              # on your branch: rerun changed workloads, exit 1 on regression
+ostia baseline save   # on known-good code: writes .ostia/baselines/main.json
+ostia ci              # on your change: exit 1 on a regression
 ```
 
 ```
-2 workloads
-0 affected by this change
-2 cached
-0 executed
-2 passed  0 regressed
+1 workloads
+0 cached
+1 executed
+0 passed  1 regressed (+44.1% median on work)
 
-Profile CI: ✓
+Profile CI: ✗
+...
+✗ work
+  timing: +44.1% median, 95% CI [+41.4%, +45.6%], p<0.001 (regressed)
 ```
+
+Scratch output (cache, artifacts) goes to `node_modules/.cache/ostia`. Baselines go to
+`.ostia/baselines/` so they survive reinstalls; add `.ostia/` to `.gitignore`.
 
 ## Using ostia from an AI agent
 
-`--format minimal` is a versioned protocol (`protocolVersion: 1`) built for piping
-straight into an LLM agent's context or a script: one JSON object per line, nothing
-else on stdout.
+`--format minimal` (on `time`, `bench`, `compare`, `report`, `ci`) prints one JSON
+object per line on stdout and nothing else. Every line has `event` and
+`protocolVersion: 1`. Timing values are in nanoseconds.
 
 ```sh
 ostia time --samples 10 "bun a.ts" --format minimal
@@ -114,617 +115,202 @@ ostia compare before.json after.json --format minimal
 ostia ci --format minimal; echo $?
 ```
 
-Every line is a JSON object with `event` and `protocolVersion: 1`:
-
 | `event` | When | Key fields |
 |---|---|---|
-| `run` | Once per timing measurement, for every command | `workloadId` (join key back to `Workload.id`), `task`, `unit`/`samples`/`batch`/`mean`/`median`/`stddev`/`min`/`max`/`p75`/`p99`/`mad`, `relative`, `noiseFloorPct`, `warnings[]`, and (on `compare`/`ci`) `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }` |
-| `unmatched` | Once per workload present on only one side of `compare`/`ci` | `workloadId`, `task`, `side: "base" \| "cand"` |
-| `summary` | Exactly once, last line - `compare`/`ci` only, never for a bare `time`/`bench` | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched` counts, `cached`/`executed`/`failed`/`missingBaseline` (`ci` only), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct`, `baseline: { name, path }` (`ci` only), `git: { base?, cand? }`, `exportedTo`, `verdict`, `exitCode` |
-
-Stability: keys are never renamed or removed within `protocolVersion: 1` - only ever
-added, so an agent that reads a field it knows keeps working as the protocol grows.
-
-Exit codes are the same across every command that produces a verdict: `0` pass, `1`
-at least one workload regressed (`compare`/`ci` only - `time`/`bench` never return
-`1`), `2` a harness error (a command failed to run cleanly, nothing was compared, a
-bad flag, a missing config/baseline). On any exit `2`, stderr's last line is one more
-JSON object - `{ event: "error", protocolVersion: 1, code, message, data? }`, `code`
-one of `invalid-flag` / `config-missing` / `baseline-missing` / `no-matches` /
-`spawn-failed` / `command-failed` / `timeout` / `time-source-no-match` /
-`document-load-failed` / `no-cpu-evidence` / `internal` - so a script doesn't have to
-pattern-match prose to tell one failure from another. This error line (and only this
-line) is on stderr; every `minimal`/`jsonl`/`json` line above is pure JSON on stdout,
-nothing else mixed in.
-
-`--format jsonl` is the same idea for the full document instead of the condensed
-protocol above: one line per `Measurement`, plus a `document` header line, each
-tagged `kind: "document" | "measurement"` so a consumer doesn't have to guess a
-line's shape.
-
-## What ostia is for
-
-- Time subprocesses or in-process functions without a profiler attached to the timing runs.
-- Capture CPU (`--cpu`), heap (`--heap`), or JSC JIT tiers (`profile(..., { origin: "jsc" })`)
-  as separate evidence on the same document.
-- Diff two documents (`ostia compare`) or fail CI (`ostia ci`) with exit codes `0` / `1` / `2`.
-- Emit files other tools already understand: collapsed stacks, Mermaid, speedscope JSON,
-  raw `.cpuprofile`.
-
-## CLI reference
+| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples`, `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `relative?`, `noiseFloorPct?`, `warnings[]`, and on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }` |
+| `unmatched` | One per workload on only one side of `compare`/`ci` | `workloadId`, `task`, `side: "base" \| "cand"` |
+| `summary` | Last line of `compare`/`ci` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
 
 ```
-ostia time <command...>      time commands; optional --cpu / --heap capture
-ostia bench <suite.ts...>    in-process group()/task() suites (time-budgeted)
-ostia compare <a> <b>        diff two ProfileDocuments
-ostia report <document.json> render a saved document (table/json/markdown/collapsed/...)
-ostia ci                     run configured workloads vs a baseline, gate regressions
-ostia baseline save|list|show  manage baseline ProfileDocuments
+{"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
+{"event":"summary","protocolVersion":1,"command":"ci","matched":1,"regressed":1,"improved":0,"unchanged":0,"unmatched":0,"geomeanPct":44.098920968212305,"effectiveTimingPct":10,"verdict":"fail","exitCode":1,"cached":1,"executed":0,"failed":0,"missingBaseline":0,"baseline":{"name":"main","path":".ostia/baselines/main.json"},"noiseFloorPct":2.09286}
 ```
 
-Every subcommand takes `--help` for its full flag list.
+Within `protocolVersion: 1`, keys are only ever added, never renamed or removed.
+
+Exit codes, the same for every command:
+
+| Code | Meaning |
+|---|---|
+| `0` | Pass |
+| `1` | At least one workload regressed (`compare`/`ci` only; `time`/`bench` never return 1) |
+| `2` | Harness error: a command exited non-zero or produced no samples, a suite failed, nothing matched, a bad flag, a missing/invalid config or baseline |
+| `130` | Cancelled with Ctrl-C (`time`/`bench`; partial results are still exported) |
+
+On exit 2, stderr's last line is `{"event":"error","protocolVersion":1,"code":...,"message":...,"data"?:...}`
+when stderr is not a TTY or a machine format (`minimal`/`json`/`jsonl`) was requested.
+A person at a terminal sees only the prose message. `code` is one of `invalid-flag`,
+`config-missing`, `config-invalid`, `baseline-missing`, `no-matches`, `spawn-failed`,
+`command-failed`, `timeout`, `time-source-no-match`, `document-load-failed`,
+`no-cpu-evidence`, `internal`. Full reference: [docs/agent-protocol.md](docs/agent-protocol.md).
+
+## Commands
+
+Every command takes `--help`. Per-flag detail is in [docs/cli.md](docs/cli.md).
 
 ### `ostia time`
 
-Clean wall-clock timing by default. `--cpu` / `--heap` schedule one extra instrumented
-trial each, labeled separately in the document.
+Times commands as subprocesses. `--cpu`/`--heap` add one separate instrumented trial each;
+the profiler never runs during timing trials.
 
 ```sh
 ostia time "bun a.ts" "bun b.ts"
-ostia time --samples 25 --warmup 3 --cpu --heap "bun src/server.ts"
-ostia time --format json --export-json out.json "bun a.ts"
-```
-
-Each `<command>` is a string, whitespace-split into argv exactly like hyperfine's `-N`
-(no shell - no quoting, globbing, pipes, or redirection), so it can't express an argument
-that itself contains a space. `ostia time [flags] -- <argv...>` is the escape hatch:
-everything after `--` becomes one more command, given as argv verbatim (space preserved,
-never flag-parsed), alongside any given the normal way:
-
-```sh
-ostia time -- bun -e "console.log('a b')"
-```
-
-There's no `--` equivalent for `--prepare` (below) - a hook that itself needs an argument
-with a space needs `ostia.config.ts`'s array form (`prepare: ["cp", "fixture a", "fixture b"]`)
-instead, since the CLI flag is always one whitespace-split string.
-
-`--samples N` is an exact trial count *per command* (with 2+ commands, each gets its
-own N trials, not a total split across them); `--budget MS`
-is a wall-clock time budget instead (default: a hyperfine-style ~3s min-total-time
-loop when neither is given); `--min-samples N` is a hard floor when `--samples` isn't
-given. The same three names work on `ostia bench` (`--budget`/`--samples`/
-`--min-samples`), where `--samples`/`--budget` are per-task the same way -
-`warmup` differs by surface, though: a trial count here, a
-*fraction* of the budget for `ostia bench`, since in-process warmup has no natural
-"N calls" unit before the JIT has even seen the function once.
-
-With 2+ commands, trials round-robin across them by default (one trial per command,
-repeated) rather than running one command's whole loop to completion before the next
-starts - drift over the run's wall-clock span (thermal throttling, a noisy neighbor
-process) then lands on every command equally instead of favoring whichever ran first
-or last. `--no-interleave` (`interleave: false`) goes back to running each command's
-loop to completion in turn. Interleaved measurements carry `Measurement.interleaved: true`.
-Meaningless (and ignored) with a single command.
-
-`--prepare CMD` runs `CMD` before *every* trial (warmup and `--cpu`/`--heap` trials
-included), unmeasured, in the same cwd - hyperfine's `--prepare`. It's whitespace-split
-like the commands themselves (no shell) and must exit 0. Given once it applies to every
-command; given once per command it pairs up in order, which is how the same command gets
-timed warm and cold side by side:
-
-```sh
-ostia time --prepare "true" --prepare "rm -rf dist" "bun build.ts" "bun build.ts"
-```
-
-The prepare command is part of the workload id (and lands on the document as
-`Workload.prepare`), so a command with and without one are two workloads, and `ostia ci`
-caches them separately. The library API also takes a function
-(`prepare: ({ phase, index }) => ...`, see [`time(opts)`](#timeopts--profiledocument)).
-
-A hook's stderr is captured rather than streamed live to the terminal (it would otherwise
-flood it, re-running before every one of possibly hundreds of trials) - bounded to 1 MiB
-(head 512 KiB + tail 512 KiB, joined by a `bytes elided` marker if it goes over) and
-folded into the thrown error on the trial where the hook actually times out or exits
-non-zero, so a broken setup script is still easy to debug without an unbounded capture
-risking the run's memory. Contrast `--time-source`'s own output capture (above), which is
-deliberately *not* bounded: the summary line the regex needs could be anywhere in a large
-output, so truncating it there would trade a memory bound for silently-wrong matches.
-
-`--time-source REGEX` takes each trial's time from the command's *own output* instead of
-its wall clock: the first `REGEX` match in stdout (then stderr), capture group 1, in
-`--time-unit` units (`ns` | `us` | `ms` | `s`, default `ms`). Meant for tools that report a
-more precise cost than wall time - a build tool whose `built in 342ms` line excludes the
-runtime's startup - so a Bun startup regression isn't misattributed to the tool, and vice
-versa:
-
-```sh
+ostia time --samples 25 --cpu --heap "bun src/server.ts"
+ostia time --prepare "rm -rf dist" "bun build.ts"
 ostia time --time-source "built in (\d+)ms" "bun build.ts"
 ```
 
-The parsed value becomes `timing.samples`, so `compare`/`ci`/every renderer treat it
-exactly like wall time; each trial keeps `wallNs` alongside `reportedNs` so the document
-has both. A trial whose output doesn't match the pattern contributes no sample (it's
-never a fallback to `wallNs`, which would silently mix wall-clock time into a
-reported-time series) and the measurement carries a `time-source-no-match` warning
-(`data: { pattern, trials, output }`, `output` capped at 2 KiB) - it no longer aborts the
-whole run the way it used to. If *every* trial of a command misses, that command has no
-timing stats at all (same as every trial timing out - see `--timeout` above); other
-commands in the same `time()` call keep their data regardless. To gate wall time *and*
-the reported time independently, declare the command twice - once plain, once with
-`--time-source` - and they're two workloads with two verdicts. Note the reported number
-has whatever resolution the tool printed (usually whole ms), so its confidence interval
-is coarser than a nanosecond wall clock's.
-
-A `RegExp` pattern must not carry the `g`, `y`, or `d` flag - the same compiled pattern is
-`exec`'d once per trial for the run's whole life, and `g`/`y` would make it alternate
-match/no-match across trials via `lastIndex` instead of testing the same thing every time.
-Constructing a workload with one throws `RangeError: timeSource pattern must not use the
-g or y flag` immediately, before any trial runs. A plain (flagless) `RegExp` or a string
-pattern is always safe to reuse. (`--time-source` on the CLI is always a plain string, so
-this only comes up with a `RegExp` literal in the library API.)
-
-`--timeout MS` kills a trial (or `--prepare` hook) with SIGKILL if it hasn't finished after
-`MS` ms, so a hung command can't stall the whole run. No default for `time`/`bench` (unset
-never times out); `ostia ci` defaults every workload to 10 minutes unless its config sets
-`timeoutMs`. A timed-out trial resolves (never throws) with `Trial.timedOut: true` and
-contributes no sample; if every trial of a command times out, that command has no timing
-stats and prints like a skipped workload instead of an empty row.
-
-`time(opts)` / `bench(opts)` also take a `signal?: AbortSignal`: aborting kills every
-in-flight child process with SIGKILL, stops scheduling new trials, and resolves (never
-rejects) with the document built from whatever measurements had already completed, plus
-an `aborted` warning on the document's last measurement. `Ctrl-C` on the CLI wires this up
-for you - `ostia time`/`ostia bench` cancel cleanly, still write `--export-json` of
-whatever finished, and exit `130`, instead of the process just dying mid-spawn.
-
-A non-zero exit doesn't stop a command's trial loop by default: every trial still runs,
-each trial's own exit code lands on `Trial.exitCode`, and the measurement carries a
-`nonzero-exit` warning (`data.exitCodes`) same as always. `--ignore-failure[=CODE,...]`
-(hyperfine's flag; given bare, ignores every exit code) treats the listed codes as
-success - the trial still contributes its sample, just with no warning and no effect on
-the exit code below. `--fail-on-nonzero` stops a command's loop after its *first*
-non-ignored non-zero exit instead of always running its full sample count (that trial's
-sample is still recorded):
-
-```sh
-ostia time --ignore-failure=1 "may-exit-1-harmlessly.sh"
-ostia time --fail-on-nonzero "bun build.ts"
-```
-
-Exit codes: `0` pass, `2` harness error (a command had a non-ignored non-zero exit, or a
-workload has no timing stats at all - see `--timeout`/`--time-source` above - or a bad
-flag/missing command), `130` cancelled with `Ctrl-C`. `1` is never returned by `time` or
-`bench` - it's reserved for `compare`/`ci` regressions, so a script can tell "the
-benchmark itself couldn't run cleanly" apart from "it ran, and got slower."
-
-Timing table (two commands get a Relative column automatically):
-
-```
-Task                   Median     Spread             Range              Relative
---------------------------------------------------------------------------------
-bun fixtures/fast.ts   7.94 ms    8.31 ms…8.56 ms    7.68 ms…8.57 ms    1.00×
-bun fixtures/slow.ts   21.3 ms    21.5 ms…22.1 ms    21.1 ms…22.1 ms    2.69× slower
-  ! outliers-detected
-
-Warnings:
-  bun fixtures/slow.ts: 1 outlier(s) detected (1 severe, 0 mild).
-```
-
-Heap summary (type counts from the snapshot trial):
-
-```
-Task                       Median     Spread             Range
----------------------------------------------------------------------------
-bun fixtures/allocate.ts   23.8 ms    24.9 ms…29.4 ms    22.6 ms…30.0 ms
-  ! outliers-detected
-
-Warnings:
-  bun fixtures/allocate.ts: 8 outlier(s) detected (1 severe, 7 mild).
-
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
-    1369  string
-     423  code
-     319  closure
-     216  object shape
-     105  hidden
-  artifact: node_modules/.cache/ostia/artifacts/<run-id>-heap.heapsnapshot
-```
+- Each command string is whitespace-split into argv, with no shell. Everything after
+  `--` is one more command's argv, verbatim: `ostia time -- bun -e "console.log('a b')"`.
+- Default sampling: 3 warmup trials, then trials until ~3s have elapsed and at least 10
+  ran. `--samples N` gives an exact count per command; `--budget MS`/`--min-samples N`
+  tune the loop.
+- With 2+ commands, trials round-robin across commands (`--no-interleave` to run them
+  one after another).
+- A command stops at its first non-ignored non-zero exit, and `ostia time` exits 2.
+  `--ignore-failure[=CODE,...]` treats the listed codes (bare: all) as success.
 
 ### `ostia bench`
 
-In-process microbenchmarks registered with `group()` / `task()`. Each task samples
-for `--budget` (default 500ms). `--min-samples` is a hard floor kept even when it
-overruns the budget. Left unset, the floor is cost-aware in both directions: as many
-trials as fit in the budget (capped at 20) so one slow task can't blow the suite's total,
-but never below the floor a task's per-trial cost earns it - 3 at ≤1ms, two more per
-decade of cost, 10 from about 3s up. Cheap tasks are time-bound and collect thousands of
-trials either way; only the few expensive tasks in a suite pay for the extra rigor, and
-those are exactly where a 3-sample mean is shakiest. Fast calls are batched so a trial
-spans at least 1µs and a full budget yields about 10k trials at most.
-
-Exit codes: `0` pass, `2` harness error (a suite file failed to import/run, a suite or
-isolated task's subprocess timed out - see `--timeout` below - or a bad flag), `130`
-cancelled with `Ctrl-C`. Tasks are in-process function calls, not subprocesses, so there's
-no per-task exit code / `--ignore-failure` the way `ostia time` has; a task that throws
-fails its suite's subprocess the same way it always has. `1` is never returned - it's
-reserved for `compare`/`ci` regressions.
-
-| per-trial cost | fits in 500ms | default floor |
-|---|---|---|
-| 30ns | thousands | 20 (time-bound; ends in the tens of thousands) |
-| 30ms | 16 | 16 |
-| 140ms | 3 | 7 |
-| 2.4s | 0 | 10 |
-
-A run that ends below its cost-class floor (only possible with an explicit
-`--min-samples` or per-task `minSamples`) carries a `low-sample-count` warning with
-`{ samples, target, trialCostNs }`, so a renderer or an agent can flag a thin number
-without re-deriving the policy from the raw sample array.
+Runs in-process `group()`/`task()` suites. Each suite file runs in its own child process.
 
 ```sh
 ostia bench bench/*.ts
-ostia bench --budget 500 --min-samples 50 bench/stats.ts
-ostia bench bench/*.ts --jobs auto          # suite files in parallel, see below
-ostia bench bench/*.ts --format minimal       # one compact JSON object per task
+ostia bench bench/*.ts --filter parse --cpu --alloc
+ostia bench bench/*.ts --isolate
+ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
 ```
 
-`--jobs N|auto` runs that many suite files at once, each still in its own child process.
-Files are independent by design, so for a multi-file suite this is close to a linear
-wall-clock win - but concurrent CPU-bound processes contend for cores, caches and turbo
-headroom, so numbers taken at `--jobs > 1` are noisier and not like-for-like with a
-baseline measured at 1. It defaults to 1 for that reason; opt in for exploratory runs,
-keep 1 for anything you `compare` or `ci` against.
-
-`--gc`/`--cpu`/`--alloc`/`--isolate` each take a `--no-` counterpart
-(`--no-gc`/`--no-cpu`/`--no-alloc`/`--no-isolate`) that resolves to an explicit `false`,
-overriding a `true` from `ostia.config.json`'s `bench` section the same way the plain
-flag overrides a config `false` - each flag is `cli ?? config ?? builtin default`, so
-`ostia bench --no-gc` always wins over a config-wide `{ "gc": true }` for that one run.
-
-`--isolate` gives every task its own child process instead of sharing its suite file's,
-isolating each task's JIT tier state, inline caches and heap shape from every other task
-in the run - the same guarantee suite files already get from each other, at task
-granularity. `task(name, fn, { isolate })` / `group(name, fn, { isolate })` override the
-suite-wide default for mixed suites (e.g. a couple of outlier-prone tasks isolated, the
-rest sharing a process). `--jobs` then pools across those per-task processes the same way
-it pools across per-file ones, so pair a higher `--jobs` with `--isolate` deliberately -
-overhead now scales with task count, not file count.
-
-`--gc` calls `Bun.gc(true)` between trials (default: off, which hides allocation cost as
-Bun/V8 batch calls together and amortize it away). `task(name, fn, { gc })` /
-`group(name, fn, { gc })` override the suite-wide default per task or group, the same
-override pattern as `isolate` - useful when a few allocation-heavy tasks need GC settled
-between trials but the rest of the suite doesn't.
-
-`--cpu` captures one extra `phase: "cpu"` measurement per task on top of its timing
-numbers: the task looped for a fixed 200ms window under the JSC sampling profiler
-(JIT tiers included), never mixed into the timing numbers themselves. `--alloc` captures
-an extra `phase: "memstats"` measurement: bytes allocated per call, from a
-`Bun.gc(true)`-bracketed batch of 100 calls (`MemoryEvidence.bytesPerOp`). Both follow the
-same per-task/per-group override pattern as `isolate`/`gc`: `task(name, fn, { cpu, alloc })`
-/ `group(name, fn, { cpu, alloc })`. The terminal table prints an `Alloc/op` column when a
-`memstats` measurement is present. With `--cpu` on, `ostia compare` reports per-frame CPU
-deltas for bench tasks the same way it already does for `ostia time --cpu`.
-
-When a `--cpu` capture spends more than 20% of its samples in the llint/baseline tiers,
-the JIT never warmed the task up in that 200ms window, so its CPU numbers (and by
-extension its timing) may not reflect steady state - the cpu measurement carries a
-`jit-cold` warning (`{ llintPct, baselinePct, dfgPct, ftlPct }`), printed alongside the
-CPU capture in the terminal table and folded into the task's line in `--format minimal`.
-
-`--timeout MS` kills a suite file's subprocess (or, under `--isolate`, one task's dedicated
-subprocess) with SIGKILL if it hasn't finished after `MS` ms - the same option `ostia time`
-has, applied at the subprocess granularity `--isolate` already runs at rather than per task.
-No default (unset never times out); `ostia ci` defaults every `suites` entry to 10 minutes
-unless its config sets `bench.timeoutMs`.
-
-`--preload PATH` (repeatable) imports a script before each suite file loads, in the same
-subprocess - the same shape as Bun's own `--preload` / `bunfig.toml`'s `preload` array. Use
-it to install globals a suite needs at import time (jsdom's `document`/`window`) or register
-a `Bun.plugin()` file-loader (e.g. compiling `.svelte`/`.vue` SFCs) before the suite's own
-top-level code runs. Multiple `--preload` scripts run in the order given, so state one
-installs (a plugin registration, a global) is visible to the next and to the suite itself.
-ostia ships none of this itself - just the hook point (for a full jsdom/happy-dom global
-setup or a `Bun.plugin()` component-compile hook, see
-[docs/preload-recipes.md](docs/preload-recipes.md)):
-
-```ts
-// bench/jsdom-setup.ts
-import { JSDOM } from "jsdom"
-const dom = new JSDOM("<!doctype html>")
-Object.assign(globalThis, { document: dom.window.document, window: dom.window })
-```
-
-```sh
-ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
-```
-
-`--bun-flags FLAGS` (repeatable, space-separated flags within one value are all appended)
-passes extra flags through to the `bun` invocation that spawns each suite file - the fix for
-packages whose `package.json` `exports` map branches on a resolution condition Bun doesn't
-set by default. Svelte 5's `exports` map, for example, is `{ "browser": "./src/index-client.js",
-"default": "./src/index-server.js" }`: without `--conditions browser`, Bun resolves `default`
-(the server-rendering build), and mounting a component via `@testing-library/svelte` throws
-`lifecycle_function_unavailable` since `mount()` isn't available server-side. The same applies
-to Vue and other dual-target frameworks:
-
-```sh
-ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
-```
-
-Unlike `BUN_OPTIONS` (an env var Bun's CLI reads to prepend flags, which only reaches the
-spawned suite process today because ostia's `Bun.spawn()` happens to inherit `process.env`),
-`--bun-flags` is a declared, documented integration point that doesn't depend on the parent
-shell's environment.
-
-
-```
-Task                                       Median     Spread             Range              Relative
-----------------------------------------------------------------------------------------------------
-stats:
-  stats/computeTimingStats (1e3 samples)   24.7 µs    33.8 µs…151.6 µs   22.4 µs…1073.2 µs  1.00×
-    ! outliers-detected
-  stats/computeTimingStats (1e4 samples)   255.2 µs   331.7 µs…1067.6 µs 223.2 µs…20789.4 µs 10.33× slower
-    ! outliers-detected
-  stats/timingWarnings (1e3 samples)       47.3 µs    88.5 µs…510.4 µs   43.0 µs…14383.1 µs 1.91× slower
-    ! outliers-detected
-
-Warnings:
-  stats/computeTimingStats (1e3 samples): 2455 outlier(s) detected (2108 severe, 347 mild).
-  stats/computeTimingStats (1e4 samples): 215 outlier(s) detected (70 severe, 145 mild).
-  stats/timingWarnings (1e3 samples): 541 outlier(s) detected (191 severe, 350 mild).
-```
-
-Tasks with a `group()` print the group name once, indented; ungrouped tasks and
-subprocess commands print flat.
-
-There's no built-in watch mode. For an edit/re-run loop while writing a suite, pair
-`ostia bench` with a file watcher and a small budget:
-
-```sh
-watchexec -e ts -- ostia bench bench/parse.ts --budget 100
-```
+- Each task samples for `--budget` ms (default 500). Fast calls are batched so one trial
+  spans at least 1µs; the budget-driven loop stops at 20,000 trials.
+- `--isolate` runs every task in its own process, isolating JIT state, builtin call-site
+  feedback (e.g. `Array.prototype.map`) and GC heap from other tasks. Use it when you need
+  the most comparable numbers.
+- `--jobs N|auto` runs suite files in parallel. Faster, but noisier; keep the default of 1
+  for anything you `compare` or gate in `ci`.
+- With no files, `ostia bench` uses the config's `bench` section. Each flag overrides its
+  config field; `--no-gc`/`--no-cpu`/`--no-alloc`/`--no-isolate` override a config `true`.
 
 ### `ostia compare`
 
-Match workloads by id, rank timing / frame / heap deltas, print a verdict per workload.
+Matches two documents' workloads by id and reports a verdict per workload.
 
 ```sh
 ostia compare before.json after.json
 ostia compare after.json --baseline .ostia/baselines/main.json
+ostia compare before.json after.json --format markdown
 ```
 
 ```
 ✗ bun fixtures/work.ts
-  timing: +11.2% median, 95% CI [+10.0%, +16.4%], p<0.001 (regressed)
+  timing: +23.8% median, 95% CI [+18.3%, +30.1%], p<0.001 (regressed)
 ```
 
-Exit codes: `0` pass, `1` at least one workload regressed, `2` nothing was compared (zero
-matched workloads - a stale baseline, a totally rewritten config) or a harness error
-(documents failed to load, or a bad flag).
-
-A workload id present on only one document prints in an `Unmatched` section (table and
-markdown formats) instead of silently vanishing:
-
-```
-Unmatched:
-  baseline only: old-task
-  candidate only: new-task
-```
-
-`--format table` also prints a `threshold` header line when the machine's noise floor
-widened the effective threshold past `thresholds.timingPct`:
-
-```
-threshold 5% (widened to 6.2% by noise floor)
-```
-
-`ostia compare` reads `ostia.config.ts`/`ostia.config.json`'s `thresholds` when present
-(same discovery as `ostia ci`), so a project-tuned threshold applies here too instead of
-only gating `ostia ci`; `--no-config` ignores it and uses `DEFAULT_THRESHOLDS`.
-`--timing-pct N` / `--alpha N` override individual fields on top of whichever base was
-picked. The source is printed above the report:
-
-```
-thresholds: ostia.config.ts
-```
-
-When both documents carry `git` metadata (see below), `ostia compare` prints a summary
-line above the verdicts:
-
-```
-base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)
-```
-
-The verdict needs both a confidence interval clear of `timingPct` and a
-significant Mann-Whitney p-value (`thresholds.alpha`, default `0.01`), not
-just a point estimate past the threshold - see
-[Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)
-below. Comparisons with fewer than 5 samples on either side fall back to the
-old point-estimate rule and carry a `thin-comparison` warning instead.
-
-When `base`/`cand` differ in `platform.os`, `platform.arch`, `bunVersion`, or (when both
-carry `environment`) `cpuModel`/`cores`, every comparison in the document carries an
-`environment-mismatch` warning (`data.fields`: `{ field, base, cand }[]`) - a timing delta
-between two different machines or Bun versions may reflect that, not the code change under
-test. `table` and `markdown` print it once, in the header, instead of once per workload;
-`minimal` folds it into each task line's `warnings[]` alongside its measurement warnings,
-so `line.warnings.some(w => w.code === "environment-mismatch")` keeps working the same way
-it does for a measurement warning.
-
-#### Statistics: a real significance test, not a percentage threshold
-
-A point estimate past `timingPct` is not enough to call something a
-regression - both documents already carry full sample arrays, so `compare`
-runs two tests instead:
-
-- A **bootstrap confidence interval** on the difference of medians:
-  resample both sides with replacement `thresholds.bootstrapIterations`
-  times (default 2000; each side is randomly subsampled to at most 2000
-  samples first, so a many-thousand-sample task doesn't turn a compare into
-  a multi-second operation), and report the 2.5th/97.5th percentiles as
-  `ci95` (percent of the baseline median). Reproducible: the PRNG seed is
-  stored in `Comparison.timing.seed`.
-- A **Mann-Whitney U test** (tie-corrected, normal approximation), reported
-  as `pValue` - whether the two sample distributions differ at all, without
-  assuming normality the way a t-test would.
-
-`regressed` requires `ci95[0] > thresholds.timingPct` (the *whole interval*
-clears the threshold) **and** `pValue < thresholds.alpha`; `improved` is the
-mirror. Otherwise `unchanged`. This is why the earlier example (`+11.2%
-median, 95% CI [+10.0%, +16.4%]`) is a clean regression: even the low end of
-the interval is well past `timingPct`.
-
-Both `time()` and `bench()` also stamp `environment` on every document (a
-fixed-cost, deterministic, allocation-free hash loop sampled for ~200ms,
-`noise.floorPct = mad / median`) unless `noiseCheck: false` / `--no-noise-check`
-skips it. `compare` widens the effective threshold to
-`max(thresholds.timingPct, base.environment.noise.floorPct,
-cand.environment.noise.floorPct)` (`Comparison.thresholds.effectiveTimingPct`),
-so a delta smaller than the machine's own jitter right now is never called a
-regression. A `noisy-machine` warning fires when the 1-minute load average is
-already past 75% of available cores at measurement time.
+A regression needs the whole 95% CI above the threshold and a Mann-Whitney p-value below
+`alpha` (default 0.01). Thresholds come from the config file when one exists, otherwise
+the defaults (`timingPct: 5`). The bootstrap is seeded from the samples, so the same two
+documents always give the same verdict. See [docs/statistics.md](docs/statistics.md).
+Exit: `0` pass, `1` regression, `2` nothing matched or a load error.
 
 ### `ostia report`
 
-Render a saved `ProfileDocument` without re-running anything. `--format` covers
-both the data formats (`table`/`json`/`jsonl`/`markdown`/`minimal`) and the CPU
-visualization formats (`collapsed`/`mermaid`/`speedscope`/`cpuprofile`) - one
-command instead of two. `time`/`bench`/`compare --format` only accept the data
-formats; export the document and run `ostia report --format <viz>` on it for
-a visualization.
+Renders a saved document without re-running anything.
 
 ```sh
-ostia report out.json                 # table (default)
-ostia report out.json --format markdown
-ostia report out.json --format json
-ostia report out.json --format jsonl
-ostia report out.json --format minimal
+ostia report doc.json --format markdown
+ostia report doc.json --format minimal
+ostia report doc.json --format speedscope --out-dir viz/
+ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
 ```
 
-Minimal format - one JSON object per timing run, no header, no raw sample array, no prose.
-See [Using ostia from an AI agent](#using-ostia-from-an-ai-agent) above for the full
-protocol (event types, the exit-code contract, the stderr error line). A `run` event:
-
-```
-{"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_1a2b3c4d5e6f7890","task":"diffText()/append at end","group":"diffText()","unit":"ns","samples":9282,"batch":1,"mean":50213.4,"median":49871,"stddev":2104.7,"stddevPct":4.19,"min":48120,"max":81002,"p75":50920,"p99":58011,"mad":1780,"relative":1,"warnings":[]}
-```
-
-`ostia compare`/`ostia ci --format minimal` add `delta: { medianPct, meanPct, verdict, pass,
-ci95?, pValue?, effectiveTimingPct, matched }` to each `run` line, so "did this PR regress" is
-`lines.some(l => l.delta?.verdict === "regressed")` - and a trailing `summary` line carries
-the same verdict for the whole run.
-
-Markdown:
-
-```
-# Profile Report
-
-Bun 1.4.1 · ostia 0.1.0 · darwin/arm64 · 2026-09-05T13:14:50.085Z · a1b2c3d (main)
-
-## Timing
-
-| Task | Median | Spread (p75…p99) | Mean ± SD | Range | MAD |
-|---|---|---|---|---|---|
-| bun -e 1 | 5.03 ms | 5.42 ms…9.70 ms | 5.29 ms ± 0.84 ms | 4.77 ms…13.4 ms | 0.16 ms |
-```
-
-#### CPU visualization formats
-
-Turn CPU evidence into files for other tools. Formats: `collapsed`, `mermaid`,
-`speedscope`, `cpuprofile` (pass-through of a real CDP artifact when present).
-`--measurement <id>` renders only that measurement (default: every CPU
-measurement in the document); `--out-dir PATH` writes files there instead of
-stdout.
-
-```sh
-ostia report doc.json --format collapsed
-ostia report doc.json --format mermaid
-ostia report doc.json --format speedscope > flame.json
-```
-
-Collapsed stacks (one line per stack; feeds `flamegraph.pl` and friends):
-
-```
-(root);(module);hashLoop 209
-```
-
-Mermaid call tree (top N nodes by self time, never the whole profile):
-
-```
-graph TD
-  n1["(root) (self 0.00ms, total 267.91ms)"]
-  n2["(module) (self 0.00ms, total 267.91ms)"]
-  n3["hashLoop (self 267.91ms, total 267.91ms)"]
-  n1 --> n2
-  n2 --> n3
-```
+Formats: `table` (default), `json`, `jsonl`, `markdown`, `minimal`, and, for documents
+with CPU evidence, `collapsed`, `mermaid`, `speedscope`, `cpuprofile`. `time`, `bench`,
+`compare` and `ci` accept only the first five; export a document and use `report` for the
+visualization formats.
 
 ### `ostia ci`
 
-Reads `ostia.config.json`, fingerprints each workload, reruns only what changed, compares
-against a named baseline, exits `1` on regression.
+Runs the config's workloads, compares them against a named baseline, and exits 1 on a
+regression.
 
 ```sh
 ostia ci
-ostia ci --full                  # ignore cache
-ostia ci --baseline main
-ostia ci --export-json out.json
-ostia ci --save-baseline         # after a pass, promote today's numbers to the baseline
-ostia ci --on-missing-baseline fail
-ostia ci --no-noise-check
+ostia ci --full                  # ignore the cache
+ostia ci --baseline release
+ostia ci --save-baseline         # after a pass, make this run the new baseline
 ```
 
-Pass:
+- Command workloads are cached by their declared `inputs`: no `inputs` field always
+  reruns; `inputs: []` means "depends on nothing" and caches; otherwise the run is reused
+  while the matched files' contents are unchanged. `suites` workloads always run.
+- `suites` workloads run with the config's `bench` section, the same way `ostia bench`
+  reads it.
+- Exit 2 if any command workload exits non-zero (not ignored) or produces no samples, or
+  if the baseline file is missing. A baseline that matches none of the configured
+  workloads is also an error; one missing only some lists them and carries on
+  (`onMissingBaseline` in the config changes this).
 
-```
-1 workloads
-0 cached
-1 executed
-1 passed  0 regressed
+### `ostia baseline`
 
-Profile CI: ✓
-```
-
-Fail:
-
-```
-1 workloads
-0 cached
-1 executed
-0 passed  1 regressed (+1278.7% median on work)
-
-Profile CI: ✗
+```sh
+ostia baseline save              # measure the configured workloads -> .ostia/baselines/main.json
+ostia baseline save my-feature
+ostia baseline list
+ostia baseline show main --format markdown
 ```
 
-Exit codes: `0` pass, `1` regression, `2` harness error - missing config/baseline, every
-sampled trial of a `command` workload exited non-zero (a harness failure, reported as
-`N failed` and distinct from a timing regression), an `onMissingBaseline: "fail"` mismatch,
-or a spawn failure.
+`save` uses the same measurement code path as `ci`. `show` accepts `report`'s flags.
 
-A configured workload with no matching row in the baseline (by workload id) doesn't just
-silently pass: `onMissingBaseline` (config field, or `--on-missing-baseline warn|fail`)
-decides what happens. Left unset, `ci` exits `2` (naming the baseline file and suggesting
-`ostia baseline save`) only when *every* configured workload is missing - a totally
-stale/wrong baseline - and otherwise lists what's missing in the report without affecting
-the exit code, since one new workload next to an otherwise-matching baseline isn't a hard
-error. `"fail"`/`"warn"` explicitly always fail/never fail on any mismatch, regardless of
-how many workloads are missing.
+## Library API
 
-`ci` also measures this machine's noise floor once per invocation (the same ~200ms
-reference measurement `time()`/`bench()` take) and stamps it on both the candidate
-document and `ostia baseline save`'s output, so `compare`'s noise-floor threshold widening
-(see [Statistics](#statistics-a-real-significance-test-not-a-percentage-threshold)) applies
-to `ci`-gated regressions too, not only ad hoc `time`/`bench` runs. `noiseCheck: false` in
-config, or `--no-noise-check`, skips it.
+```ts
+import {
+  time, bench, group, task, sweep, range, run, profile, keep,
+  compareDocuments, defineConfig, createDocument, loadDocument, saveDocument, renderers,
+} from "ostia"
+import type { ProfileDocument, MinimalEvent } from "ostia"
+```
 
-#### `ostia.config.ts` / `ostia.config.json`
+| Export | Does |
+|---|---|
+| `time(opts)` | Subprocess timing, same as `ostia time`. Returns a `ProfileDocument`. |
+| `bench(opts)` | Runs suite files, same as `ostia bench`. |
+| `group(name, fn, opts?)` / `task(name, fn, opts?)` | Register in-process tasks; `.skip`/`.only` variants. |
+| `sweep(dims, fn)` / `range(start, end, mult?)` | Parameter sweeps; tasks inherit the point as `params`. |
+| `run(opts?)` | Runs the tasks registered in the current file, in this process (`bun suite.ts`). |
+| `profile(fn, opts?)` | In-process CPU capture; `origin: "jsc"` adds JIT tier data. |
+| `keep(value)` | Pins an intermediate value against dead-code elimination. |
+| `compareDocuments(base, cand, thresholds?)` | Same comparison as `ostia compare`. |
+| `defineConfig(config)` | Typing helper for `ostia.config.ts`. |
+| `createDocument` / `loadDocument` / `saveDocument` | Build, read (schema v2 only), and write documents. |
+| `renderers` | `table`, `markdown`, `json`, `jsonl`, `minimal`, `collapsed`, `mermaid`, `speedscope`, `cpuprofile`. |
 
-`loadConfig` looks for `ostia.config.ts` first (Bun imports TypeScript natively), falling
-back to `ostia.config.json`. Both forms are fully supported; pick `.ts` for autocomplete
-and type-checking on every field, via `defineConfig` (an identity function purely for
-typing, the same pattern as Vite/Vitest/ESLint):
+```ts
+const doc = await time({
+  commands: ["bun a.ts", { command: "bun b.ts", label: "b", prepare: "rm -rf dist" }],
+  samples: 20,
+  cpu: true,
+})
+
+group("parse", () => {
+  sweep({ size: range(100, 10_000) }, ({ size }) => {
+    const input = buildInput(size) // unmeasured setup, once per point
+    task("parse", () => parse(input), { isolate: true })
+  })
+})
+
+const result = compareDocuments(await loadDocument("before.json"), doc)
+if (result.summary.verdict === "fail") process.exitCode = 1
+
+const { text } = await renderers.markdown.render(doc, {})
+```
+
+Full reference, including task options, hooks, and a mitata/hyperfine migration table:
+[docs/library.md](docs/library.md).
+
+## Configuration
+
+`ostia.config.ts` (checked first) or `ostia.config.json`, in the current directory.
 
 ```ts
 // ostia.config.ts
@@ -732,576 +318,43 @@ import { defineConfig } from "ostia"
 
 export default defineConfig({
   baseline: "main",
+  samples: 15, // command workloads; or budgetMs/minSamples
+  warmup: 3,
   thresholds: { timingPct: 5 },
   workloads: [
-    { label: "parse", command: ["bun", "bench/parse.ts"], inputs: ["src/**/*.ts"] },
-    { label: "dogfood-suites", suites: ["bench/*.ts"] },
-    // Same command, three states: warm no-op, one edited input, cold. `prepare`
-    // runs before every trial; `timeSource` reads the tool's own "in Nms" line.
-    { label: "build:warm", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" } },
-    { label: "build:incremental", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" },
-      prepare: () => touchPost("fixture/posts/hello.md") },
-    { label: "build:cold", command: ["bun", "cli.ts", "build", "fixture"], timeSource: { pattern: "in (\\d+)ms" },
-      prepare: "rm -rf fixture/dist" },
+    { label: "cold-start", command: ["bun", "src/cli.ts", "--help"], inputs: ["src/**/*.ts"] },
+    { label: "spawn", command: ["bun", "-e", "1"], inputs: [] },
+    { label: "build:cold", command: ["bun", "build.ts"], prepare: "rm -rf dist" },
+    { label: "suites", suites: ["bench/*.ts"] },
   ],
+  bench: { budgetMs: 500, isolate: true, preload: ["bench/setup.ts"] },
 })
 ```
 
-```json
-// ostia.config.json - equivalent, no defineConfig wrapper needed
-{
-  "baseline": "main",
-  "thresholds": { "timingPct": 5 },
-  "workloads": [
-    {
-      "label": "parse",
-      "command": ["bun", "bench/parse.ts"],
-      "inputs": ["src/**/*.ts"]
-    },
-    {
-      "label": "dogfood-suites",
-      "suites": ["bench/*.ts"]
-    }
-  ]
-}
-```
-
-Each workload is exactly one of `command` (a subprocess timed with `runs`/`warmup`) or
-`suites` (glob patterns, same resolution as `bench`'s own `suites` config, run via
-`bench()`). A `suites` workload gates every task in those files individually - one
-candidate-vs-baseline comparison per task, matched by workload id the same way a `command`
-workload already is, so `ostia ci`'s regression detection covers in-process microbenchmarks,
-not only subprocess commands. Unlike `command` workloads, a `suites` workload always
-executes (there's no cheap way to know a suite file's task ids, and so its per-task cache
-keys, without importing it first) - `inputs`-based cache skipping is `command`-only for now.
-
-`inputs` is optional (and, for now, only consulted for `command` workloads). Workloads
-with no `inputs` always rerun (cache fails conservative).
-
-`prepare` and `timeSource` are `command`-only and mean the same as `ostia time`'s
-`--prepare` / `--time-source`: `prepare` is a command string or argv array in both config
-forms, or a function in `ostia.config.ts`; `timeSource` is `{ pattern, group?, unit? }`
-with `pattern` a regex source string (or a `RegExp` in `.ts`). Both are part of the workload
-id. A function-form `prepare` can't be fingerprinted, so that workload never comes from
-cache - it always executes, like a workload with no `inputs`.
-
-`timeoutMs`, `ignoreExitCodes`, and `failOnNonzero` are also `command`-only and mean the
-same as `ostia time`'s `--timeout` / `--ignore-failure` / `--fail-on-nonzero`. `ostia ci`
-defaults every workload's `timeoutMs` to 10 minutes when the workload doesn't set one
-(`bench.timeoutMs` does the same for `suites` workloads); none of the three are part of
-the workload id, so tuning them doesn't orphan a cached run or a saved baseline.
-
-Two directory options, both optional: `outDir` (default `node_modules/.cache/ostia`) for
-scratch/cache/artifacts, and `baselineDir` (default `.ostia/baselines`) for baselines. They're
-independent - `baselineDir` doesn't move just because you override `outDir`.
-
-`onMissingBaseline` (`"warn"` | `"fail"`, default unset - see [`ostia
-ci`](#ostia-ci) above) and `noiseCheck` (default `true`) are top-level config fields, not
-per-workload: `--on-missing-baseline` / `--no-noise-check` override them per invocation.
-
-#### Baselines (local and CI)
-
-Baselines are JSON under `.ostia/baselines/` (gitignored). `ostia ci` only needs the file
-on disk; it does not need to be committed.
-
-A workload's id identifies *what* is measured, not where the measuring process ran: for a
-`command` workload it hashes the command argv, `prepare`, and `timeSource`, and
-deliberately excludes `process.cwd()`. That means the same command measured from a CI
-runner, a developer's checkout, or a different git worktree of the same repo produces the
-same id and matches the same baseline row - `label` changes and switching directories
-never orphan a baseline.
-
-`ostia baseline save [name]` measures every configured workload (the same code path
-`ostia ci` gates against, no comparison) and writes it to `<baselineDir>/<name>.json`
-(default name: config's `"baseline"` field, or `"main"`). `ostia baseline list` shows every
-saved baseline (name, created date, workload count, and git sha/branch when available);
-`ostia baseline show <name> [--format]` renders one (delegates to `ostia report`). A
-baseline name must match `/^[A-Za-z0-9._-]+$/` and can't start with `-` - a typo'd flag
-(`ostia baseline save --verbose`) is a usage error instead of a literal filename.
-
-Every document stamps `git: { sha, branch, dirty }` (from `git rev-parse` / `git status
---porcelain` in the process's cwd, 200ms timeout, silently absent outside a repo or
-without `git` installed) - metadata only, never part of any fingerprint or id, so a
-commit or a dirty working tree never orphans a cached run or baseline. Printed in the
-markdown report's header line and `ostia baseline list`.
-
-Local branch workflow:
-
-```sh
-git checkout master          # known-good tip
-ostia baseline save          # -> .ostia/baselines/main.json
-
-git checkout -b my-opt
-# ... change code ...
-ostia ci                     # or: bun run dogfood
-```
-
-The baseline survives branch switches because it is not tracked. Re-seed only when you
-intentionally accept a new floor. Seeding on the branch you are guarding compares that
-branch to itself.
-
-`ostia ci --save-baseline` folds that re-seed into the gate itself: after a pass (no
-regressions), it writes the just-measured document as the new baseline at the same path
-it just compared against - useful in a CI job that gates every merge to a trunk branch,
-so each green run becomes the next run's floor with no separate step.
-
-One-off outside this repo's config:
-
-```sh
-ostia time --export-json .ostia/baselines/main.json "bun bench.ts"
-ostia ci
-```
-
-On pull requests, CI measures the base branch into that same path, checks out the PR,
-and runs `ostia ci` against it. If the base has no `package.json` / `ostia.config.json`
-yet (empty starter commit), CI seeds from the PR tip instead so dogfood still runs.
-
-## Library API
-
-The CLI is a thin wrapper around the library. Same `ProfileDocument` either way.
-
-```ts
-import {
-  time,
-  profile,
-  bench,
-  group,
-  task,
-  range,
-  sweep,
-  keep,
-  compareDocuments,
-  createDocument,
-  defineConfig,
-  renderers,
-  saveDocument,
-  loadDocument,
-} from "ostia"
-import type { ProfileDocument } from "ostia"
-```
-
-### `time(opts)` → `ProfileDocument`
-
-Subprocess timing, optional CPU/heap capture. Same behavior as `ostia time`.
-
-```ts
-const doc = await time({
-  commands: ["bun a.ts", "bun b.ts"],
-  prepare: "rm -rf dist", // before every trial of every command, unmeasured; or a
-  //   function: ({ phase, index }) => ..., phase is "warmup" | "timing" | "cpu" | "heap"
-  timeSource: { pattern: /in (\d+)ms/, unit: "ms" }, // samples from the command's own output
-  samples: 10, // exact trial count
-  // budgetMs: 3000,   // wall-clock budget instead of an exact count
-  // minSamples: 10,   // hard floor when samples isn't given
-  warmup: 2,
-  interleave: true, // default when 2+ commands: round-robins trials across them
-  cpu: true,
-  heap: false,
-  cpuIntervalUs: 200,
-  outDir: "node_modules/.cache/ostia", // default; artifacts land under here
-  noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
-  timeoutMs: 30_000, // kill a hung trial/prepare hook with SIGKILL; no default
-  signal: controller.signal, // abort to cancel: kills in-flight children, keeps partial results
-  ignoreExitCodes: [1], // treat exit code 1 as success; still samples, no nonzero-exit warning
-  failOnNonzero: false, // default; true stops a command's loop after its first bad exit
-})
-```
-
-A command can also be an object - `{ command, label?, prepare?, timeSource? }` - whose
-`prepare`/`timeSource` override the top-level ones for that command. That's how one
-command becomes several labeled workloads in the same document:
-
-```ts
-const build = ["bun", "cli.ts", "build", "fixture"]
-const inMs = { pattern: /in (\d+)ms/ }
-const doc = await time({
-  commands: [
-    { command: build, label: "warm", timeSource: inMs },
-    { command: build, label: "incremental", timeSource: inMs, prepare: () => touchPost() },
-    { command: build, label: "cold", timeSource: inMs, prepare: "rm -rf fixture/dist" },
-    { command: build, label: "wall clock" }, // same command, no timeSource: wall time
-  ],
-  samples: 5,
-})
-```
-
-### `profile(fn, opts)` → `{ result, measurement, document }`
-
-In-process capture. `origin: "jsc"` is the only path that reports JIT tiers
-(LLInt / Baseline / DFG / FTL). Default `origin: "inspector"` writes portable CDP-shaped
-evidence instead. `document` is a full `ProfileDocument` (the one workload and
-measurement), so it composes with `renderers.*` or `saveDocument` directly. `profile()`
-also takes a `signal?: AbortSignal`, but `fn` runs in this process - there's no child to
-kill, so an already-aborted signal only skips the profiler instrumentation (still running
-`fn` plain and returning its `result`, with an `aborted` warning in place of CPU evidence);
-it can't interrupt `fn` once it's running.
-
-```ts
-const { result, measurement, document } = await profile(
-  () => hashLoop(8_000_000),
-  { origin: "jsc", intervalUs: 100 },
-)
-
-console.log(measurement.jit?.tiers)
-// {
-//   llint: 0,
-//   baseline: 9,
-//   dfg: 37,
-//   ftl: 2825,
-// }
-
-const { files } = await renderers.collapsed.render(document)
-```
-
-### `createDocument(workloads, measurements)` → `ProfileDocument`
-
-For composing a document from several `profile()` calls (each of which returns
-just one workload and measurement):
-
-```ts
-const a = await profile(() => taskA())
-const b = await profile(() => taskB())
-const document = createDocument(
-  [a.document.workloads[0]!, b.document.workloads[0]!],
-  [a.measurement, b.measurement],
-)
-```
-
-### `group` / `task` / `bench`
-
-Register in-process suites, then run them (same as `ostia bench`):
-
-```ts
-// suite.ts
-import { group, task } from "ostia"
-
-group("parse", () => {
-  task("small input", () => parse(smallBuf))
-  task("large input", () => parse(largeBuf))
-  // Per-task options override the suite-wide time budget / min samples.
-  task("full pipeline", () => build(), { budgetMs: 2000, minSamples: 10 })
-})
-```
-
-That is the whole registration surface: `group()` and `task()`. Presentation lives in
-the renderers (`--format`), not in the suite file.
-
-All module-scope code in a suite file runs up front, before any task is sampled.
-`{ before, after }` is the hook that runs a task's own setup immediately before its
-sampling and its teardown immediately after - once each, unmeasured, in the task's
-own process (so both work with `isolate`):
-
-```ts
-group(
-  "parse",
-  () => {
-    let doc: Document
-    task("append", () => doc.append(node), {
-      before: () => {
-        doc = mountDocument()
-      },
-      after: () => doc.destroy(),
-    })
-  },
-  {
-    // Runs once around the whole group, outside every task's own before/after.
-    before: () => setupSharedFixture(),
-    after: () => teardownSharedFixture(),
-  },
-)
-```
-
-There is no per-trial hook (no setup/teardown between individual samples) - that
-would defeat batching, which is how ostia keeps a sub-microsecond task's timer
-overhead down. Reach for `{ gc }` (`Bun.gc(true)` between trials) or `{ isolate }`
-(a fresh process per task) for per-trial concerns instead. Because `before`/`after`
-run once per task, not once per instance, a suite that builds more than one instance
-of something stateful (a mounted UI component, an open connection, a server) still
-has to scope a query to the instance it belongs to, not write it against a
-global/ambient lookup that assumes it's the only one alive - a suite that opens a
-component's menu and queries `getByRole(...)` unscoped, for example, breaks once a
-second instance of that component exists in the document; scope the query with
-something like `within(instance.container)` instead.
-
-Task functions may be async (`() => unknown | Promise<unknown>`, same for
-`before`/`after`); `await` on a plain synchronous value still costs a microtask
-turn, so an `async` task function measures a few nanoseconds slower per call than
-the same body written synchronously - immaterial above microsecond cost, worth
-knowing for a task near the timer's resolution floor.
-
-Call `keep(value)` on an intermediate value inside a task body - a subcomputation
-whose result the task doesn't return - to pin it against dead-code elimination the
-same way ostia already protects a task's own return value:
-
-```ts
-import { keep } from "ostia"
-
-task("parse then validate", () => {
-  const ast = parse(input)
-  keep(ast) // the task returns validate's result; without this, a smart-enough
-  // JIT could in principle prove `ast` is otherwise unused and skip building it
-  return validate(ast)
-})
-```
-
-Both take an optional `description` that flows into the document
-(`Workload.description` / `Workload.groupDescription`) and into `--format minimal`, so
-what a number measures and why travels with the data instead of living only in a
-source comment a reader has to go find:
-
-```ts
-group(
-  "repaint",
-  () => {
-    task("1,000 chars", () => repaint(doc1k))
-    task("4,000 chars", () => repaint(doc4k), {
-      description: "worst case: full repaint every keystroke at the max document size",
-    })
-  },
-  { description: "editor repaint cost as document size grows" },
-)
-```
-
-Mark one task per group as the `Relative` reference with `{ baseline: true }`;
-otherwise `Relative` defaults to the fastest task in the group:
-
-```ts
-group("parse", () => {
-  task("current impl", () => parse(buf), { baseline: true })
-  task("candidate impl", () => parseFast(buf))
-})
-```
-
-`task.skip(...)` / `group.skip(...)` register without measuring: the runner never
-samples them, but the document still carries the workload (marked
-`Workload.skipped`), so a renderer prints `- skipped` instead of the task just
-being absent, and `compare` reports it as `unchanged` (with a `skipped` warning)
-rather than silently passing or failing to match a baseline. `task.only(...)` /
-`group.only(...)` restrict a suite file to only the `.only`-marked tasks - `--filter`
-still applies on top - and print a one-line notice (`bench: 2 task(s) selected by
-.only`) to stderr, so a forgotten `.only` doesn't quietly narrow a run in CI:
-
-```ts
-group("parse", () => {
-  task.only("fast path", () => parse(buf)) // only this task runs this time
-  task("slow path", () => parseSlow(buf))
-  task.skip("flaky on CI", () => parseFlaky(buf))
-})
-```
-
-`{ cpu }` / `{ alloc }` on `task()` or `group()` override the suite-wide `bench({ cpu, alloc })`
-/ `--cpu` / `--alloc` default for that task or group, the same pattern as `isolate`/`gc`:
-one extra `phase: "cpu"` measurement (JIT tiers included, from a fixed 200ms window under
-the JSC sampling profiler) and/or one extra `phase: "memstats"` measurement
-(`MemoryEvidence.bytesPerOp`, from a `Bun.gc(true)`-bracketed batch of 100 calls) alongside
-the task's timing numbers, never mixed into them:
-
-```ts
-group("parse", () => {
-  task("current impl", () => parse(buf))
-  task("candidate impl", () => parseFast(buf), { cpu: true, alloc: true })
-})
-```
-
-### `sweep(dims, fn)` → `void`
-
-Cartesian product over one or more named dimensions, calling `fn` once per point.
-`task()` calls inside `fn` automatically inherit that point as `Workload.params` -
-a structured alternative to baking the point into the task name, so renderers can
-pivot on it and `compare` matches on the same point across runs instead of just a name:
-
-```ts
-import { group, task, range, sweep } from "ostia"
-
-group("parse", () => {
-  sweep({ size: range(100, 10_000), impl: ["current", "fast"] }, ({ size, impl }) => {
-    const input = buildInput(size) // setup, runs once per point, unmeasured
-    task(`${impl}`, () => impls[impl](input))
-  })
-})
-```
-
-An explicit `{ params }` on a particular `task()` call merges over (and wins
-against) the current sweep point:
-
-```ts
-task(`${impl}`, () => impls[impl](input), { params: { size, impl, variant: "warm" } })
-```
-
-`--format minimal` includes `params` on every line. The markdown renderer pivots a
-group into a table (rows = first dimension, columns = second) when every task in
-it shares the same two param keys - exactly what the example above produces - and
-otherwise renders params as a `key=value` suffix on the task name.
-
-### `range(start, end, multiplier?)` → `number[]`
-
-Geometric point generator that feeds `sweep()` (and works standalone): default
-multiplier `8`, always ending on `end` even if the last step overshot it.
-
-```ts
-range(100, 10_000)   // -> [100, 800, 6400, 10000]
-range(100, 100_000)  // -> [100, 800, 6400, 51200, 100000]
-```
-
-### `bench(opts)` → `ProfileDocument`
-
-In-process suite runner, same behavior as `ostia bench`.
-
-```ts
-// demo.ts
-import { bench } from "ostia"
-
-const doc = await bench({
-  suites: ["suite.ts"],
-  budgetMs: 500,
-  // samples: 50,   // exact per-task trial count instead of a budget
-  minSamples: 50,
-  jobs: 1, // suite files at once; > 1 trades fidelity for wall time
-  noiseCheck: true, // default; set false to skip the ~200ms noise floor measurement
-})
-```
-
-### `run(opts?)` → `ProfileDocument`
-
-In-file entrypoint: call it at the bottom of a suite file run directly with
-`bun suite.ts` (no `ostia bench` CLI, no `bench({ suites })` call) to execute every
-`group()`/`task()` registered so far, print a report, and return the document.
-
-```ts
-// suite.ts
-import { rm } from "node:fs/promises"
-import { group, run, task } from "ostia"
-
-group("parse", () => {
-  task("small input", () => parse(smallBuf))
-  task("large input", () => parse(largeBuf))
-})
-
-try {
-  await run()
-} finally {
-  await rm(fixtureDir, { recursive: true })
-}
-```
-
-```sh
-bun suite.ts
-```
-
-`run({ filter: "parse" })` narrows to matching `group/name` ids, same regex as `ostia bench
---filter`/`bench({ filter })` - there's no CLI here to read a `--filter` flag from, so pass it
-as an option, e.g. from `process.argv` or an env var your `run()` call reads itself.
-
-This trades away the isolation `ostia bench`/`bench()` give each suite file (and each
-isolated task under `--isolate`) its own fresh subprocess: everything under `run()` runs in
-the process that already imported the suite, so `TaskOptions.isolate` has nothing to isolate
-into and is ignored. Prefer `ostia bench`/`bench()` for numbers you'll `compare`/`ci`
-against; reach for `run()` for a single suite file's inline edit/run loop, or when a `finally`
-around the run needs to clean up fixtures the suite set up (`ostia bench`'s subprocess model
-has no call in the file that returns after every task finishes, so that cleanup would
-otherwise need a `process.on("exit", ...)` hook instead).
-
-`run(opts)` accepts the same suite-wide `filter`/`budgetMs`/`samples`/`minSamples`/`warmup`/
-`gc`/`cpu`/`alloc`/`noiseCheck` fields as `bench(opts)`, plus `quiet` (skip the printed
-report, still return the document) and `format` (renderer for that report, default `"table"`).
-
-### `compareDocuments(base, cand, thresholds?)` → `CompareResult`
-
-Same matching and thresholds as `ostia compare` / `ostia ci`.
-
-```ts
-const result = compareDocuments(baselineDoc, candidateDoc, {
-  timingPct: 5,
-  frameSelfPct: 10,
-  heapTypePct: 10,
-  minFrameSelfUs: 1000,
-  alpha: 0.01, // Mann-Whitney significance level
-  bootstrapIterations: 2000,
-})
-
-result.comparisons     // Comparison[], one per workload id present on both sides
-result.unmatched       // { baseOnly: Workload[]; candOnly: Workload[] } - present on only one side
-result.summary         // { matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }
-```
-
-`summary.geomeanPct` is the geometric mean of `cand/base` median ratios over matched timing
-comparisons, as a signed percent (negative: candidate faster on average); `null` when no
-comparison had a finite timing ratio. `summary.verdict` is `"fail"` when any comparison
-failed. `ostia compare` persists `result.comparisons` as `comparisons`, `result.summary` as
-`comparisonSummary`, and `result.unmatched`'s workload ids (not full `Workload`s, to keep the
-document small) as `unmatched: { baseOnly: string[]; candOnly: string[] }` on the candidate
-document it writes/renders.
-
-### `saveDocument` / `loadDocument`
-
-```ts
-await saveDocument(doc, "doc.json")
-const loaded: ProfileDocument = await loadDocument("doc.json")
-```
-
-### `defineConfig(config)` → `Partial<OstiaConfig>`
-
-Identity function purely for typing `ostia.config.ts` - see
-[`ostia.config.ts` / `ostia.config.json`](#ostiaconfigts--ostiaconfigjson) above.
-
-### `renderers`
-
-Pure functions of a `ProfileDocument`. Each returns `{ text? }` and/or `{ files? }`.
-
-| Name | Output |
-|---|---|
-| `table` | terminal timing / CPU / heap / comparison text |
-| `markdown` | agent- and human-readable report |
-| `json` | pretty JSON document |
-| `jsonl` | one `kind: "document"` header line, then one `kind: "measurement"` line per run |
-| `minimal` | protocol v1: one `run`/`unmatched`/`summary` event per line, no sample array; for LLM/CI consumption (see [Using ostia from an AI agent](#using-ostia-from-an-ai-agent)) |
-| `collapsed` | folded stacks (`name;name;name count`) |
-| `mermaid` | top-N call tree |
-| `speedscope` | speedscope.app JSON |
-| `cpuprofile` | verbatim `.cpuprofile` when a CDP artifact exists |
-
-```ts
-const { text } = await renderers.markdown.render(doc)
-const { files } = await renderers.collapsed.render(doc, {
-  measurementId: someCpuMeasurementId,
-})
-```
-
-Units in the IR are fixed: ns (time), bytes (memory), µs (sampling interval).
-
-## Migrating from mitata or hyperfine
-
-| mitata / hyperfine | ostia |
-|---|---|
-| `bench("name", fn)` | `task("name", fn)` |
-| `run({ filter })` at the bottom of the suite file | `run({ filter })` at the bottom of the suite file (see [`run(opts?)`](#runopts--profiledocument)) |
-| `baseline()` | `{ baseline: true }` on a `task()` |
-| `.range(name, start, end, mult)` | `sweep({ dim: range(start, end, mult) }, ...)` |
-| generator setup (`function* () { ...; yield () => fn() }`) | `task(name, fn, { before, after })` |
-| `do_not_optimize(value)` | `keep(value)` |
-| `hyperfine -L var a,b,c cmd-{var}` | `sweep({ var: ["a", "b", "c"] }, ...)` or per-command `params` |
-| `hyperfine --runs N --warmup N` | `ostia time --samples N --warmup N` |
-| `hyperfine --prepare CMD` | `ostia time --prepare CMD` (also `time({ prepare })` / config `prepare`) |
-| `hyperfine --export-json` / `--export-markdown` | `ostia time --export-json PATH` / `--format markdown` |
-
-`sweep()`/`range()`/`params` are in-process (`ostia bench`); `hyperfine -L` substitutes into
-a shell command template for a subprocess instead, so a direct port is one literal `ostia time`
-command per substitution value rather than a template - see [`sweep(dims, fn)`](#sweepdims-fn--void)
-and [`ostia.config.ts` / `ostia.config.json`](#ostiaconfigts--ostiaconfigjson) above.
+A config that still uses the old `runs` field fails to load with a message naming
+`samples` (error code `config-invalid`). All fields: [docs/config.md](docs/config.md).
+
+## Documentation
+
+- [docs/cli.md](docs/cli.md): every command and flag
+- [docs/config.md](docs/config.md): config file reference
+- [docs/library.md](docs/library.md): library API reference
+- [docs/agent-protocol.md](docs/agent-protocol.md): `--format minimal`, exit codes, error codes
+- [docs/statistics.md](docs/statistics.md): sampling, the comparison test, noise floor
+- [docs/document-schema.md](docs/document-schema.md): `ProfileDocument`, workload ids, warnings
+- [docs/preload-recipes.md](docs/preload-recipes.md): jsdom, happy-dom and `Bun.plugin()` preloads
 
 ## Examples
 
-[`examples/`](examples/) has six runnable recipes (they spawn `../../src/cli/main.ts`
-or import `../../src` directly; no install step):
-
-- [`compare-two-commands`](examples/compare-two-commands/). Relative timing table.
-- [`find-a-hotspot`](examples/find-a-hotspot/). `--cpu` plus collapsed / Mermaid viz.
-- [`heap-usage`](examples/heap-usage/). `--heap` type breakdown.
-- [`gate-a-regression`](examples/gate-a-regression/). Config, local baseline, and `ostia ci`.
-- [`profile-in-process`](examples/profile-in-process/). `profile(fn, { origin: "jsc" })`.
-- [`benchmark-a-function`](examples/benchmark-a-function/). `bench()` / `group()` / `task()`.
+[`examples/`](examples/) has runnable recipes (they use `../../src` directly, no install):
+[`compare-two-commands`](examples/compare-two-commands/),
+[`find-a-hotspot`](examples/find-a-hotspot/),
+[`heap-usage`](examples/heap-usage/),
+[`gate-a-regression`](examples/gate-a-regression/),
+[`profile-in-process`](examples/profile-in-process/),
+[`benchmark-a-function`](examples/benchmark-a-function/).
 
 ```sh
 cd examples/find-a-hotspot && bun run demo
-bun run examples   # all of them from the repo root
+bun run examples   # all of them, from the repo root
 ```

@@ -139,7 +139,6 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
   visit(entryDts)
 
   const declsByFileAndName = new Map<string, Map<string, Decl>>()
-  const declsByName = new Map<string, Decl>()
   const allDecls: Decl[] = []
 
   for (const file of reachable) {
@@ -167,10 +166,7 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
 
       const decl: Decl = { names, text, node: stmt, sourceFile: sf }
       allDecls.push(decl)
-      for (const n of names) {
-        byName.set(n, decl)
-        if (!declsByName.has(n)) declsByName.set(n, decl)
-      }
+      for (const n of names) byName.set(n, decl)
     }
   }
 
@@ -189,22 +185,31 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
 
   collectPublicBindings(entryDts, emitted, declsByFileAndName, markPublic)
 
-  const queue: string[] = []
-  const seenName = new Set<string>()
-  for (const decl of kept) {
-    for (const ref of collectTypeRefs(decl.node)) queue.push(ref)
+  // References resolve in the scope of the file that makes them: two modules
+  // can each declare a private type with the same name, and a global
+  // name lookup would bind one module's reference to the other's type.
+  const queue = [...kept]
+  while (queue.length) {
+    const decl = queue.pop()
+    if (decl === undefined) break
+    const file = decl.sourceFile.fileName
+    for (const ref of collectTypeRefs(decl.node)) {
+      const target = ref.spec
+        ? resolveImportType(
+            file,
+            ref.spec,
+            ref.name,
+            emitted,
+            declsByFileAndName,
+          )
+        : resolveNameInFile(file, ref.name, emitted, declsByFileAndName)
+      if (!target || kept.has(target)) continue
+      kept.add(target)
+      queue.push(target)
+    }
   }
 
-  while (queue.length) {
-    const name = queue.pop()
-    if (name === undefined) break
-    if (seenName.has(name)) continue
-    seenName.add(name)
-    const decl = declsByName.get(name)
-    if (!decl || kept.has(decl)) continue
-    kept.add(decl)
-    for (const ref of collectTypeRefs(decl.node)) queue.push(ref)
-  }
+  assertNoCollisions(allDecls.filter((d) => kept.has(d)))
 
   const chunks: string[] = [...externalLines.values()]
 
@@ -440,24 +445,77 @@ function formatPublicDecl(decl: Decl, alias: string): string {
   return text
 }
 
-function collectTypeRefs(node: ts.Node): Set<string> {
-  const refs = new Set<string>()
+interface TypeRef {
+  name: string
+  /** Module specifier of an inline `import("./x").Name` type. */
+  spec?: string
+}
+
+function collectTypeRefs(node: ts.Node): TypeRef[] {
+  const refs: TypeRef[] = []
   const visit = (n: ts.Node) => {
     if (ts.isTypeReferenceNode(n)) {
-      refs.add(entityNameRoot(n.typeName))
+      refs.push({ name: entityNameRoot(n.typeName) })
     } else if (ts.isExpressionWithTypeArguments(n)) {
-      if (ts.isIdentifier(n.expression)) refs.add(n.expression.text)
+      if (ts.isIdentifier(n.expression)) refs.push({ name: n.expression.text })
     } else if (ts.isTypeQueryNode(n)) {
-      refs.add(entityNameRoot(n.exprName))
+      refs.push({ name: entityNameRoot(n.exprName) })
     } else if (ts.isComputedPropertyName(n) && ts.isIdentifier(n.expression)) {
-      refs.add(n.expression.text)
+      refs.push({ name: n.expression.text })
     } else if (ts.isImportTypeNode(n) && n.qualifier) {
-      refs.add(entityNameRoot(n.qualifier))
+      const lit =
+        ts.isLiteralTypeNode(n.argument) &&
+        ts.isStringLiteral(n.argument.literal)
+          ? n.argument.literal.text
+          : undefined
+      refs.push({ name: entityNameRoot(n.qualifier), spec: lit })
     }
     ts.forEachChild(n, visit)
   }
   visit(node)
   return refs
+}
+
+function resolveImportType(
+  fromFile: string,
+  spec: string,
+  name: string,
+  emitted: Map<string, string>,
+  declsByFileAndName: Map<string, Map<string, Decl>>,
+): Decl | undefined {
+  if (!isRelative(spec)) return undefined
+  return resolveNameInFile(
+    resolveDts(fromFile, spec, emitted),
+    name,
+    emitted,
+    declsByFileAndName,
+  )
+}
+
+/** The rollup concatenates every kept declaration into one scope, so two
+ * modules' same-named declarations would merge or shadow each other (0.2.6
+ * shipped `task` typed against the wrong `TaskFn` this way). Same-file
+ * repeats are overloads or declaration merging and stay legal. */
+function assertNoCollisions(decls: Decl[]): void {
+  const filesByName = new Map<string, Set<string>>()
+  for (const decl of decls) {
+    for (const n of decl.names) {
+      if (n === "default") continue
+      let files = filesByName.get(n)
+      if (!files) {
+        files = new Set()
+        filesByName.set(n, files)
+      }
+      files.add(decl.sourceFile.fileName)
+    }
+  }
+  const clashes = [...filesByName].filter(([, files]) => files.size > 1)
+  if (clashes.length) {
+    const msg = clashes
+      .map(([n, files]) => `  ${n}: ${[...files].join(", ")}`)
+      .join("\n")
+    throw new Error(`bundled declarations collide; rename one of each:\n${msg}`)
+  }
 }
 
 function collectImportTypeSpecs(node: ts.Node): string[] {

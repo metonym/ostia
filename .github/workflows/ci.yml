@@ -35,6 +35,9 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      - name: Typecheck published declarations
+        run: bun run typecheck:package
+
       - name: Run tests
         run: bun test
 

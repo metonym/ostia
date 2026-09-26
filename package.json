@@ -16,6 +16,7 @@
     "build": "bun scripts/build.ts",
     "test": "bun test",
     "typecheck": "tsc6",
+    "typecheck:package": "tsc6 -p tests/types",
     "lint": "biome check .",
     "lint:fix": "biome check --write . --unsafe",
     "lint:changed": "biome check --changed --no-errors-on-unmatched .",

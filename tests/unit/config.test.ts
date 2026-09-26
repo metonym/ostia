@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   baselinePath,
+  ConfigError,
   DEFAULT_CONFIG,
   loadConfig,
 } from "../../src/config/index.ts"
@@ -176,8 +177,7 @@ describe("configFilePath", () => {
       expect(result!.outDir).toBe(DEFAULT_CONFIG.outDir)
       expect(result!.baselineDir).toBe(DEFAULT_CONFIG.baselineDir)
       expect(result!.baseline).toBe(DEFAULT_CONFIG.baseline)
-      expect(result!.runs).toBe(DEFAULT_CONFIG.runs)
-      expect(result!.cpuIntervalUs).toBe(DEFAULT_CONFIG.cpuIntervalUs)
+      expect(result!.samples).toBeUndefined()
       expect(result!.thresholds).toEqual(DEFAULT_CONFIG.thresholds)
     } finally {
       await Bun.$`rm -rf ${tmpDir}`
@@ -218,12 +218,11 @@ describe("configFilePath", () => {
     try {
       const configPath = join(tmpDir, "ostia.config.json")
       const fullConfig = {
-        runs: 10,
+        samples: 10,
         warmup: 5,
         outDir: ".custom-tool",
         baselineDir: ".custom-tool/baselines",
         baseline: "develop",
-        cpuIntervalUs: 2000,
         workloads: [{ command: ["node", "app.js"], label: "test" }],
         thresholds: {
           timingPct: 15,
@@ -238,12 +237,11 @@ describe("configFilePath", () => {
       const result = await loadConfig(configPath)
 
       expect(result).toBeDefined()
-      expect(result!.runs).toBe(10)
+      expect(result!.samples).toBe(10)
       expect(result!.warmup).toBe(5)
       expect(result!.outDir).toBe(".custom-tool")
       expect(result!.baselineDir).toBe(".custom-tool/baselines")
       expect(result!.baseline).toBe("develop")
-      expect(result!.cpuIntervalUs).toBe(2000)
       expect(result!.workloads).toHaveLength(1)
       expect(result!.workloads[0]!.command).toEqual(["node", "app.js"])
       expect(result!.workloads[0]!.label).toBe("test")
@@ -255,6 +253,34 @@ describe("configFilePath", () => {
         alpha: DEFAULT_CONFIG.thresholds.alpha,
         bootstrapIterations: DEFAULT_CONFIG.thresholds.bootstrapIterations,
       })
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+})
+
+describe("loadConfig - invalid configs", () => {
+  test("a renamed field fails loudly instead of being silently ignored", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-renamed-test-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.json")
+      await Bun.write(configPath, JSON.stringify({ runs: 5, workloads: [] }))
+      const load = loadConfig(configPath)
+      await expect(load).rejects.toBeInstanceOf(ConfigError)
+      await expect(loadConfig(configPath)).rejects.toThrow(
+        '"runs" was renamed to "samples"',
+      )
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+
+  test("unparseable JSON is a ConfigError naming the file", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-bad-json-test-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.json")
+      await Bun.write(configPath, "{ not json")
+      await expect(loadConfig(configPath)).rejects.toThrow(configPath)
     } finally {
       await Bun.$`rm -rf ${tmpDir}`
     }

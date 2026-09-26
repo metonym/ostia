@@ -248,17 +248,8 @@ describe("renderers - golden output on fixed fake data", () => {
     const t = doc.measurements[0]!.timing!
     const result = await renderers.table.render(doc, {})
     const line = result.text!.split("\n").find((l) => l.includes("bun a.ts"))!
-    expect(line).toContain((t.p75! / 1e6).toFixed(1))
-    expect(line).toContain((t.p99! / 1e6).toFixed(1))
-  })
-
-  test("table renderer falls back to median/max when p75/p99 are absent (a document saved before item 5)", async () => {
-    const doc = fixedDoc()
-    doc.measurements[0]!.timing!.p75 = undefined
-    doc.measurements[0]!.timing!.p99 = undefined
-    const result = await renderers.table.render(doc, {})
-    expect(result.text).toBeDefined()
-    expect(result.text!.length).toBeGreaterThan(0)
+    expect(line).toContain((t.p75 / 1e6).toFixed(1))
+    expect(line).toContain((t.p99 / 1e6).toFixed(1))
   })
 
   test("table renderer reads nanosecond-scale medians instead of collapsing to 0.000ms (the tiny/add defect)", async () => {
@@ -324,15 +315,15 @@ describe("renderers - golden output on fixed fake data", () => {
     const doc = fixedDoc()
     doc.measurements[1]!.warnings.push(
       { code: "outliers-detected", message: "3 outlier(s) detected." },
-      { code: "below-timer-resolution", message: "Close to timer resolution." },
+      { code: "slow-first-run", message: "First run was slow." },
     )
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     const warningLine = lines.find((l) => l.trim().startsWith("!"))
-    expect(warningLine).toContain("outliers-detected, below-timer-resolution")
+    expect(warningLine).toContain("outliers-detected, slow-first-run")
     expect(result.text).toContain("Warnings:")
     expect(result.text).toContain("3 outlier(s) detected.")
-    expect(result.text).toContain("Close to timer resolution.")
+    expect(result.text).toContain("First run was slow.")
   })
 
   test("table renderer prints a task.skip()'d workload as '- skipped', still under its group header", async () => {
@@ -1022,5 +1013,38 @@ describe("markdown renderer - task.skip() (item 10)", () => {
     const result = await renderers.markdown.render(doc, {})
     expect(result.text).toContain("## Timing")
     expect(result.text).toContain("| solo | - skipped | - | - | - | - |")
+  })
+})
+
+describe("user/system CPU time", () => {
+  function docWithCpuTimes() {
+    const doc = fixedDoc()
+    for (const m of doc.measurements) {
+      m.trials = m.trials.map((t, i) => ({
+        ...t,
+        userNs: 3_000_000 + i,
+        systemNs: 1_000_000 + i,
+      }))
+    }
+    return doc
+  }
+
+  test("table and markdown add a User/Sys column only when trials carry it", async () => {
+    const plain = await renderers.table.render(fixedDoc(), {})
+    expect(plain.text).not.toContain("User/Sys")
+
+    const table = await renderers.table.render(docWithCpuTimes(), {})
+    expect(table.text).toContain("User/Sys")
+    expect(table.text).toContain("3.00 ms/1.00 ms")
+
+    const markdown = await renderers.markdown.render(docWithCpuTimes(), {})
+    expect(markdown.text).toContain("| User/Sys |")
+  })
+
+  test("minimal run lines carry userNs/systemNs medians", async () => {
+    const { text } = await renderers.minimal.render(docWithCpuTimes(), {})
+    const line = JSON.parse(text!.split("\n")[0]!)
+    expect(line.userNs).toBeCloseTo(3_000_002, -2)
+    expect(line.systemNs).toBeCloseTo(1_000_002, -2)
   })
 })

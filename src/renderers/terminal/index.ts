@@ -1,5 +1,7 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import {
+  cpuTimes,
+  formatCpuTimes,
   formatDuration,
   formatEnvironmentLine,
   formatRelative,
@@ -84,6 +86,10 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
         .map((m) => [m.workloadId, m.memory.bytesPerOp]),
     )
     const showAlloc = allocByWorkloadId.size > 0
+    const cpuTimesByRow = new Map(
+      measuredRows.map((row) => [row, cpuTimes(row.run)]),
+    )
+    const showCpuTimes = [...cpuTimesByRow.values()].some(Boolean)
 
     const showRelative = measuredRows.length > 1
     const references = relativeReferences(measuredRows)
@@ -111,10 +117,14 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const spreadWidth = 18
     const rangeWidth = 18
     const allocWidth = 10
+    const cpuTimesWidth = 18
 
     const lines: string[] = [...envLine]
     const allocHeader = showAlloc ? ` ${"Alloc/op".padEnd(allocWidth)}` : ""
-    const header = `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}${allocHeader}${showRelative ? " Relative" : ""}`
+    const cpuTimesHeader = showCpuTimes
+      ? ` ${"User/Sys".padEnd(cpuTimesWidth)}`
+      : ""
+    const header = `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}${cpuTimesHeader}${allocHeader}${showRelative ? " Relative" : ""}`
     lines.push(header)
     lines.push("-".repeat(header.length))
 
@@ -133,15 +143,15 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       const { run, label, workload } = row
       const t = run.timing
       const unit = pickDurationUnit(t.median)
-      // p75/p99 are absent only on documents saved before this field existed;
-      // fall back to the range so an old baseline still renders sensibly.
-      const p75 = t.p75 ?? t.median
-      const p99 = t.p99 ?? t.max
       const medianCell = formatDuration(t.median, unit)
-      const spreadCell = `${formatDuration(p75, unit)}…${formatDuration(p99, unit)}`
+      const spreadCell = `${formatDuration(t.p75, unit)}…${formatDuration(t.p99, unit)}`
       const rangeCell = `${formatDuration(t.min, unit)}…${formatDuration(t.max, unit)}`
 
       let line = `${(indent + label).padEnd(labelWidth)}   ${medianCell.padEnd(medianWidth)} ${spreadCell.padEnd(spreadWidth)} ${rangeCell.padEnd(rangeWidth)}`
+      if (showCpuTimes) {
+        const times = cpuTimesByRow.get(row)
+        line += ` ${(times ? formatCpuTimes(times) : "").padEnd(cpuTimesWidth)}`
+      }
       if (showAlloc) {
         const bytesPerOp = workload
           ? allocByWorkloadId.get(workload.id)

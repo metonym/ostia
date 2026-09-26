@@ -36,6 +36,17 @@ describe("bootstrapMedianDiffCi", () => {
     expect(a.seed).toBe(7)
   })
 
+  test("without a seed, the same samples always give the same CI", () => {
+    const base = [10_000, 10_100, 9_900, 10_050, 9_950, 10_020]
+    const cand = [11_000, 11_100, 10_900, 11_050, 10_950, 11_020]
+    const a = bootstrapMedianDiffCi(base, cand)
+    const b = bootstrapMedianDiffCi([...base], [...cand])
+    expect(a.seed).toBe(b.seed)
+    expect(a.ci95).toEqual(b.ci95)
+    // ...and different samples get a different seed.
+    expect(bootstrapMedianDiffCi(cand, base).seed).not.toBe(a.seed)
+  })
+
   test("identical distributions give a CI straddling 0", () => {
     const samples = Array.from({ length: 40 }, (_, i) => 10_000 + (i % 6) * 10)
     const result = bootstrapMedianDiffCi(samples, [...samples], { seed: 1 })

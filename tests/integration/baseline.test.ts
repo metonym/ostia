@@ -13,7 +13,7 @@ function config(overrides: Partial<OstiaConfig> = {}): OstiaConfig {
     outDir,
     baselineDir: `${outDir}/baselines`,
     baseline: "main",
-    runs: 3,
+    samples: 3,
     warmup: 1,
     workloads: [{ label: "work", command: ["bun", FIXTURE] }],
     ...overrides,

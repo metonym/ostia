@@ -31,9 +31,8 @@ function hashBuffer(buf: Uint8Array, seed: number): number {
  * depending on real timing. */
 export function computeNoiseFloor(samples: number[]): NoiseFloor {
   const stats = computeTimingStats(samples)
-  const mad = stats.mad ?? 0
   return {
-    floorPct: stats.median === 0 ? 0 : (mad / stats.median) * 100,
+    floorPct: stats.median === 0 ? 0 : (stats.mad / stats.median) * 100,
     referenceMedianNs: stats.median,
     samples: samples.length,
   }

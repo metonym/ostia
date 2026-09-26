@@ -10,6 +10,10 @@ export interface WorkloadConfig {
   label?: string
   command?: string[]
   suites?: string[]
+  /** `command` only. Globs of the files this command's timing depends on:
+   * `ostia ci` reuses a cached run while their contents are unchanged.
+   * Omitted, the workload always reruns; `[]` declares it depends on
+   * nothing and caches until the command or config changes. */
   inputs?: string[]
   /** `command` only. Runs before every trial (warmup included), unmeasured:
    * a command string / argv array in both `.ts` and JSON config, or a
@@ -27,9 +31,6 @@ export interface WorkloadConfig {
   /** `command` only. Exit codes to treat as success; see
    * `TimeOptions.ignoreExitCodes`. */
   ignoreExitCodes?: number[]
-  /** `command` only. Stops this workload's trial loop after its first
-   * non-zero, non-ignored exit; see `TimeOptions.failOnNonzero`. */
-  failOnNonzero?: boolean
 }
 
 export interface BenchConfig {
@@ -39,6 +40,9 @@ export interface BenchConfig {
    * with it. */
   suites?: string[]
   preload?: string[]
+  /** Extra flags for the `bun` process that runs each suite file; see
+   * `BenchOptions.bunFlags`. `--bun-flags` replaces this list. */
+  bunFlags?: string[]
   jobs?: number | "auto"
   budgetMs?: number
   samples?: number
@@ -55,12 +59,17 @@ export interface BenchConfig {
 }
 
 export interface OstiaConfig {
-  runs: number | null
+  /** `command` workloads: exact trial count, same as `time()`'s `samples`.
+   * Unset, the `budgetMs`/`minSamples` loop decides. */
+  samples?: number
+  /** `command` workloads: wall-clock sampling budget, ms; see `time()`. */
+  budgetMs?: number
+  /** `command` workloads: hard floor on trials; see `time()`. */
+  minSamples?: number
   warmup: number
   outDir: string
   baselineDir: string
   baseline: string
-  cpuIntervalUs: number
   thresholds: Thresholds
   workloads: WorkloadConfig[]
   bench?: BenchConfig
@@ -70,7 +79,7 @@ export interface OstiaConfig {
    * Unset (the default): `"fail"` when *every* configured workload is
    * missing, `"warn"` otherwise - a totally stale/wrong baseline is a hard
    * error, a handful of new workloads next to an otherwise-matching
-   * baseline is not. `--on-missing-baseline` overrides this per invocation. */
+   * baseline is not. */
   onMissingBaseline?: "warn" | "fail"
   /** Measures this machine's noise floor once per `ostia ci` invocation
    * (default true) and stamps it on the candidate document as
@@ -99,17 +108,28 @@ export const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 const DEFAULT_BASELINE_DIR = ".ostia/baselines"
 
 export const DEFAULT_CONFIG: OstiaConfig = {
-  runs: null,
   warmup: 3,
   outDir: DEFAULT_OUT_DIR,
   baselineDir: DEFAULT_BASELINE_DIR,
   baseline: "main",
-  cpuIntervalUs: 1000,
   thresholds: DEFAULT_THRESHOLDS,
   workloads: [],
 }
 
-function resolveConfig(raw: OstiaConfigInput): OstiaConfig {
+/** A config file that exists but can't be used: unparseable, or using a
+ * field that no longer exists. The CLI reports it as `config-invalid`. */
+export class ConfigError extends Error {}
+
+// Fields that were renamed, so an old config fails loudly instead of having
+// the setting silently ignored.
+const RENAMED_FIELDS: Record<string, string> = { runs: "samples" }
+
+function resolveConfig(raw: OstiaConfigInput, path: string): OstiaConfig {
+  for (const [old, current] of Object.entries(RENAMED_FIELDS)) {
+    if (old in raw) {
+      throw new ConfigError(`${path}: "${old}" was renamed to "${current}".`)
+    }
+  }
   return {
     ...DEFAULT_CONFIG,
     ...raw,
@@ -120,14 +140,29 @@ function resolveConfig(raw: OstiaConfigInput): OstiaConfig {
 async function loadJsonConfig(path: string): Promise<OstiaConfig | undefined> {
   const file = Bun.file(path)
   if (!(await file.exists())) return undefined
-  return resolveConfig((await file.json()) as OstiaConfigInput)
+  let raw: OstiaConfigInput
+  try {
+    raw = (await file.json()) as OstiaConfigInput
+  } catch (err) {
+    throw new ConfigError(
+      `${path}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  return resolveConfig(raw, path)
 }
 
 async function loadTsConfig(path: string): Promise<OstiaConfig | undefined> {
   const absPath = path.startsWith("/") ? path : `${process.cwd()}/${path}`
   if (!(await Bun.file(absPath).exists())) return undefined
-  const mod = (await import(absPath)) as { default?: OstiaConfigInput }
-  return resolveConfig(mod.default ?? {})
+  let mod: { default?: OstiaConfigInput }
+  try {
+    mod = await import(absPath)
+  } catch (err) {
+    throw new ConfigError(
+      `${path}: ${err instanceof Error ? err.message : String(err)}`,
+    )
+  }
+  return resolveConfig(mod.default ?? {}, path)
 }
 
 /** With no `path`, looks for `ostia.config.ts` (Bun imports TypeScript

@@ -75,6 +75,20 @@ describe("computeInputsDigest", () => {
       await Bun.$`rm -rf ${testDir}`
     }
   })
+
+  test("accepts absolute paths as well as cwd-relative globs", async () => {
+    const testDir = await mkdtemp(
+      join(tmpdir(), "cache-fingerprint-absolute-test-"),
+    )
+    try {
+      const filePath = join(testDir, "file.ts")
+      await Bun.write(filePath, "export const value = 1")
+      const digest = await computeInputsDigest([filePath], process.cwd())
+      expect(digest).toBeDefined()
+    } finally {
+      await Bun.$`rm -rf ${testDir}`
+    }
+  })
 })
 
 describe("computeCacheKey", () => {

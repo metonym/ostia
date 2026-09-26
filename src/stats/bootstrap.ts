@@ -110,6 +110,18 @@ class Side {
   }
 }
 
+/** Default seed: a hash of both sample arrays, so the same two documents
+ * always get the same CI (and so the same verdict) - a clock-based seed let a
+ * borderline comparison flip between runs of `ostia compare` on identical
+ * input. */
+function seedFromSamples(base: number[], cand: number[]): number {
+  const all = new Float64Array(base.length + cand.length + 1)
+  all.set(base)
+  all[base.length] = Number.NaN // keeps [a, b] | [c] apart from [a] | [b, c]
+  all.set(cand, base.length + 1)
+  return Bun.hash.crc32(all)
+}
+
 /** Bootstrap 95% CI on the difference of medians between `base` and `cand`,
  * reported in percent of `base`'s (observed, unresampled) median. Each of
  * `iterations` rounds resamples both sides with replacement and takes the
@@ -122,8 +134,7 @@ export function bootstrapMedianDiffCi(
   cand: number[],
   opts: BootstrapOptions = {},
 ): BootstrapResult {
-  const seed =
-    opts.seed ?? (Date.now() ^ Math.imul(base.length, 2654435761)) >>> 0
+  const seed = opts.seed ?? seedFromSamples(base, cand)
   const rng = mulberry32(seed)
   const iterations = opts.iterations ?? DEFAULT_ITERATIONS
 

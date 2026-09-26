@@ -150,7 +150,11 @@ describe("ostia unknown flags and single-positional validation", () => {
       await Bun.write(
         join(cwd, "ostia.config.json"),
         JSON.stringify({
-          workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
+          // `inputs: []` caches the run, so the promote step compares the
+          // baseline against itself instead of against fresh, noisy trials.
+          workloads: [
+            { label: "spawn", command: ["bun", "-e", "1"], inputs: [] },
+          ],
         }),
       )
       const { stderr, exitCode } = await runCli(
@@ -189,7 +193,7 @@ describe("ostia per-command format lists", () => {
       "bun -e 1",
     ])
     expect(exitCode).toBe(2)
-    expect(stderr).toContain(`Unknown --format "collapsed"`)
+    expect(stderr).toContain(`Invalid --format "collapsed"`)
     expect(stderr).not.toContain("cpuprofile")
   }, 10_000)
 
@@ -320,9 +324,13 @@ describe("ostia baseline save | list | show (item 16)", () => {
         join(cwd, "ostia.config.json"),
         JSON.stringify({
           baseline: "main",
-          runs: 3,
+          samples: 3,
           warmup: 0,
-          workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
+          // `inputs: []` caches the run, so the promote step compares the
+          // baseline against itself instead of against fresh, noisy trials.
+          workloads: [
+            { label: "spawn", command: ["bun", "-e", "1"], inputs: [] },
+          ],
         }),
       )
 
@@ -402,7 +410,7 @@ describe("ostia ci --format (task 05.2)", () => {
       join(cwd, "ostia.config.json"),
       JSON.stringify({
         baseline: "main",
-        runs: 3,
+        samples: 3,
         warmup: 0,
         workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
       }),
@@ -655,10 +663,9 @@ describe("ostia compare - config thresholds (task 04.3)", () => {
       await saveDocument(baseDoc, basePath)
       await saveDocument(candDoc, candPath)
 
-      const withDefaults = await runCli(
-        ["compare", basePath, candPath, "--no-config"],
-        { cwd },
-      )
+      const withDefaults = await runCli(["compare", basePath, candPath], {
+        cwd,
+      })
       expect(withDefaults.stdout).toContain("thresholds: defaults")
       expect(withDefaults.exitCode).toBe(0)
 
@@ -714,10 +721,45 @@ describe("ostia report - garbage document", () => {
       const { stderr, exitCode } = await runCli(["report", path])
       expect(exitCode).toBe(2)
       expect(stderr).toContain(
-        "unsupported ProfileDocument schemaVersion 3 (this ostia reads 1–2)",
+        "unsupported ProfileDocument schemaVersion 3 (this ostia reads 2)",
       )
     } finally {
       await Bun.spawn(["rm", "-f", path]).exited
     }
   }, 10_000)
+})
+
+describe("ostia CLI - argument and config edge cases", () => {
+  test("--flag=value works for any flag that takes a value", async () => {
+    const { stdout, exitCode } = await runCli([
+      "time",
+      "--samples=2",
+      "--warmup=0",
+      "--no-noise-check",
+      "--format=minimal",
+      "bun -e 1",
+    ])
+    expect(exitCode).toBe(0)
+    expect(JSON.parse(stdout.trim()).samples).toBe(2)
+  }, 20_000)
+
+  test("an ostia.config.ts that throws exits 2 with config-invalid, not a crash", async () => {
+    const { mkdtemp } = await import("node:fs/promises")
+    const { tmpdir } = await import("node:os")
+    const { join } = await import("node:path")
+    const cwd = await mkdtemp(join(tmpdir(), "ostia-cli-bad-config-"))
+    try {
+      await Bun.write(
+        join(cwd, "ostia.config.ts"),
+        'throw new Error("boom")\nexport default {}\n',
+      )
+      const { stderr, exitCode } = await runCli(["ci"], { cwd })
+      expect(exitCode).toBe(2)
+      const last = JSON.parse(stderr.trim().split("\n").at(-1)!)
+      expect(last.code).toBe("config-invalid")
+      expect(last.message).toContain("boom")
+    } finally {
+      await Bun.spawn(["rm", "-rf", cwd]).exited
+    }
+  }, 20_000)
 })

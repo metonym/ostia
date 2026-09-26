@@ -1,4 +1,10 @@
-import type { Environment, GitMetadata, Workload } from "../ir/types.ts"
+import type {
+  Environment,
+  GitMetadata,
+  Measurement,
+  Workload,
+} from "../ir/types.ts"
+import { percentile } from "../stats/index.ts"
 
 /** Below this absolute percent, a comparison's frame/heap-type delta is
  * noise, not signal - the terminal and markdown renderers both skip it
@@ -84,4 +90,34 @@ export function escapeMdCell(s: string): string {
     .replace(/>/g, "&gt;")
     .replace(/`/g, "\\`")
     .replace(/\r\n|\r|\n/g, "<br>")
+}
+
+/** Median user and system CPU time per trial of a subprocess timing
+ * measurement (hyperfine's "User"/"System"), over the trials that produced a
+ * sample. Undefined for in-process measurements, which have no child process
+ * to account. */
+export function cpuTimes(
+  run: Pick<Measurement, "trials">,
+): { userNs: number; systemNs: number } | undefined {
+  const sampled = run.trials.filter(
+    (t) =>
+      !t.timedOut &&
+      !t.timeSourceNoMatch &&
+      t.userNs !== undefined &&
+      t.systemNs !== undefined,
+  )
+  if (sampled.length === 0) return undefined
+  const median = (values: number[]) =>
+    percentile(Float64Array.from(values).sort(), 0.5)
+  return {
+    userNs: median(sampled.map((t) => t.userNs!)),
+    systemNs: median(sampled.map((t) => t.systemNs!)),
+  }
+}
+
+export function formatCpuTimes(times: {
+  userNs: number
+  systemNs: number
+}): string {
+  return `${formatDuration(times.userNs)}/${formatDuration(times.systemNs)}`
 }

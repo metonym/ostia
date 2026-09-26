@@ -24,7 +24,11 @@ import {
   noisyMachineWarning,
 } from "./measure/environment.ts"
 import { keep } from "./measure/inprocess.ts"
-import { createTimingPhase, drainTimingPhase } from "./measure/timing.ts"
+import {
+  assertSamplingOptions,
+  createTimingPhase,
+  drainTimingPhase,
+} from "./measure/timing.ts"
 import {
   type PrepareHook,
   type PrepareRun,
@@ -61,15 +65,8 @@ export type {
   Workload,
 } from "./ir/types.ts"
 export { renderers } from "./renderers/index.ts"
-export type {
-  MinimalDelta,
-  MinimalEvent,
-  MinimalProtocolContext,
-  MinimalRenderOptions,
-  MinimalRunLine,
-  MinimalSummaryLine,
-  MinimalUnmatchedLine,
-} from "./renderers/minimal/index.ts"
+/** One parsed line of `--format minimal` output; narrow on `event`. */
+export type { MinimalEvent } from "./renderers/minimal/index.ts"
 export { MINIMAL_PROTOCOL_VERSION } from "./renderers/minimal/index.ts"
 export type {
   PrepareFn,
@@ -105,8 +102,6 @@ export interface CommandSpec {
   timeoutMs?: number
   /** Overrides `TimeOptions.ignoreExitCodes` for this command. */
   ignoreExitCodes?: number[]
-  /** Overrides `TimeOptions.failOnNonzero` for this command. */
-  failOnNonzero?: boolean
 }
 
 export interface TimeOptions {
@@ -166,38 +161,17 @@ export interface TimeOptions {
    * no `nonzero-exit` warning, as if it had exited 0. `CommandSpec.ignoreExitCodes`
    * overrides it per command. */
   ignoreExitCodes?: number[]
-  /** Stops a command's trial loop after its first non-zero, non-ignored
-   * exit (that trial's sample is still recorded) instead of running its
-   * full sample count regardless of exit code. `CommandSpec.failOnNonzero`
-   * overrides it per command. */
-  failOnNonzero?: boolean
 }
 
 const DEFAULT_CPU_INTERVAL_US = 1000
 
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
-  if (
-    opts.samples !== undefined &&
-    (!Number.isFinite(opts.samples) || opts.samples < 1)
-  ) {
-    throw new RangeError(`time: samples must be >= 1, got ${opts.samples}`)
-  }
-  if (
-    opts.minSamples !== undefined &&
-    (!Number.isFinite(opts.minSamples) || opts.minSamples < 1)
-  ) {
-    throw new RangeError(
-      `time: minSamples must be >= 1, got ${opts.minSamples}`,
-    )
-  }
+  assertSamplingOptions("time", opts)
   if (
     opts.warmup !== undefined &&
     (!Number.isFinite(opts.warmup) || opts.warmup < 0)
   ) {
     throw new RangeError(`time: warmup must be >= 0, got ${opts.warmup}`)
-  }
-  if (opts.budgetMs !== undefined && !Number.isFinite(opts.budgetMs)) {
-    throw new RangeError(`time: budgetMs must be finite, got ${opts.budgetMs}`)
   }
 
   const cfgFp = configFingerprint({
@@ -232,7 +206,6 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     const timeSource = spec.timeSource ?? opts.timeSource
     const timeoutMs = spec.timeoutMs ?? opts.timeoutMs
     const ignoreExitCodes = spec.ignoreExitCodes ?? opts.ignoreExitCodes
-    const failOnNonzero = spec.failOnNonzero ?? opts.failOnNonzero
     const workload = makeSubprocessWorkload(
       argv,
       spec.label ?? (Array.isArray(spec.command) ? undefined : spec.command),
@@ -245,7 +218,6 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       timeSource,
       timeoutMs,
       ignoreExitCodes,
-      failOnNonzero,
     }
   })
 
@@ -263,7 +235,6 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     timeSource: entry.timeSource,
     timeoutMs: entry.timeoutMs,
     ignoreExitCodes: entry.ignoreExitCodes,
-    failOnNonzero: entry.failOnNonzero,
     signal: opts.signal,
   })
 

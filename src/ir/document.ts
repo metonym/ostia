@@ -1,4 +1,5 @@
 import { renameSync } from "node:fs"
+import { isAbsolute, relative } from "node:path"
 import {
   assertReusableTimeSource,
   type PrepareHook,
@@ -6,12 +7,12 @@ import {
   type TimeSource,
   timeSourceSpec,
 } from "../spawn/index.ts"
+import { computeTimingStats } from "../stats/index.ts"
 import { TOOL_VERSION } from "../version.ts"
 import { canonicalJSON, fp } from "./fp.ts"
 import { captureGitMetadata } from "./git.ts"
 import type {
   ArtifactRef,
-  Comparison,
   CpuEvidence,
   Environment,
   HeapEvidence,
@@ -118,10 +119,14 @@ export function makeEntryWorkload(
   taskName: string,
   opts: EntryWorkloadOptions = {},
 ): Workload {
+  // Hashed relative to the cwd, like a subprocess workload's id leaves out
+  // its cwd: a baseline saved from one checkout (a CI runner, another
+  // worktree) still matches a candidate measured from another.
+  const idPath = isAbsolute(file) ? relative(process.cwd(), file) : file
   const id =
     opts.params !== undefined
-      ? fp("wl", "inprocess-entry", file, taskName, opts.params)
-      : fp("wl", "inprocess-entry", file, taskName)
+      ? fp("wl", "inprocess-entry", idPath, taskName, opts.params)
+      : fp("wl", "inprocess-entry", idPath, taskName)
   return {
     id,
     kind: "inprocess",
@@ -188,7 +193,6 @@ function memoryFromTrials(trials: Trial[]): MemoryEvidence | undefined {
   if (rss.length === 0) return undefined
   return {
     origin: "resourceUsage",
-    perTrial: trials.map((t) => ({ rssBytes: t.maxRssBytes })),
     maxRssBytes: Math.max(...rss),
   }
 }
@@ -286,49 +290,6 @@ export async function saveDocument(
   await saveDocumentText(serializeDocument(doc), path)
 }
 
-interface ProfileDocumentV1 {
-  schemaVersion: 1
-  toolVersion: string
-  bunVersion: string
-  platform: { os: string; arch: string }
-  createdAt: string
-  workloads: Workload[]
-  runs: (Measurement & { baselineRunId?: string })[]
-  comparisons?: (Omit<
-    Comparison,
-    "baselineMeasurementId" | "candidateMeasurementId"
-  > & {
-    baselineRunId: string
-    candidateRunId: string
-  })[]
-}
-
-/** Upgrades a v1 document (schemaVersion 1: `runs`, `Comparison.baselineRunId`
- * / `candidateRunId`) to the current v2 shape in memory, so a baseline saved
- * before the `Run` -> `Measurement` rename still loads. `runs[].baselineRunId`
- * has no v2 home (`Measurement.baselineMeasurementId` was dead and removed)
- * and is dropped. */
-function upgradeDocument(
-  raw: ProfileDocumentV1 | ProfileDocument,
-): ProfileDocument {
-  if (raw.schemaVersion === 2) return raw
-  const { runs, comparisons, ...rest } = raw
-  return {
-    ...rest,
-    schemaVersion: 2,
-    measurements: runs.map(({ baselineRunId: _baselineRunId, ...m }) => m),
-    ...(comparisons !== undefined && {
-      comparisons: comparisons.map(
-        ({ baselineRunId, candidateRunId, ...c }) => ({
-          ...c,
-          baselineMeasurementId: baselineRunId,
-          candidateMeasurementId: candidateRunId,
-        }),
-      ),
-    }),
-  }
-}
-
 export class OstiaDocumentError extends Error {
   readonly code: "invalid-json" | "not-a-document" | "unsupported-schema"
   readonly path?: string
@@ -371,12 +332,27 @@ export async function loadDocument(path: string): Promise<ProfileDocument> {
       { path },
     )
   }
-  if (schemaVersion !== 1 && schemaVersion !== 2) {
+  if (schemaVersion !== 2) {
     throw new OstiaDocumentError(
       "unsupported-schema",
-      `${path}: unsupported ProfileDocument schemaVersion ${schemaVersion} (this ostia reads 1–2)`,
+      `${path}: unsupported ProfileDocument schemaVersion ${schemaVersion} (this ostia reads 2)`,
       { path, schemaVersion },
     )
   }
-  return upgradeDocument(raw as ProfileDocumentV1 | ProfileDocument)
+  return backfillTimingStats(raw as ProfileDocument)
+}
+
+/** Documents saved before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`: recompute
+ * them from the stored samples here, once, so every consumer can rely on the
+ * full `TimingStats` shape instead of each renderer carrying fallbacks. */
+function backfillTimingStats(doc: ProfileDocument): ProfileDocument {
+  for (const m of doc.measurements) {
+    const t = m.timing
+    if (!t || t.mad !== undefined || t.samples.length === 0) continue
+    m.timing = {
+      ...computeTimingStats(t.samples),
+      ...(t.batch !== undefined && { batch: t.batch }),
+    }
+  }
+  return doc
 }

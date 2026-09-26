@@ -14,6 +14,7 @@ import {
 } from "../compare/index.ts"
 import {
   baselinePath,
+  ConfigError,
   configFilePath,
   loadConfig,
   type OstiaConfig,
@@ -21,11 +22,13 @@ import {
 import { type CommandSpec, time } from "../index.ts"
 import {
   loadDocument,
+  OstiaDocumentError,
   saveDocument,
   saveDocumentText,
   serializeDocument,
 } from "../ir/document.ts"
 import type { ProfileDocument, Workload } from "../ir/types.ts"
+import { isHarnessFailure } from "../measure/timing.ts"
 import { formatGit, workloadLabel } from "../renderers/format.ts"
 import {
   type FormatName,
@@ -60,6 +63,7 @@ export class CliUsageError extends Error {}
 export type CliErrorCode =
   | "invalid-flag"
   | "config-missing"
+  | "config-invalid"
   | "baseline-missing"
   | "no-matches"
   | "spawn-failed"
@@ -70,21 +74,41 @@ export type CliErrorCode =
   | "no-cpu-evidence"
   | "internal"
 
-/** Writes `message` to stderr exactly as before (prose, possibly
- * multi-line - e.g. with a trailing "Run '... --help'." hint), then one more
- * JSON line with a machine-readable `code` for the same failure - every
- * exit-2 path writes both, in this order, so a script/agent parsing stderr
- * can `JSON.parse` the last line instead of pattern-matching prose. Never
- * written to stdout, which stays pure JSON for `json`/`jsonl`/`minimal` (see
- * the "pure stdout" fix above). The JSON `message` is just `message`'s first
- * line - a "Run --help" hint belongs to a human at a terminal, not to a
- * script's error object. */
+/** The subcommand's argv, for `wantsMachineErrors`. Set once in `main()`. */
+let cliArgv: string[] = []
+
+const MACHINE_FORMATS = new Set(["minimal", "json", "jsonl"])
+
+/** Whether exit-2 errors also get a machine-readable JSON line: always when
+ * stderr isn't a terminal (a script or agent is reading it) or a
+ * machine-readable `--format` was asked for, never for a person at a
+ * terminal reading prose. `node:tty` is imported only here, on the error
+ * path: loading it up front costs every invocation ~15ms of startup. */
+async function wantsMachineErrors(argv: string[]): Promise<boolean> {
+  const { isatty } = await import("node:tty")
+  if (!isatty(2)) return true
+  return argv.some(
+    (arg, i) =>
+      (arg === "--format" && MACHINE_FORMATS.has(argv[i + 1] ?? "")) ||
+      (arg.startsWith("--format=") &&
+        MACHINE_FORMATS.has(arg.slice("--format=".length))),
+  )
+}
+
+/** Writes `message` to stderr (prose, possibly multi-line - e.g. with a
+ * trailing "Run '... --help'." hint), then, for a machine reader (see
+ * `wantsMachineErrors`), one more JSON line with a machine-readable `code` for the
+ * same failure, so a script/agent can `JSON.parse` the last line instead of
+ * pattern-matching prose. Never written to stdout, which stays pure JSON for
+ * `json`/`jsonl`/`minimal`. The JSON `message` is just `message`'s first
+ * line - a "Run --help" hint belongs to a human at a terminal. */
 async function writeCliError(
   code: CliErrorCode,
   message: string,
   data?: Record<string, unknown>,
 ): Promise<void> {
   await err(message.endsWith("\n") ? message : `${message}\n`)
+  if (!(await wantsMachineErrors(cliArgv))) return
   await err(
     `${JSON.stringify({
       event: "error",
@@ -106,10 +130,9 @@ async function showHelp(text: string, ok: boolean): Promise<number> {
 }
 
 async function reportUsageError(
-  usageErr: unknown,
+  usageErr: CliUsageError,
   command: string,
 ): Promise<number> {
-  if (!(usageErr instanceof CliUsageError)) throw usageErr
   await writeCliError(
     "invalid-flag",
     `${usageErr.message}\nRun 'ostia ${command} --help'.`,
@@ -139,28 +162,10 @@ export function parseIntFlag(
   return n
 }
 
-/** Parses `raw` as a finite float flag value (`--timing-pct`, `--alpha`),
- * throwing `CliUsageError` with a uniform message when it isn't one (or is
- * below `opts.min`, default 0). Unlike `parseIntFlag`, fractional values are
- * valid - a threshold percent or a significance level is rarely a whole
- * number. */
-function parseFloatFlag(
-  name: string,
-  raw: string | undefined,
-  opts: { min?: number } = {},
-): number {
-  const min = opts.min ?? 0
-  const n = Number(raw)
-  if (!Number.isFinite(n) || n < min) {
-    throw new CliUsageError(
-      `Invalid ${name} "${raw}": expected a number ≥ ${min}`,
-    )
-  }
-  return n
-}
-
 /** Formats that render a `ProfileDocument`'s timing/CPU/heap numbers as a
  * report - what `time`/`bench`/`compare` accept. */
+const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
+
 const DOCUMENT_FORMATS = [
   "table",
   "json",
@@ -181,17 +186,6 @@ const VIZ_FORMATS = [
 
 /** `report` is the only command that can target a viz format. */
 const REPORT_FORMATS = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const
-
-/** Throws when `format` isn't one of `allowed` - synchronous (unlike
- * `writeCliError`), so every caller runs it inside the same try/catch as
- * its own argument parsing and lets `reportUsageError` print it, rather
- * than writing here directly. */
-function checkFormat(format: string, allowed: readonly FormatName[]): void {
-  if ((allowed as readonly string[]).includes(format)) return
-  throw new CliUsageError(
-    `Unknown --format "${format}". Expected one of: ${allowed.join(", ")}`,
-  )
-}
 
 const NO_CPU_EVIDENCE =
   "No CPU evidence in this document; rerun with --cpu (ostia time) or --cpu (ostia bench)\n"
@@ -293,86 +287,39 @@ async function writeRenderResult(
 const TIME_HELP = `ostia time [flags] <command...>
 ostia time [flags] -- <argv...>
 
-Time one or more commands N times with warmup and report timing statistics. Each
-<command> is a string, whitespace-split into argv exactly like hyperfine -N (no shell,
-so no quoting/globbing/pipes/redirection) - it can't express an argument containing a
-space. \`-- <argv...>\` is the escape hatch: everything after -- is one command's argv
-verbatim, space-preserving, not further flag-parsed. It's one more command alongside any
-given as regular arguments, not a replacement for them.
+Time commands as subprocesses. Each <command> is whitespace-split into argv (no shell);
+everything after -- is one more command's argv, verbatim.
 
 Flags:
-  --samples N         exact number of timed trials per command (each command gets its
-                       own N trials, not a total split across them)
-  --budget MS         wall-clock time budget for the sampling loop (default: a
-                       hyperfine-style ~3s min-total-time loop when neither
-                       --samples nor --budget is given)
-  --min-samples N     hard floor on trials when --samples is not given
-  --warmup N          warmup trials, discarded (default: 3)
-  --no-interleave     run each command's whole trial loop to completion before the next
-                       command starts, instead of round-robin (one trial per command,
-                       repeated). Round-robin is the default with 2+ commands: it spreads
-                       drift over the run's wall-clock span (thermal throttling, a noisy
-                       neighbor process) evenly across every command instead of favoring
-                       whichever ran first or last. Meaningless (and ignored) with one
-                       command. Interleaved measurements carry Measurement.interleaved: true.
-  --prepare CMD       run CMD before every trial (warmup and --cpu/--heap trials
-                       included), unmeasured, in the same cwd; it must exit 0. Whitespace-
-                       split like the commands themselves (no shell) - there's no --
-                       equivalent for --prepare, so a hook needing an argument with a
-                       space needs ostia.config.ts's array form (prepare: ["a", "b c"])
-                       instead. Given once it applies to every command; given once per
-                       command it pairs up in order, so the same command can be timed
-                       warm and cold side by side. Its stderr is captured (bounded to
-                       1 MiB) rather than streamed live, and folded into the error on a
-                       trial where it times out or exits non-zero.
-  --time-source REGEX take each trial's time from the first REGEX match in the command's
-                       own stdout (then stderr), capture group 1, instead of its wall clock -
-                       e.g. --time-source "built in (\\d+)ms" for a build tool whose own
-                       summary excludes runtime startup. A trial whose output doesn't match
-                       contributes no sample (a time-source-no-match warning records it); if
-                       every trial misses, that command has no timing stats. Trials keep
-                       wallNs alongside the reported value.
-  --time-unit UNIT    unit of the --time-source number: ns | us | ms | s (default: ms)
-  --cpu               capture one instrumented CPU-profile trial (subprocess --cpu-prof)
-  --heap              capture one instrumented heap-snapshot trial (subprocess --heap-prof)
-  --cpu-interval USEC CPU sampling interval in microseconds (default: 1000)
-  --timeout MS        kill a trial (or --prepare hook) with SIGKILL if it hasn't finished
-                       after this many ms. No default: unset never times out. A timed-out
-                       trial contributes no sample; if every trial of a command times out,
-                       that command has no timing stats.
-  --ignore-failure[=CODE,...]
-                       treat the given exit codes as success (default with no value: every
-                       code). A matching trial still contributes its sample and gets no
-                       nonzero-exit warning, as if it had exited 0. Repeatable.
-  --fail-on-nonzero   stop a command's trial loop after its first non-zero, non-ignored
-                       exit (that trial's sample is still recorded) instead of always
-                       running its full sample count.
-  --out-dir PATH      directory for captured artifacts (default: node_modules/.cache/ostia)
-  --no-noise-check    skip the ~200ms machine noise floor reference measurement
-  --export-json PATH  write the full ProfileDocument to PATH
-  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
-  --quiet             suppress the rendered report (still writes --export-json)
-  --help              show this message
+  --samples N          exact trials per command (default: ~3s budget, at least 10)
+  --budget MS          sampling time budget per command
+  --min-samples N      floor on trials when --samples isn't given
+  --warmup N           discarded warmup trials (default: 3)
+  --no-interleave      run commands one after another instead of round-robin
+  --prepare CMD        run before every trial, unmeasured; once, or once per command
+  --time-source REGEX  take each trial's time from capture group 1 in the command's output
+  --time-unit UNIT     unit of --time-source: ns | us | ms | s (default: ms)
+  --cpu                capture one extra CPU-profile trial
+  --heap               capture one extra heap-snapshot trial
+  --cpu-interval US    CPU sampling interval (default: 1000)
+  --timeout MS         kill a trial or --prepare hook after MS
+  --ignore-failure[=CODE,...]  treat these exit codes (bare: all) as success
+  --out-dir PATH       artifact directory (default: node_modules/.cache/ostia)
+  --no-noise-check     skip the ~200ms noise-floor measurement
+  --export-json PATH   write the ProfileDocument to PATH
+  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --quiet              don't print the report
+  --help               show this message
 
-Instrumented runs (--cpu, --heap) are labeled separately from clean timing and never
-mixed into the timing statistics.
-
-Exit codes: 0 pass, 2 harness error (a command had a non-zero, non-ignored exit; a
-timed-out or --time-source-mismatched command had no timing stats at all; or a bad flag).
-130 if cancelled with Ctrl-C. 1 is never returned by "time" - it's reserved for
-"compare"/"ci" regressions.
+A command stops at its first non-ignored non-zero exit.
+Exit codes: 0 ok, 2 a command failed or produced no samples (or a bad flag), 130 Ctrl-C.
 
 Examples:
-  ostia time "bun ./fixtures/work.ts"
-  ostia time --samples 25 --warmup 3 "bun a.ts" "bun b.ts"
-  ostia time --no-interleave "bun a.ts" "bun b.ts"
+  ostia time "bun a.ts" "bun b.ts"
+  ostia time --samples 25 --cpu --heap "bun src/server.ts"
   ostia time --prepare "rm -rf dist" "bun build.ts"
   ostia time --time-source "built in (\\d+)ms" "bun build.ts"
-  ostia time --cpu --heap "bun src/server.ts"
-  ostia time --format json "bun a.ts"
-  ostia time --ignore-failure=3 "bun flaky.ts"
-  ostia time --fail-on-nonzero "bun might-hang-if-broken.ts"
-  ostia time -- bun -e "console.log('a b')"      # argument with a space, unsplit
+  ostia time -- bun -e "console.log('a b')"
 `
 
 /** `--ignore-failure` given bare (no `=CODE,...`) means "ignore any exit code" -
@@ -381,150 +328,52 @@ const IGNORE_ALL_EXIT_CODES = Array.from({ length: 255 }, (_, i) => i + 1)
 
 const BENCH_HELP = `ostia bench [flags] <suite.ts...>
 
-Run in-process benchmark suites (registered via group()/task()). Each suite file runs
-in its own spawned child process (isolated from CLI startup state).
+Run in-process group()/task() suites, each file in its own child process. With no files,
+uses ostia.config's "bench" section; each flag overrides its config field.
 
 Flags:
-  --budget MS         sampling budget per task; always runs at least this long (default: 500).
-  --samples N         exact trial count per task; when set, the budget is ignored -
-                       the in-process equivalent of "ostia time"'s --samples.
-  --min-samples N     hard floor on samples per task, kept even when it overruns the
-                       budget. Default: cost-aware - as many as fit in the budget (max 20),
-                       but never below the floor the task's per-trial cost earns it: 3 at
-                       <=1ms, +2 per decade of cost, 10 from ~3s up. Cheap tasks are
-                       time-bound and collect thousands either way; only the few expensive
-                       tasks in a suite pay for the extra rigor. A run that ends below its
-                       cost-class floor (only possible with an explicit --min-samples or
-                       per-task minSamples) carries a "low-sample-count" warning.
-  --jobs N|auto       suite files to run at once, each still in its own process (default: 1).
-                       Concurrent CPU-bound processes contend for cores, caches and turbo
-                       headroom, so numbers taken at --jobs > 1 are noisier and not
-                       like-for-like with a baseline measured at 1. "auto" = CPU count.
-  --gc / --no-gc      Bun.gc(true) between trials (default: off - hides allocation cost).
-                       Per-task { gc } / per-group { gc } override this default; --no-gc /
-                       --gc on the CLI overrides those and ostia.config.json individually,
-                       so a config-wide default can be turned off for one invocation.
-  --cpu / --no-cpu    capture an extra phase: "cpu" measurement per task (200ms of the
-                       task looped under the JSC sampling profiler, JIT tiers included) on
-                       top of its timing numbers. Per-task { cpu } / per-group { cpu }
-                       override this default. Once captured, "ostia compare" reports
-                       per-frame CPU deltas the same way it already does for "ostia time --cpu".
-  --alloc / --no-alloc  capture an extra phase: "memstats" measurement per task: bytes
-                       allocated per call, from a Bun.gc(true)-bracketed batch of 100 calls.
-                       Per-task { alloc } / per-group { alloc } override this default.
-  --filter REGEX      only run tasks whose "group/name" id matches this regex (substring,
-                       case-sensitive; unmatched tasks are skipped, not timed)
-  --isolate / --no-isolate  give every task its own subprocess instead of sharing its
-                       suite file's, isolating JIT tier state and heap shape between tasks
-                       the way suite files are already isolated from each other. Per-task
-                       { isolate } / per-group { isolate } override this default.
-                       --jobs then pools across those per-task processes, so pair a
-                       higher --jobs with --isolate deliberately: overhead now scales
-                       with task count, not file count.
-  --timeout MS        kill a suite file's subprocess (or, under --isolate, one task's
-                       dedicated subprocess) with SIGKILL if it hasn't finished after this
-                       many ms. No default: unset never times out.
-  --preload PATH      script imported before each suite file loads, in the same
-                       subprocess (repeatable; runs in the order given). Use it to
-                       install globals (jsdom's document/window) or register a
-                       Bun.plugin() file-loader before the suite's own code runs.
-  --bun-flags FLAGS   extra flags passed through to the \`bun\` invocation that runs each
-                       suite file (repeatable; space-separated flags in one value are all
-                       appended). Useful for packages whose exports map branches on a
-                       resolution condition Bun doesn't set by default, e.g. Svelte/Vue's
-                       "browser" vs "default" build: --bun-flags="--conditions=browser"
-  --out-dir PATH      directory for scratch IPC files (default: node_modules/.cache/ostia)
-  --no-noise-check    skip the ~200ms machine noise floor reference measurement
-  --export-json PATH  write the full ProfileDocument to PATH
-  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
-                       "minimal" is protocol v1 (see README's "Using ostia from an AI
-                       agent"): one JSON "run" event per task, {event, protocolVersion,
-                       schemaVersion, workloadId, task, group, description, params,
-                       samples, batch, mean, median, stddevPct, relative,
-                       warnings[{code,data}]} in ns, no raw sample array - built to pipe
-                       into an LLM agent's context.
-  --quiet             suppress the rendered report (still writes --export-json)
-  --help              show this message
+  --budget MS          sampling budget per task (default: 500)
+  --samples N          exact trials per task (ignores --budget)
+  --min-samples N      floor on trials (default: cost-aware, 3-20)
+  --jobs N|auto        suite files at once (default: 1; >1 adds noise)
+  --isolate            one process per task, not per file (--no-isolate to undo config)
+  --gc                 Bun.gc(true) between trials (--no-gc)
+  --cpu                extra per-task CPU profile with JIT tiers (--no-cpu)
+  --alloc              extra per-task bytes-allocated-per-call measurement (--no-alloc)
+  --filter REGEX       only tasks whose "group/name" matches
+  --preload PATH       import before each suite file (repeatable, in order)
+  --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
+  --timeout MS         kill a suite (or isolated task) process after MS
+  --out-dir PATH       scratch directory (default: node_modules/.cache/ostia)
+  --no-noise-check     skip the ~200ms noise-floor measurement
+  --export-json PATH   write the ProfileDocument to PATH
+  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --quiet              don't print the report
+  --help               show this message
 
-Suite files register tasks like:
-  import { group, task } from "<pkg>"
-  group("parse", () => {
-    task("small input", () => parse(smallBuf))
-    task("full pipeline", () => build(), { budgetMs: 2000, minSamples: 10 })
-  }, { description: "parser throughput on representative inputs" })
-Per-task options override --budget / --min-samples / --gc / --isolate / --cpu / --alloc
-for that task only; per-group { gc } / { isolate } / { cpu } / { alloc } set the default for
-every task in that group.
-Optional { description } on group() and task() flows into the document (Workload.description
-/ Workload.groupDescription) so the intent travels with the numbers.
-
-Sweep one or more dimensions with sweep(dims, fn): a cartesian product over the
-dimensions, calling fn once per point. task() calls inside automatically inherit the
-point as Workload.params (an explicit { params } on a task merges over it):
-  import { group, task, range, sweep } from "<pkg>"
-  group("parse", () => {
-    sweep({ size: range(100, 10_000), impl: ["current", "fast"] }, ({ size, impl }) => {
-      const input = buildInput(size) // setup, runs once per point, unmeasured
-      task(\`\${impl}\`, () => impls[impl](input))
-    })
-  })
-range(start, end, multiplier?) is the geometric point generator that feeds sweep()
-(mitata's .range(), default multiplier 8, always ending on the end value).
-
-task.skip(...) / group.skip(...) register without measuring: the document still
-carries the workload (marked skipped) instead of it being absent, so a renderer
-prints "- skipped" and compare reports it as unchanged with a warning rather than
-silently passing. task.only(...) / group.only(...) restrict the suite file to only
-the selected tasks (--filter still applies on top) and print a one-line notice to
-stderr, so a forgotten .only is visible.
-
-Project defaults: with no suite files given on the command line, ostia falls back to
-ostia.config.json's "bench" section in the current directory - suites is a list of globs
-(expanded with Bun.Glob), the rest are the same defaults as their matching flag:
-  { "bench": { "suites": ["bench/**/*.bench.ts"], "preload": ["./bench/setup.ts"], "jobs": "auto" } }
-Any suite files given on the command line replace (not merge with) the config's "suites"
-list; every other flag/config field is overridden individually, so "ostia bench --jobs 1"
-still works as a one-off override without editing the config.
+Per-task/per-group options ({ budgetMs, minSamples, gc, isolate, cpu, alloc }) override
+the suite-wide defaults. Exit codes: 0 ok, 2 a suite failed (or a bad flag), 130 Ctrl-C.
 
 Examples:
-  ostia bench benches/parse.ts
-  ostia bench --budget 1000 --min-samples 50 benches/*.ts
-  ostia bench benches/*.ts --filter parse
-  ostia bench benches/*.ts --jobs auto --format minimal
-  ostia bench benches/*.ts --cpu --alloc
-  ostia bench --preload ./bench/jsdom-setup.ts benches/*.dom.bench.ts
-  ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
-  ostia bench                 # picks up suites/preload/jobs from ostia.config.json
+  ostia bench bench/*.ts
+  ostia bench bench/*.ts --filter parse --cpu --alloc
+  ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
-ostia compare <candidate.json> --baseline <path.json>
+ostia compare <candidate.json> --baseline <base.json>
 
-Compare two ProfileDocuments (matched by workload id) and rank timing/frame/heap deltas.
+Compare two ProfileDocuments by workload id. Gates on ostia.config's "thresholds" when
+present (the same ones "ostia ci" uses), else the defaults.
 
 Flags:
-  --export-json PATH  write the resulting document (with comparisons) to PATH
-  --format FORMAT     table | json | jsonl | markdown | minimal (default: table)
-                       "minimal" is protocol v1 (see README's "Using ostia from an AI
-                       agent"): a "run" event per task with delta: {medianPct, meanPct,
-                       verdict, pass, ci95?, pValue?, effectiveTimingPct, matched}, an
-                       "unmatched" event per workload absent from one side, and a
-                       trailing "summary" event with the overall verdict and exitCode.
-  --timing-pct N       override thresholds.timingPct (percent)
-  --alpha N            override thresholds.alpha (Mann-Whitney significance level)
-  --no-config          ignore ostia.config.ts/.json; use DEFAULT_THRESHOLDS
-  --quiet             suppress the rendered report (still writes --export-json)
-  --help              show this message
+  --baseline PATH      the base document, when only the candidate is positional
+  --export-json PATH   write the candidate document with comparisons to PATH
+  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --quiet              don't print the report
+  --help               show this message
 
-Reads ostia.config.ts/.json's "thresholds" when present (same discovery as "ostia ci"),
-else DEFAULT_THRESHOLDS; --timing-pct/--alpha override individual fields on top.
-
-Exit codes: 0 pass, 1 at least one workload regressed, 2 nothing was compared (zero
-matched workloads) or a harness error (documents failed to load, or a bad flag).
-
-Examples:
-  ostia compare before.json after.json
-  ostia compare after.json --baseline .ostia/baselines/main.json
+Exit codes: 0 pass, 1 a workload regressed, 2 nothing matched or a harness error.
 `
 
 const REPORT_HELP = `ostia report <document.json> [flags]
@@ -557,30 +406,23 @@ Examples:
   ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
 `
 
-const CI_HELP = `ostia ci [--full] [--baseline NAME] [--save-baseline]
+const CI_HELP = `ostia ci [flags]
 
-Load ostia.config.json, run configured workloads (reusing cached results when their
-fingerprint is unchanged), compare against the named baseline, and gate on regressions.
+Run ostia.config's workloads (reusing cached runs whose declared inputs are unchanged),
+compare against a saved baseline, and gate on regressions.
 
 Flags:
-  --full                       ignore the cache; rerun every configured workload
-  --baseline NAME              baseline name (default: config's "baseline" field, or "main")
-  --save-baseline              after a pass (no regressions, no harness failures), write the
-                                just-measured document as the new baseline at the same path
-                                just compared against - promotes today's numbers to
-                                tomorrow's floor in one step.
-  --export-json PATH           write the resulting document (with comparisons) to PATH
-  --format FORMAT               table | json | jsonl | markdown | minimal (default: table)
-  --on-missing-baseline POLICY "warn" or "fail" when a configured workload has no matching
-                                row in the baseline (default: "fail" when every configured
-                                workload is missing, "warn" otherwise)
-  --no-noise-check             skip the ~200ms noise-floor reference measurement (default:
-                                on; same as ostia.config's noiseCheck: false)
-  --quiet                      suppress the rendered report entirely (still writes --export-json)
-  --help                       show this message
+  --full               ignore the cache
+  --baseline NAME      baseline to compare against (default: config "baseline", or "main")
+  --save-baseline      after a pass, save this run as the new baseline
+  --no-noise-check     skip the ~200ms noise-floor measurement
+  --export-json PATH   write the candidate document with comparisons to PATH
+  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --quiet              don't print the report
+  --help               show this message
 
-Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, every trial of
-a workload exited non-zero, an "onMissingBaseline: fail" mismatch, or a spawn failure).
+Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, a workload
+failed or produced no samples, or an onMissingBaseline "fail" mismatch).
 `
 
 const BASELINE_HELP = `ostia baseline <save|list|show> [args]
@@ -605,14 +447,10 @@ Examples:
 `
 
 /** One flag's shape for the declarative tables below: what `argv[++i]`
- * becomes and how it's validated. `"string"`/`"enum"`'s underlying type
- * (e.g. `FormatName`) isn't checked here - callers validate those
- * separately (`checkFormat`, `TIME_UNITS.includes`) since the same raw
- * value needs an error message naming the actual command/flag. */
+ * becomes and how it's validated. */
 type FlagSpec =
   | { kind: "string" }
   | { kind: "int"; min?: number; allowAuto?: boolean }
-  | { kind: "float"; min?: number }
   | { kind: "bool"; value: boolean }
   | { kind: "enum"; values: readonly string[] }
   | { kind: "list" }
@@ -646,35 +484,38 @@ function parseFlags<T extends object>(
       i = handled
       continue
     }
-    const def = table[arg]
-    if (!def) {
+    // `--flag=value` is the same as `--flag value` for any flag that takes
+    // a value.
+    const eq = arg.startsWith("--") ? arg.indexOf("=") : -1
+    const name = eq > 0 ? arg.slice(0, eq) : arg
+    const def = table[name]
+    if (!def || (eq > 0 && def.spec.kind === "bool")) {
       if (arg.startsWith("-")) {
         throw new CliUsageError(`Unknown flag "${arg}" for "ostia ${command}".`)
       }
       onPositional(arg, args)
       continue
     }
+    const value = (): string | undefined =>
+      eq > 0 ? arg.slice(eq + 1) : argv[++i]
     switch (def.spec.kind) {
       case "string":
-        bag[def.dest] = argv[++i]
+        bag[def.dest] = value()
         break
       case "int":
-        bag[def.dest] = parseIntFlag(arg, argv[++i], def.spec)
-        break
-      case "float":
-        bag[def.dest] = parseFloatFlag(arg, argv[++i], def.spec)
+        bag[def.dest] = parseIntFlag(name, value(), def.spec)
         break
       case "bool":
         bag[def.dest] = def.spec.value
         break
       case "list":
-        ;(bag[def.dest] as string[]).push(argv[++i] ?? "")
+        ;(bag[def.dest] as string[]).push(value() ?? "")
         break
       case "enum": {
-        const raw = argv[++i]
+        const raw = value()
         if (!def.spec.values.includes(raw as string)) {
           throw new CliUsageError(
-            `Invalid ${arg} "${raw}": expected one of: ${def.spec.values.join(", ")}`,
+            `Invalid ${name} "${raw}": expected one of: ${def.spec.values.join(", ")}`,
           )
         }
         bag[def.dest] = raw
@@ -706,7 +547,6 @@ interface TimeArgs {
   cpuIntervalUs?: number
   timeoutMs?: number
   ignoreExitCodes: number[]
-  failOnNonzero: boolean
   outDir?: string
   noiseCheck: boolean
   exportJson?: string
@@ -726,22 +566,24 @@ const TIME_FLAGS: Record<string, FlagDef> = {
   },
   "--prepare": { dest: "prepare", spec: { kind: "list" } },
   "--time-source": { dest: "timeSource", spec: { kind: "string" } },
-  "--time-unit": { dest: "timeUnit", spec: { kind: "string" } },
+  "--time-unit": {
+    dest: "timeUnit",
+    spec: { kind: "enum", values: TIME_UNITS },
+  },
   "--cpu": { dest: "cpu", spec: { kind: "bool", value: true } },
   "--heap": { dest: "heap", spec: { kind: "bool", value: true } },
   "--cpu-interval": { dest: "cpuIntervalUs", spec: { kind: "int", min: 1 } },
   "--timeout": { dest: "timeoutMs", spec: { kind: "int", min: 1 } },
-  "--fail-on-nonzero": {
-    dest: "failOnNonzero",
-    spec: { kind: "bool", value: true },
-  },
   "--out-dir": { dest: "outDir", spec: { kind: "string" } },
   "--no-noise-check": {
     dest: "noiseCheck",
     spec: { kind: "bool", value: false },
   },
   "--export-json": { dest: "exportJson", spec: { kind: "string" } },
-  "--format": { dest: "format", spec: { kind: "string" } },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: DOCUMENT_FORMATS },
+  },
   "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
   "-h": { dest: "help", spec: { kind: "bool", value: true } },
@@ -755,7 +597,6 @@ function parseTimeArgs(argv: string[]): TimeArgs {
     cpu: false,
     heap: false,
     ignoreExitCodes: [],
-    failOnNonzero: false,
     noiseCheck: true,
     format: "table",
     quiet: false,
@@ -810,8 +651,6 @@ async function withSigintAbort<T>(
   }
 }
 
-const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"]
-
 async function timeCommand(argv: string[]): Promise<number> {
   const parsed = parseTimeArgs(argv)
   const hasArgvCommand = (parsed.argvCommand?.length ?? 0) > 0
@@ -819,20 +658,11 @@ async function timeCommand(argv: string[]): Promise<number> {
     return showHelp(TIME_HELP, parsed.help)
   }
 
-  checkFormat(parsed.format, DOCUMENT_FORMATS)
-
   const totalCommands = parsed.commands.length + (hasArgvCommand ? 1 : 0)
   if (parsed.prepare.length > 1 && parsed.prepare.length !== totalCommands) {
     await writeCliError(
       "invalid-flag",
       `--prepare given ${parsed.prepare.length} times for ${totalCommands} command(s): give it once (applies to all) or once per command.`,
-    )
-    return 2
-  }
-  if (parsed.timeUnit !== undefined && !TIME_UNITS.includes(parsed.timeUnit)) {
-    await writeCliError(
-      "invalid-flag",
-      `Unknown --time-unit "${parsed.timeUnit}". Expected one of: ${TIME_UNITS.join(", ")}`,
     )
     return 2
   }
@@ -881,7 +711,6 @@ async function timeCommand(argv: string[]): Promise<number> {
         cpuIntervalUs: parsed.cpuIntervalUs,
         timeoutMs: parsed.timeoutMs,
         ignoreExitCodes: parsed.ignoreExitCodes,
-        failOnNonzero: parsed.failOnNonzero,
         outDir: parsed.outDir,
         noiseCheck: parsed.noiseCheck,
         signal,
@@ -898,18 +727,16 @@ async function timeCommand(argv: string[]): Promise<number> {
 
   // 2 (harness error), not 1: a command failing is "the harness couldn't
   // measure this cleanly", not a regression - 1 stays reserved for
-  // compare/ci's verdict. A workload with no timing stats at all (every
-  // trial timed out, or every trial missed --time-source) is the same kind
-  // of harness-level non-result.
-  const ignore = new Set(parsed.ignoreExitCodes)
-  const anyUnmeasured = doc.workloads.some(
-    (w) => !doc.measurements.some((m) => m.workloadId === w.id && m.timing),
+  // compare/ci's verdict. Same rule `ostia ci` gates on (`isHarnessFailure`).
+  const timingRuns = doc.workloads.map(
+    (w) =>
+      doc.measurements.find(
+        (m) => m.workloadId === w.id && m.phase === "timing",
+      ) ?? { trials: [], timing: undefined },
   )
-  const anyNonZero = doc.measurements.some((r) =>
-    r.trials.some(
-      (t) =>
-        t.exitCode !== undefined && t.exitCode !== 0 && !ignore.has(t.exitCode),
-    ),
+  const anyUnmeasured = timingRuns.some((m) => !m.timing)
+  const anyNonZero = timingRuns.some(
+    (m) => m.timing && isHarnessFailure(m, parsed.ignoreExitCodes),
   )
   if (anyNonZero || anyUnmeasured) {
     const hasTimeout = doc.measurements.some((m) =>
@@ -978,7 +805,10 @@ const BENCH_FLAGS: Record<string, FlagDef> = {
     spec: { kind: "bool", value: false },
   },
   "--export-json": { dest: "exportJson", spec: { kind: "string" } },
-  "--format": { dest: "format", spec: { kind: "string" } },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: DOCUMENT_FORMATS },
+  },
   "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
   "-h": { dest: "help", spec: { kind: "bool", value: true } },
@@ -1018,8 +848,6 @@ async function benchCommand(argv: string[]): Promise<number> {
   const parsed = parseBenchArgs(argv)
   if (parsed.help) return showHelp(BENCH_HELP, true)
 
-  checkFormat(parsed.format, DOCUMENT_FORMATS)
-
   const config = await loadConfig()
   const resolved = await resolveBenchOptions(parsed, config?.bench)
 
@@ -1055,18 +883,15 @@ interface CompareArgs {
   format: FormatName
   quiet: boolean
   help: boolean
-  timingPct?: number
-  alpha?: number
-  noConfig: boolean
 }
 
 const COMPARE_FLAGS: Record<string, FlagDef> = {
   "--baseline": { dest: "baseline", spec: { kind: "string" } },
   "--export-json": { dest: "exportJson", spec: { kind: "string" } },
-  "--format": { dest: "format", spec: { kind: "string" } },
-  "--timing-pct": { dest: "timingPct", spec: { kind: "float" } },
-  "--alpha": { dest: "alpha", spec: { kind: "float" } },
-  "--no-config": { dest: "noConfig", spec: { kind: "bool", value: true } },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: DOCUMENT_FORMATS },
+  },
   "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
   "-h": { dest: "help", spec: { kind: "bool", value: true } },
@@ -1078,47 +903,30 @@ function parseCompareArgs(argv: string[]): CompareArgs {
     format: "table",
     quiet: false,
     help: false,
-    noConfig: false,
   }
   return parseFlags(argv, "compare", COMPARE_FLAGS, args, (arg, a) =>
     a.paths.push(arg),
   )
 }
 
-/** Resolves the `Thresholds` `ostia compare` gates on: `ostia.config.*`'s
- * `thresholds` when present (same discovery as `ostia ci`) and not
- * `--no-config`, else `DEFAULT_THRESHOLDS` - then `--timing-pct`/`--alpha`
- * override individual fields on top of whichever base was picked. Returns
- * the source label a header line reports (`"ostia.config.ts"` /
- * `"ostia.config.json"` / `"defaults"`), separate from any per-flag
- * override, since a flag tweaks one field rather than switching sources. */
-async function resolveCompareThresholds(
-  parsed: CompareArgs,
-): Promise<{ thresholds: Thresholds; source: string }> {
-  let thresholds: Thresholds = DEFAULT_THRESHOLDS
-  let source = "defaults"
-  if (!parsed.noConfig) {
-    const config = await loadConfig()
-    if (config) {
-      thresholds = config.thresholds
-      source = (await configFilePath()) ?? "ostia.config.json"
-    }
+/** The `Thresholds` `ostia compare` gates on: the same `ostia.config.*`
+ * `thresholds` `ostia ci` uses when a config is present, else
+ * `DEFAULT_THRESHOLDS`, plus which of the two it was for the header line. */
+async function resolveCompareThresholds(): Promise<{
+  thresholds: Thresholds
+  source: string
+}> {
+  const config = await loadConfig()
+  if (!config) return { thresholds: DEFAULT_THRESHOLDS, source: "defaults" }
+  return {
+    thresholds: config.thresholds,
+    source: (await configFilePath()) ?? "ostia.config.json",
   }
-  if (parsed.timingPct !== undefined || parsed.alpha !== undefined) {
-    thresholds = {
-      ...thresholds,
-      ...(parsed.timingPct !== undefined && { timingPct: parsed.timingPct }),
-      ...(parsed.alpha !== undefined && { alpha: parsed.alpha }),
-    }
-  }
-  return { thresholds, source }
 }
 
 async function compareCommand(argv: string[]): Promise<number> {
   const parsed = parseCompareArgs(argv)
   if (parsed.help) return showHelp(COMPARE_HELP, true)
-
-  checkFormat(parsed.format, DOCUMENT_FORMATS)
 
   let basePath: string | undefined
   let candPath: string | undefined
@@ -1146,7 +954,7 @@ async function compareCommand(argv: string[]): Promise<number> {
     return 2
   }
 
-  const { thresholds, source } = await resolveCompareThresholds(parsed)
+  const { thresholds, source } = await resolveCompareThresholds()
   const result = compareDocuments(base, cand, thresholds)
   const outDoc: ProfileDocument = {
     ...cand,
@@ -1249,7 +1057,10 @@ interface ReportArgs {
 }
 
 const REPORT_FLAGS: Record<string, FlagDef> = {
-  "--format": { dest: "format", spec: { kind: "string" } },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: REPORT_FORMATS },
+  },
   "--measurement": { dest: "measurementId", spec: { kind: "string" } },
   "--out-dir": { dest: "outDir", spec: { kind: "string" } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
@@ -1273,8 +1084,6 @@ async function reportCommand(argv: string[]): Promise<number> {
   if (parsed.help || !parsed.path) {
     return showHelp(REPORT_HELP, parsed.help)
   }
-
-  checkFormat(parsed.format, REPORT_FORMATS)
 
   let doc: ProfileDocument
   try {
@@ -1321,8 +1130,7 @@ interface CiArgs {
   format: FormatName
   quiet: boolean
   help: boolean
-  onMissingBaseline?: "warn" | "fail"
-  noNoiseCheck: boolean
+  noiseCheck: boolean
 }
 
 const CI_FLAGS: Record<string, FlagDef> = {
@@ -1333,14 +1141,13 @@ const CI_FLAGS: Record<string, FlagDef> = {
     spec: { kind: "bool", value: true },
   },
   "--export-json": { dest: "exportJson", spec: { kind: "string" } },
-  "--format": { dest: "format", spec: { kind: "string" } },
-  "--on-missing-baseline": {
-    dest: "onMissingBaseline",
-    spec: { kind: "enum", values: ["warn", "fail"] },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: DOCUMENT_FORMATS },
   },
   "--no-noise-check": {
-    dest: "noNoiseCheck",
-    spec: { kind: "bool", value: true },
+    dest: "noiseCheck",
+    spec: { kind: "bool", value: false },
   },
   "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
@@ -1358,7 +1165,7 @@ function parseCiArgs(argv: string[]): CiArgs {
     format: "table",
     quiet: false,
     help: false,
-    noNoiseCheck: false,
+    noiseCheck: true,
   }
   return parseFlags(argv, "ci", CI_FLAGS, args, (arg) => {
     throw new CliUsageError(`Unknown flag "${arg}" for "ostia ci".`)
@@ -1369,17 +1176,12 @@ async function ciCommand(argv: string[]): Promise<number> {
   const parsed = parseCiArgs(argv)
   if (parsed.help) return showHelp(CI_HELP, true)
 
-  checkFormat(parsed.format, DOCUMENT_FORMATS)
-
   const config = await requireConfig("ostia ci")
   if (!config) return 2
 
   const effectiveConfig: OstiaConfig = {
     ...config,
-    ...(parsed.onMissingBaseline !== undefined && {
-      onMissingBaseline: parsed.onMissingBaseline,
-    }),
-    ...(parsed.noNoiseCheck && { noiseCheck: false }),
+    ...(!parsed.noiseCheck && { noiseCheck: false }),
   }
 
   let outcome: Awaited<ReturnType<typeof runCi>>
@@ -1395,6 +1197,10 @@ async function ciCommand(argv: string[]): Promise<number> {
       err instanceof MissingBaselineError
     ) {
       await writeCliError("baseline-missing", err.message)
+      return 2
+    }
+    if (err instanceof OstiaDocumentError) {
+      await writeCliError("document-load-failed", err.message)
       return 2
     }
     await writeCliError("spawn-failed", `CI run failed: ${errorMessage(err)}`)
@@ -1434,7 +1240,7 @@ async function ciCommand(argv: string[]): Promise<number> {
       .map((r) => workloadLabel(r.workload))
     await writeCliError(
       "command-failed",
-      `${outcome.summary.failed} workload(s) failed (harness error, every trial exited non-zero): ${failedLabels.join(", ")}`,
+      `${outcome.summary.failed} workload(s) failed (harness error, a command exited non-zero or produced no samples): ${failedLabels.join(", ")}`,
     )
   }
 
@@ -1596,10 +1402,22 @@ async function dispatchSubcommand(
   try {
     return await handler(rest)
   } catch (err) {
-    // Every command's argument parsing and format check throw
-    // CliUsageError; this is the one place that turns it into the
-    // "message + Run 'ostia <cmd> --help'" exit-2 report.
-    return reportUsageError(err, `${commandPrefix}${sub}`)
+    if (err instanceof ConfigError) {
+      await writeCliError("config-invalid", err.message)
+      return 2
+    }
+    // Every command's argument parsing throws CliUsageError; this is the
+    // one place that turns it into the "message + Run 'ostia <cmd> --help'"
+    // exit-2 report. Anything else is a bug, but still honours the exit-code
+    // contract rather than crashing with a bare stack trace.
+    if (err instanceof CliUsageError) {
+      return reportUsageError(err, `${commandPrefix}${sub}`)
+    }
+    await writeCliError(
+      "internal",
+      `Internal error: ${err instanceof Error ? (err.stack ?? err.message) : String(err)}`,
+    )
+    return 2
   }
 }
 
@@ -1619,7 +1437,7 @@ async function baselineCommand(argv: string[]): Promise<number> {
   )
 }
 
-const MAIN_HELP = `ostia - Bun-native profile IR engine
+const MAIN_HELP = `ostia - profiling and benchmarking for Bun
 
 Commands:
   time      Time commands N times and report timing/CPU/heap
@@ -1634,6 +1452,7 @@ Run "ostia <command> --help" for details.
 
 async function main(): Promise<number> {
   const [subcommand, ...rest] = process.argv.slice(2)
+  cliArgv = rest
   return dispatchSubcommand(
     subcommand,
     rest,

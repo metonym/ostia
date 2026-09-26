@@ -3,9 +3,10 @@
 import { saveDocument } from "../ir/document.ts"
 import type { InprocessTimingOptions } from "../measure/inprocess.ts"
 import {
-  filterTasks,
   getRegisteredTasks,
+  type RegisteredTask,
   resetRegistry,
+  selectTasks,
   taskId as taskIdOf,
   taskIsolate,
 } from "./registry.ts"
@@ -74,27 +75,16 @@ async function main(): Promise<number> {
     return 2
   }
 
-  // A forgotten .only silently gates a whole suite down to a handful of
-  // tasks, so it gets a stderr notice the same way `--filter` reducing to
-  // zero gets a hard error: both are easy to miss otherwise.
-  const onlyTasks = registered.filter((t) => t.only)
-  const candidates = onlyTasks.length > 0 ? onlyTasks : registered
-  if (onlyTasks.length > 0) {
-    process.stderr.write(
-      `bench: ${onlyTasks.length} task(s) selected by .only\n`,
-    )
+  let tasks: RegisteredTask[]
+  try {
+    tasks = selectTasks(registered, opts.filter, suiteFile)
+  } catch (err) {
+    process.stderr.write(`bench runner: ${(err as Error).message}\n`)
+    return 2
   }
-
-  let tasks = filterTasks(candidates, opts.filter)
   if (opts.taskIds) {
     const wanted = new Set(opts.taskIds)
     tasks = tasks.filter((t) => wanted.has(taskIdOf(t)))
-  }
-  if (tasks.length === 0) {
-    process.stderr.write(
-      `bench runner: --filter ${JSON.stringify(opts.filter)} matched zero of ${candidates.length} registered task(s) in ${suiteFile}.\n`,
-    )
-    return 2
   }
 
   if (opts.planPath) {

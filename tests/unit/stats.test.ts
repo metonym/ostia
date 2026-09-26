@@ -62,6 +62,10 @@ describe("timingWarnings", () => {
       min: 1_000_000,
       max: 1_000_000,
       outliers: { mild: 0, severe: 0 },
+      p25: 0,
+      p75: 0,
+      p99: 0,
+      mad: 0,
     }
     const exitCodes = [0, 0, 0]
 
@@ -80,6 +84,10 @@ describe("timingWarnings", () => {
       min: 50_000_000,
       max: 50_000_000,
       outliers: { mild: 0, severe: 0 },
+      p25: 0,
+      p75: 0,
+      p99: 0,
+      mad: 0,
     }
     const exitCodes = [0, 0, 1, 0]
 
@@ -100,6 +108,10 @@ describe("timingWarnings", () => {
       min: 50_000_000,
       max: 50_000_000,
       outliers: { mild: 0, severe: 0 },
+      p25: 0,
+      p75: 0,
+      p99: 0,
+      mad: 0,
     }
     const exitCodes = [0, 0, 0]
 
@@ -110,5 +122,24 @@ describe("timingWarnings", () => {
 
     expect(hasFastCommand).toBe(false)
     expect(hasNonzeroExit).toBe(false)
+  })
+
+  test("outliers-detected fires for subprocess samples but not in-process ones", () => {
+    const stats = computeTimingStats([
+      100, 101, 102, 100, 101, 99, 100, 102, 101, 5000,
+    ])
+    const codes = (mode: "subprocess" | "inprocess") =>
+      timingWarnings(stats, [], mode).map((w) => w.code)
+    expect(codes("subprocess")).toContain("outliers-detected")
+    expect(codes("inprocess")).not.toContain("outliers-detected")
+  })
+
+  test("slow-first-run formats nanosecond-scale durations readably", () => {
+    const stats = computeTimingStats([900, 30, 31, 30, 29, 30, 31, 30])
+    const warning = timingWarnings(stats, [], "inprocess").find(
+      (w) => w.code === "slow-first-run",
+    )
+    expect(warning?.message).toContain("900.0 ns")
+    expect(warning?.message).not.toContain("0.00ms")
   })
 })

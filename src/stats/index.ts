@@ -1,4 +1,5 @@
 import type { TimingStats, Warning } from "../ir/types.ts"
+import { formatDuration } from "../renderers/format.ts"
 
 export function computeTimingStats(samples: number[]): TimingStats {
   if (samples.length === 0) {
@@ -76,7 +77,6 @@ export function percentile(sorted: Float64Array, p: number): number {
 }
 
 const FAST_COMMAND_NS = 5_000_000
-const TIMER_RESOLUTION_NS = 200
 
 /** `reported` is a subprocess whose samples are its own reported times (a
  * `timeSource` workload): neither the spawn-overhead nor the timer-resolution
@@ -95,22 +95,25 @@ export function timingWarnings(
   const warnings: Warning[] = []
 
   const first = stats.samples[0]
-  if (
-    first !== undefined &&
-    stats.p25 !== undefined &&
-    stats.p75 !== undefined
-  ) {
+  if (first !== undefined) {
     const iqr = stats.p75 - stats.p25
-    if (first > stats.median + 3 * iqr && iqr > 0) {
+    // Both an outlier by the IQR fence and materially slow: with a tight
+    // distribution the fence alone flags a first sample a few percent slow.
+    if (first > stats.median + 3 * iqr && first > 2 * stats.median && iqr > 0) {
       warnings.push({
         code: "slow-first-run",
-        message: `First run took ${(first / 1e6).toFixed(2)}ms, much slower than the median ${(stats.median / 1e6).toFixed(2)}ms. Consider more warmup.`,
+        message: `First run took ${formatDuration(first)}, much slower than the median ${formatDuration(stats.median)}. Consider more warmup.`,
         data: { firstNs: first, medianNs: stats.median },
       })
     }
   }
 
-  if (stats.outliers.mild + stats.outliers.severe > 0) {
+  // In-process samples always carry a long right tail (GC pauses, tier-up)
+  // across thousands of trials, and the median every report and verdict uses
+  // is robust to it, so flagging it on every task only teaches users to
+  // ignore warnings. A subprocess run has a handful of trials, where one
+  // outlier genuinely moves the numbers.
+  if (mode !== "inprocess" && stats.outliers.mild + stats.outliers.severe > 0) {
     warnings.push({
       code: "outliers-detected",
       message: `${stats.outliers.mild + stats.outliers.severe} outlier(s) detected (${stats.outliers.severe} severe, ${stats.outliers.mild} mild).`,
@@ -122,14 +125,6 @@ export function timingWarnings(
     warnings.push({
       code: "fast-command",
       message: `Median run time (${(stats.median / 1e6).toFixed(3)}ms) is very fast; results may be dominated by spawn overhead.`,
-      data: { medianNs: stats.median },
-    })
-  }
-
-  if (mode === "inprocess" && stats.median < TIMER_RESOLUTION_NS) {
-    warnings.push({
-      code: "below-timer-resolution",
-      message: `Median run time (${stats.median.toFixed(0)}ns) is close to timer resolution; consider a larger batch size or a coarser operation.`,
       data: { medianNs: stats.median },
     })
   }

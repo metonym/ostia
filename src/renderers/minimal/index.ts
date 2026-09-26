@@ -5,6 +5,7 @@ import type {
   ProfileDocument,
   Workload,
 } from "../../ir/types.ts"
+import { cpuTimes } from "../format.ts"
 import { relativeReferences } from "../relative.ts"
 import { skippedWorkloads, timingRuns } from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
@@ -20,7 +21,7 @@ interface MinimalWarning {
   data?: Record<string, unknown>
 }
 
-export interface MinimalDelta {
+interface MinimalDelta {
   medianPct: number
   meanPct: number
   verdict: "improved" | "regressed" | "unchanged"
@@ -42,7 +43,7 @@ export interface MinimalDelta {
  * `ProfileDocument` (tens of thousands of samples per fast task) is mostly
  * tokens a reviewer never reads. Numbers stay in the IR's unit (ns) so they
  * line up with `compare` deltas and the JSON document without conversion. */
-export interface MinimalRunLine {
+interface MinimalRunLine {
   event: "run"
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
   schemaVersion: ProfileDocument["schemaVersion"]
@@ -73,11 +74,13 @@ export interface MinimalRunLine {
   stddevPct?: number
   min?: number
   max?: number
-  /** 75th/99th percentile and median absolute deviation, ns. Absent on
-   * documents saved before these fields existed. */
+  /** 75th/99th percentile and median absolute deviation, ns. */
   p75?: number
   p99?: number
   mad?: number
+  /** Median user / system CPU time per trial, ns: subprocess commands only. */
+  userNs?: number
+  systemNs?: number
   /** Median over the group's reference median (its baseline task, else its
    * fastest). Only present when the document has more than one timing run. */
   relative?: number
@@ -95,7 +98,7 @@ export interface MinimalRunLine {
 /** One per workload present on only one side of a `compare`/`ci` run - a
  * baseline row whose candidate went away, or a new candidate workload with
  * no baseline to compare against. */
-export interface MinimalUnmatchedLine {
+interface MinimalUnmatchedLine {
   event: "unmatched"
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
   workloadId: string
@@ -105,7 +108,7 @@ export interface MinimalUnmatchedLine {
 
 /** Exactly one, always the last line, for `compare`/`ci` (never for a bare
  * `time`/`bench` document, which has no baseline to summarize against). */
-export interface MinimalSummaryLine {
+interface MinimalSummaryLine {
   event: "summary"
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
   command: "compare" | "ci"
@@ -273,9 +276,14 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
         w.data ? { code: w.code, data: w.data } : { code: w.code },
       ),
     }
-    if (t.p75 !== undefined) line.p75 = sig(t.p75)
-    if (t.p99 !== undefined) line.p99 = sig(t.p99)
-    if (t.mad !== undefined) line.mad = sig(t.mad)
+    line.p75 = sig(t.p75)
+    line.p99 = sig(t.p99)
+    line.mad = sig(t.mad)
+    const times = cpuTimes(run)
+    if (times) {
+      line.userNs = sig(times.userNs)
+      line.systemNs = sig(times.systemNs)
+    }
     addWorkloadFields(line, workload)
     if (refs) line.relative = sig(t.median / (refs.get(row) ?? t.median))
     if (workload?.baseline) line.baseline = true

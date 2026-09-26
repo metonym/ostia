@@ -3,6 +3,11 @@ import { scanGlobs } from "../glob.ts"
 import { loadDocument, newDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
+import {
+  captureEnvironment,
+  noisyMachineWarning,
+} from "../measure/environment.ts"
+import { assertSamplingOptions } from "../measure/timing.ts"
 import { killSwitch } from "../spawn/index.ts"
 import type { RunnerOpts } from "./runner.ts"
 
@@ -58,8 +63,8 @@ export interface BenchOptions {
    * resolution condition Bun doesn't set by default (e.g. Svelte/Vue's
    * `browser` vs `default` builds). */
   bunFlags?: string[]
-  /** Measure this machine's noise floor before the first task per suite
-   * subprocess (default: true) and stamp it on the document as
+  /** Measure this machine's noise floor once, before any suite runs
+   * (default: true), and stamp it on the document as
    * `environment`. Set false to skip the ~200ms reference measurement. */
   noiseCheck?: boolean
   /** Kills a suite file's subprocess (or, under `isolate`, one task's
@@ -109,7 +114,7 @@ export interface BenchCliOverrides {
   filter?: string
   isolate?: boolean
   preload: string[]
-  bunFlags?: string[]
+  bunFlags: string[]
   outDir?: string
   noiseCheck: boolean
   timeoutMs?: number
@@ -124,9 +129,9 @@ function resolveConfigJobs(
 
 /** Merges CLI flags with `ostia.config.json`'s `bench` section: an explicit
  * CLI value always wins per field, falling back to the config value, then to
- * `bench()`'s own built-in defaults (left undefined here). `suites` and
- * `preload` are whole-list overrides rather than merged - CLI args replace
- * the config's list rather than appending to it. */
+ * `bench()`'s own built-in defaults (left undefined here). `suites`,
+ * `preload` and `bunFlags` are whole-list overrides rather than merged - CLI
+ * args replace the config's list rather than appending to it. */
 export async function resolveBenchOptions(
   cli: BenchCliOverrides,
   config: BenchConfig | undefined,
@@ -151,7 +156,7 @@ export async function resolveBenchOptions(
     filter: cli.filter ?? config?.filter,
     isolate: cli.isolate ?? config?.isolate ?? false,
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
-    bunFlags: cli.bunFlags,
+    bunFlags: cli.bunFlags.length > 0 ? cli.bunFlags : (config?.bunFlags ?? []),
     outDir: cli.outDir ?? config?.outDir,
     noiseCheck: cli.noiseCheck,
     timeoutMs: cli.timeoutMs ?? config?.timeoutMs,
@@ -171,23 +176,7 @@ interface WorkItem {
 }
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
-  if (
-    opts.samples !== undefined &&
-    (!Number.isFinite(opts.samples) || opts.samples < 1)
-  ) {
-    throw new RangeError(`bench: samples must be >= 1, got ${opts.samples}`)
-  }
-  if (
-    opts.minSamples !== undefined &&
-    (!Number.isFinite(opts.minSamples) || opts.minSamples < 1)
-  ) {
-    throw new RangeError(
-      `bench: minSamples must be >= 1, got ${opts.minSamples}`,
-    )
-  }
-  if (opts.budgetMs !== undefined && !Number.isFinite(opts.budgetMs)) {
-    throw new RangeError(`bench: budgetMs must be finite, got ${opts.budgetMs}`)
-  }
+  assertSamplingOptions("bench", opts)
 
   const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   const tmpDir = `${outDir}/bench-tmp`
@@ -201,8 +190,16 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     gc: opts.gc,
     cpu: opts.cpu,
     alloc: opts.alloc,
-    noiseCheck: opts.noiseCheck,
+    // Measured once here in the parent instead: every runner subprocess
+    // repeating the ~200ms reference measurement only to have all but the
+    // first result discarded cost seconds on an isolated or multi-file run.
+    noiseCheck: false,
   }
+  const environment =
+    opts.noiseCheck === false ? undefined : captureEnvironment()
+  const noiseWarning = environment
+    ? noisyMachineWarning(environment)
+    : undefined
 
   // Plain string join, not path.resolve: the suite path is hashed into every
   // workload id, so normalizing "./x" would orphan existing baselines.
@@ -407,6 +404,9 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       }
     }
 
+    if (noiseWarning && measurements.length > 0) {
+      measurements[0]!.warnings = [...measurements[0]!.warnings, noiseWarning]
+    }
     if (opts.signal?.aborted && measurements.length > 0) {
       const last = measurements[measurements.length - 1]!
       last.warnings = [
@@ -419,11 +419,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       ]
     }
 
-    return newDocument(
-      workloads,
-      measurements,
-      primaryDocs.find((d) => d !== undefined)?.environment,
-    )
+    return newDocument(workloads, measurements, environment)
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited
   }

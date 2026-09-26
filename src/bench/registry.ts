@@ -294,3 +294,28 @@ export function filterTasks(
   const re = new RegExp(filter)
   return tasks.filter((t) => re.test(taskId(t)))
 }
+
+/** The tasks a run measures: `.only` tasks when any exist (with a stderr
+ * notice, since a forgotten `.only` silently shrinks a suite), else every
+ * registered task - then narrowed by `filter`. Throws when that leaves
+ * nothing, naming how many tasks the filter was matched against. */
+export function selectTasks(
+  registered: readonly RegisteredTask[],
+  filter: string | undefined,
+  where: string,
+): RegisteredTask[] {
+  const onlyTasks = registered.filter((t) => t.only)
+  const candidates = onlyTasks.length > 0 ? onlyTasks : registered
+  if (onlyTasks.length > 0) {
+    process.stderr.write(
+      `bench: ${onlyTasks.length} task(s) selected by .only\n`,
+    )
+  }
+  const tasks = filterTasks(candidates, filter)
+  if (tasks.length === 0) {
+    throw new Error(
+      `filter ${JSON.stringify(filter)} matched zero of ${candidates.length} registered task(s) in ${where}.`,
+    )
+  }
+  return tasks
+}

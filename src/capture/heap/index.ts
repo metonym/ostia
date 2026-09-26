@@ -63,7 +63,7 @@ export async function runHeapCapture(
   }
 
   const raw = (await file.json()) as RawHeapSnapshot
-  const heap = parseHeapSnapshot(raw, "heap-prof")
+  const heap = parseHeapSnapshot(raw)
 
   return { diagnosticWallNs, exitCode, artifactPath, heap, warnings: [] }
 }

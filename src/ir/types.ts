@@ -67,7 +67,6 @@ export interface Workload {
   kind: "subprocess" | "inprocess"
   label?: string
   command?: string[]
-  shell?: string
   /** Command form of the `prepare` hook that ran before every trial of this
    * command (`ostia time --prepare`, `time({ prepare })`, config `prepare`).
    * Part of the workload id: the same command with and without a prepare
@@ -173,17 +172,16 @@ export interface TimingStats {
   min: number
   max: number
   outliers: { mild: number; severe: number }
-  /** 25th percentile, ns. Optional: absent on documents saved before this
-   * field existed (`loadDocument` never backfills it). */
-  p25?: number
-  /** 75th percentile, ns. Same caveat as `p25`. */
-  p75?: number
-  /** 99th percentile, ns. Same caveat as `p75`. */
-  p99?: number
+  /** 25th percentile, ns. */
+  p25: number
+  /** 75th percentile, ns. */
+  p75: number
+  /** 99th percentile, ns. */
+  p99: number
   /** Median absolute deviation, ns: the median of `|sample - median|` across
    * all samples. A robust spread measure that (unlike stddev) isn't skewed
    * by the long right tail typical of wall-clock timings. */
-  mad?: number
+  mad: number
   /** In-process trials batched into one timed block (see
    * `measure/inprocess.ts`'s `sizeBatch`), set only when batching occurred.
    * Absent for every subprocess timing measurement, and for an in-process
@@ -223,15 +221,15 @@ export interface CpuEvidence {
 }
 
 export interface HeapEvidence {
-  origin: "heap-prof" | "generateHeapSnapshot" | "heapStats"
+  origin: "heap-prof"
   heapSizeBytes?: number
   objectCount?: number
   typeCounts: { type: string; count: number; retainedBytes?: number }[]
 }
 
 export interface MemoryEvidence {
-  origin: "resourceUsage" | "memoryUsage" | "heapStats"
-  perTrial?: { rssBytes?: number; heapSizeBytes?: number }[]
+  origin: "resourceUsage" | "heapStats"
+  /** Largest `Trial.maxRssBytes` across a timing measurement's trials. */
   maxRssBytes?: number
   /** Bytes allocated per call, from `ostia bench --alloc`: heap size delta
    * (`bun:jsc`'s `heapStats().heapSize`, falling back to
@@ -256,7 +254,6 @@ export const WARNING_CODES = [
   "nonzero-exit",
   "artifact-missing",
   "empty-profile",
-  "below-timer-resolution",
   "low-sample-count",
   "thin-comparison",
   "noisy-machine",
@@ -278,15 +275,7 @@ export interface Warning {
 
 export interface ArtifactRef {
   id: string
-  kind:
-    | "cpuprofile"
-    | "cpu-md"
-    | "heapsnapshot"
-    | "heap-md"
-    | "speedscope"
-    | "collapsed"
-    | "mermaid"
-    | "other"
+  kind: "cpuprofile" | "heapsnapshot"
   path: string
   sha256: string
   bytes: number

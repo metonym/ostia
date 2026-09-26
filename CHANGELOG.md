@@ -1,5 +1,83 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- In-process timings no longer depend on task order. Every task shared one
+  timing loop, so the JIT tuned its call site for whichever task ran first
+  and measured later tasks through a slower generic call (`() => 1 + 1` read
+  3.4 ns first in a suite, 84 ns last). Each task now gets its own compiled
+  loop, and results are stored where the JIT can't elide them.
+- The in-process trial count is hard-capped at 20k per task. Calibration
+  now takes the median of several batches instead of one, so a GC pause or
+  tier-up during calibration can't under-batch a fast task into 150k+
+  trials and a multi-MB document.
+- `ostia ci` no longer serves a cached run to a workload with no `inputs`.
+  It used to, so `ostia baseline save` followed by `ostia ci` compared the
+  baseline against itself and always passed. Omit `inputs` to always rerun;
+  `inputs: []` explicitly means "depends on nothing" and caches.
+- Absolute paths in `inputs` work (they used to fail with ENOENT).
+- `ostia ci` honours the whole `bench` config section the same way
+  `ostia bench` does. `jobs: "auto"` used to silently become 1.
+- `compare`'s bootstrap seed defaults to a hash of the samples instead of
+  the clock, so the same two documents always get the same CI and verdict.
+- `time` and `ci` use one rule for "the command failed": any non-ignored
+  non-zero exit, or no samples at all. `ci` used to require every trial to
+  fail.
+
+**Changes**
+
+- A command stops its trial loop at its first non-ignored non-zero exit,
+  like hyperfine. Further trials couldn't change the exit-2 outcome.
+- The noise-floor check runs once per `bench()` call instead of once in
+  every suite and isolated-task subprocess, which saves ~200 ms per extra
+  subprocess.
+- Quieter warnings:
+  - `outliers-detected` now only fires for subprocess timings. In-process
+    tasks always have GC tails, and the reported median is robust to them.
+  - `slow-first-run` also requires the first run to be more than 2× the
+    median, and formats nanosecond-scale durations correctly.
+  - `below-timer-resolution` is removed; batching already guarantees each
+    trial spans at least 1 µs.
+- The stderr `{"event":"error",...}` line is only written when stderr isn't
+  a terminal or `--format minimal|json|jsonl` was given. A human at a
+  terminal sees only the prose error.
+- Tables (terminal and markdown) show a `User/Sys` column (median user and
+  system CPU time per trial) for subprocess commands. `--format minimal`
+  run lines gain `userNs`/`systemNs`.
+- `bench.bunFlags` config field, the config counterpart of `--bun-flags`.
+- A config file that can't be used (invalid JSON, an `ostia.config.ts` that
+  throws, a renamed field) exits 2 with the new `config-invalid` error code
+  instead of a stack trace. Any other unexpected error exits 2 with
+  `internal` (previously declared but never emitted).
+- `ostia ci` reports an unreadable baseline file as `document-load-failed`
+  instead of `spawn-failed`.
+- Every value-taking flag accepts `--flag=value` as well as `--flag value`.
+- A missing baseline suggests `ostia baseline save <name>`.
+- Shorter `--help` text: one line per flag.
+
+**Breaking**
+
+- Config `runs` is renamed to `samples`; a config using `runs` fails with a
+  message saying so. Top-level `budgetMs`/`minSamples` are added for
+  `command` workloads, matching `time()`.
+- Removed `--fail-on-nonzero` / `failOnNonzero` (the behaviour is now the
+  default), `compare --timing-pct/--alpha/--no-config` (compare uses the
+  config's `thresholds`, same as `ci`), `ci --on-missing-baseline` (use the
+  `onMissingBaseline` config field), and the unused config `cpuIntervalUs`.
+- `--format`/`--time-unit` errors read `Invalid --format "x": expected one
+  of: ...`, like every other flag value error.
+- Schema v1 documents are no longer loadable. `TimingStats.p25/p75/p99/mad`
+  are always present; older v2 documents are backfilled on load.
+- Removed `Workload.shell`, `MemoryEvidence.perTrial`, and the never-emitted
+  `ArtifactRef.kind`/`HeapEvidence.origin` values.
+- Only `MinimalEvent` is exported of the minimal-protocol types.
+- Suite task workload ids hash the suite path relative to the working
+  directory instead of the absolute path, so baselines match across
+  checkouts (as command workload ids already did). Suite baselines saved
+  before this change need re-saving.
+
 ## 0.2.5 — 2026-09-15
 
 - publish with npm provenance (`repository` metadata; CI `--provenance`)

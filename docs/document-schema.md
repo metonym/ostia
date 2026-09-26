@@ -1,0 +1,143 @@
+# ProfileDocument schema
+
+Every command and library call produces a `ProfileDocument`: one JSON object holding the
+workloads measured, their measurements, and (after a comparison) the comparisons. The
+TypeScript source of truth is [`src/ir/types.ts`](../src/ir/types.ts); `ProfileDocument`,
+`Workload`, `Comparison`, `Warning` and `WarningCode` are exported from `ostia`.
+
+Units are fixed: nanoseconds for time, bytes for memory, microseconds for sampling
+intervals.
+
+## Versioning
+
+`schemaVersion` is `2`. `loadDocument` (and therefore `compare`, `report`, `ci`) rejects
+any other version with `OstiaDocumentError` (`code: "unsupported-schema"`); version 1
+documents can't be loaded. New optional fields are added without a version bump.
+
+Documents written before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`; `loadDocument`
+recomputes them from the stored samples, so every loaded `TimingStats` has them.
+
+`OstiaDocumentError.code` is `"invalid-json"`, `"not-a-document"` (no numeric
+`schemaVersion`) or `"unsupported-schema"`.
+
+## Top level
+
+| Field | Meaning |
+|---|---|
+| `schemaVersion` | `2`. |
+| `toolVersion`, `bunVersion` | ostia and Bun versions that produced the document. |
+| `platform` | `{ os, arch }`. |
+| `createdAt` | ISO timestamp. Metadata only. |
+| `workloads` | `Workload[]`: what was measured. |
+| `measurements` | `Measurement[]`: one per workload and phase. |
+| `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples } }`. Absent when the noise check was skipped. |
+| `git?` | `{ sha, branch, dirty }` from the process's cwd. Absent outside a repo. Never part of an id or cache key. |
+| `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
+| `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
+| `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
+
+## Workloads
+
+| Field | Meaning |
+|---|---|
+| `id` | Stable identity; see below. |
+| `kind` | `"subprocess"` or `"inprocess"`. |
+| `label?` | Display name. |
+| `command?` | Argv, for subprocess workloads. |
+| `prepare?` | Argv of a command-form prepare hook. |
+| `timeSource?` | `{ pattern, group?, unit? }`. |
+| `entry?` | `{ file, task, group? }` for suite tasks; `task` is the `group/name` id. |
+| `baseline?` | The group's Relative reference. |
+| `description?`, `groupDescription?` | From `task()`/`group()` options. |
+| `isolated?` | Ran in a process of its own. |
+| `params?` | From `task(..., { params })` or `sweep()`. |
+| `skipped?` | From `task.skip()`/`group.skip()`; there is no measurement. |
+
+### Workload ids
+
+Ids identify what was measured, not where or when:
+
+- Subprocess command: a hash of the argv, plus the `prepare` hook (its argv, or a
+  function's source text) and the `timeSource` spec when present. The working directory is
+  not included, so a baseline saved in one checkout (a CI runner, another worktree)
+  matches a run from another.
+- Suite task: a hash of the suite file path relative to the working directory, the
+  `group/name` task id, and `params` when present, so, as with commands, moving the
+  checkout doesn't change the id.
+- `profile()` capture: a hash of the function's name and source.
+
+`label`, `description`, `baseline`, `inputs`, `timeoutMs` and `ignoreExitCodes` never
+affect the id.
+
+## Measurements
+
+| Field | Meaning |
+|---|---|
+| `id` | Hash of the workload id, phase, config fingerprint, Bun and ostia versions. |
+| `workloadId` | The workload measured. |
+| `phase` | `"timing"`, `"cpu"`, `"heap"` or `"memstats"`. |
+| `instrumented` | `true` for cpu/heap/memstats: a separate, profiled run, never mixed into timing. |
+| `configFingerprint` | Hash of the sampling settings that produced it. |
+| `trials` | `Trial[]`. |
+| `timing?` | `TimingStats`, on timing measurements with at least one sample. |
+| `interleaved?` | Trials were round-robined with other commands. |
+| `diagnosticWallNs?` | Wall time of an instrumented run. |
+| `cpu?`, `jit?` | CPU evidence (frames, call tree, per-frame totals, samples) and JIT tier counts (`llint`, `baseline`, `dfg`, `ftl`). |
+| `heap?` | `{ typeCounts, objectCount?, heapSizeBytes? }` from a heap snapshot. |
+| `memory?` | `maxRssBytes` (subprocess timing) or `bytesPerOp` (`--alloc`). |
+| `warnings` | `Warning[]`. |
+| `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
+
+`Trial`: `{ i, wallNs, exitCode?, userNs?, systemNs?, maxRssBytes?, reportedNs?, timedOut?, timeSourceNoMatch? }`.
+`reportedNs` is the value parsed by a `timeSource`; timed-out and unmatched trials
+contribute no sample.
+
+`TimingStats`: `{ unit: "ns", samples, mean, median, stddev, min, max, outliers: { mild, severe }, p25, p75, p99, mad, batch? }`.
+For batched in-process tasks, `samples` are per-call times and `batch` is the number of
+calls per trial.
+
+## Comparisons
+
+| Field | Meaning |
+|---|---|
+| `baselineMeasurementId`, `candidateMeasurementId` | The pair compared. |
+| `timing?` | `{ medianDeltaPct, meanDeltaPct, ci95?, pValue?, seed?, verdict }`. |
+| `frames?` | Per-frame `{ frameKey, name, baseSelfUs, candSelfUs, deltaPct }`, largest change first. |
+| `heapTypes?` | Per-type `{ type, baseCount, candCount, baseBytes?, candBytes?, deltaPct }`. |
+| `thresholds` | The thresholds applied, plus `effectiveTimingPct`. |
+| `warnings?` | `thin-comparison`, `skipped`, `environment-mismatch`. |
+| `verdict` | `"pass"` or `"fail"`. |
+
+See [statistics.md](statistics.md) for how these are computed.
+
+## Warnings
+
+`Warning` is `{ code, message, data? }`. The terminal table prints codes under each row
+and messages below the table; `--format minimal` includes `code` and `data`.
+
+| Code | Where | When |
+|---|---|---|
+| `slow-first-run` | timing | The first sample is both an outlier (above median + 3×IQR) and more than twice the median. |
+| `outliers-detected` | subprocess timing | IQR outliers present. Not emitted for in-process tasks, whose GC tails are expected and don't move the median. |
+| `fast-command` | subprocess timing | Median under 5ms: spawn overhead may dominate. |
+| `nonzero-exit` | subprocess timing | A trial exited non-zero with a code that isn't ignored. `data.exitCodes`. |
+| `timeout` | subprocess timing | Trials were killed by `timeoutMs`. |
+| `time-source-no-match` | subprocess timing | Trials' output didn't match the `timeSource` pattern. `data: { pattern, trials, output }`. |
+| `noisy-machine` | first measurement (`ci`: every executed one) | 1-minute load average above 75% of available cores. |
+| `low-sample-count` | in-process timing | Fewer samples than the task's cost class calls for (explicit `minSamples` only). |
+| `jit-cold` | `--cpu` capture | More than 20% of samples in the llint/baseline tiers. |
+| `empty-profile` | CPU capture | The profile recorded no samples (`--cpu` or `profile()`). |
+| `artifact-missing` | CPU/heap capture | The expected `.cpuprofile`/`.heapsnapshot` file wasn't written. |
+| `aborted` | last measurement | The run was cancelled; the document is partial. |
+| `thin-comparison` | comparison | Fewer than 5 samples on a side; point-estimate verdict. |
+| `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
+| `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
+
+## Files on disk
+
+- `outDir` (default `node_modules/.cache/ostia`): the `ci` cache, `artifacts/`, and
+  `bench` scratch files.
+- `baselineDir` (default `.ostia/baselines`): `<name>.json` baselines.
+
+Documents are written atomically (temp file, then rename), so an interrupted write never
+leaves a truncated file.

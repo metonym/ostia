@@ -100,9 +100,29 @@ describe("measure/inprocess", () => {
 
   test("a sub-microsecond task is batched so a budget yields bounded trials", async () => {
     const result = await measureTask(() => 1, { budgetMs: 100 })
-    // Target is ~10k per full budget; allow JIT tier-up mid-run to overshoot it.
-    expect(result.trials.length).toBeLessThan(100_000)
+    // Sized for ~10k per full budget, hard-capped at 20k however much faster
+    // the task got after calibration.
+    expect(result.trials.length).toBeLessThanOrEqual(20_000)
     expect(result.trials.length).toBeGreaterThanOrEqual(3)
+    expect(result.timing.batch).toBeGreaterThan(1)
+  })
+
+  test("a task's timing doesn't depend on which tasks ran before it in the process", async () => {
+    // A fresh process: `bun test` shares one across files, so the harness's
+    // call sites are already warm (and polluted) by the time this test runs.
+    const proc = Bun.spawn(["bun", "tests/fixtures/inprocess-order-probe.ts"])
+    const { alone, after } = JSON.parse(await new Response(proc.stdout).text())
+    // With one loop shared by every task, the probe read ~4x slower after
+    // other call shapes went through it. Generous: sub-ns medians are noisy.
+    expect(after).toBeLessThan(alone * 2 + 0.5)
+  })
+
+  test("a task's return value is consumed, so its allocation isn't optimized away", async () => {
+    const empty = await measureTask(() => undefined, { budgetMs: 50 })
+    const alloc = await measureTask(() => new Array(64).fill(0), {
+      budgetMs: 50,
+    })
+    expect(alloc.timing.median).toBeGreaterThan(empty.timing.median * 2)
   })
 
   test("default sample floor is cost-aware: a slow task does not overrun the budget by 20x", async () => {

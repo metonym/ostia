@@ -37,11 +37,22 @@ const DEFAULT_WARMUP_FRACTION = 0.1
 // A single trial is batched until it spans at least this long, so the timer's
 // resolution doesn't dominate the reading.
 const BATCH_THRESHOLD_NS = 1000
-// Batch further so a full budget yields at most about this many trials. Every trial
-// is retained, sorted, serialized into the IPC document and parsed back by the CLI;
+// Batch further so a full budget yields about this many trials. Every trial is
+// retained, sorted, serialized into the IPC document and parsed back by the CLI;
 // unbounded trial counts (millions per sub-microsecond task) cost seconds per task
 // outside the timed region.
-const MAX_TRIALS_TARGET = 10_000
+const TRIALS_TARGET = 10_000
+// Hard stop on the budget-driven loop: a task that got faster than its
+// calibration predicted still ends at a bounded trial count instead of
+// overshooting the target many times over.
+const MAX_TRIALS = 2 * TRIALS_TARGET
+// Warmup doubles its batch until one batch spans this long, so the compiled loop
+// is hot at roughly the batch size it will be sampled at.
+const WARMUP_CHUNK_NS = 1_000_000
+const CALIBRATION_ROUNDS = 5
+// Ring buffer the loop writes every result into: the JIT can't prove a stored
+// value unused, so it can't elide the call or its allocations.
+const SINK_SIZE = 256
 
 export interface InprocessTimingResult {
   trials: Trial[]
@@ -75,22 +86,19 @@ export function defaultSampleFloor(
   return Math.min(BUDGET_FLOOR_CAP, Math.max(fit, rigorFloor(trialCostNs)))
 }
 
-// Prevents the JIT from eliminating calls whose result is otherwise unused. Write-only
-// by design. The accumulation itself, not the final value, defeats dead-code
-// elimination; nothing needs to read it back.
+// Write-only by design: a store to module state is never provably dead, which
+// is all it takes to keep the value (and its computation) alive.
 // biome-ignore lint/correctness/noUnusedVariables: intentionally write-only, see above
-let sink = 0
+let kept: unknown
 
-/** Pins `value` against dead-code elimination. `measureTask` already does this
- * for a task's own return value; `keep()` (exported from `src/index.ts`) is the
- * same sink made public, for an intermediate value inside a task body that
- * would otherwise go unused and risk being optimized away. */
+/** Pins `value` against dead-code elimination, for an intermediate value inside
+ * a task body that would otherwise go unused and risk being optimized away. A
+ * task's own return value is already pinned by the sampling loop. */
 export function keep(value: unknown): void {
-  if (typeof value === "number") sink += value
-  else if (value !== undefined && value !== null) sink += 1
+  kept = value
 }
 
-function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
+export function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   return (
     value !== null &&
     typeof value === "object" &&
@@ -98,61 +106,80 @@ function isPromiseLike(value: unknown): value is PromiseLike<unknown> {
   )
 }
 
+type TaskFn = () => unknown | Promise<unknown>
+type Loop = (fn: TaskFn, sink: unknown[], n: number) => number | Promise<number>
+
+const AsyncFunction = (async () => {}).constructor as FunctionConstructor
+let loopSerial = 0
+
+/** Compiles a timing loop dedicated to one task. JSC specializes compiled code
+ * per function: one loop shared by every task gets its `fn()` call site tuned
+ * (inlined, type-specialized) for whichever task ran first, and then measures
+ * every later task through a slower generic call - the same task read 3ns or
+ * 80ns depending on its position in the suite. The serial in the source keeps
+ * JSC's code cache from handing two tasks the same compiled body. An async task
+ * gets an awaiting loop; a sync one never pays for a microtask per call. */
+function compileLoop(isAsync: boolean): Loop {
+  const body = `/* ostia task loop ${loopSerial++} */
+const t0 = Bun.nanoseconds()
+for (let b = 0; b < n; b++) sink[b & ${SINK_SIZE - 1}] = ${isAsync ? "await " : ""}fn()
+return Bun.nanoseconds() - t0`
+  const ctor = isAsync ? AsyncFunction : Function
+  return ctor("fn", "sink", "n", body) as Loop
+}
+
 function sizeBatch(singleCallNs: number, timeBudgetNs: number): number {
   return Math.max(
     1,
     Math.ceil(BATCH_THRESHOLD_NS / singleCallNs),
-    Math.ceil(timeBudgetNs / (singleCallNs * MAX_TRIALS_TARGET)),
+    Math.ceil(timeBudgetNs / (singleCallNs * TRIALS_TARGET)),
   )
 }
 
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b)
+  return sorted[sorted.length >> 1]!
+}
+
 export async function measureTask(
-  fn: () => unknown | Promise<unknown>,
+  fn: TaskFn,
   opts: InprocessTimingOptions = {},
 ): Promise<InprocessTimingResult> {
   const timeBudgetNs = (opts.budgetMs ?? DEFAULT_TIME_BUDGET_MS) * 1e6
   const warmupBudgetNs = timeBudgetNs * (opts.warmup ?? DEFAULT_WARMUP_FRACTION)
 
+  // The first call decides which loop the task gets, and doubles as the cost
+  // estimate when warmup is disabled.
+  const firstStart = Bun.nanoseconds()
+  const first = fn()
+  const isAsync = isPromiseLike(first)
+  if (isAsync) await first
+  let singleCallNs = Math.max(1, Bun.nanoseconds() - firstStart)
+
+  const loop = compileLoop(isAsync)
+  const sink: unknown[] = new Array(SINK_SIZE)
+  const timeBatch = (n: number): number | Promise<number> => loop(fn, sink, n)
+
   const warmupStart = Bun.nanoseconds()
-  let warmupCalls = 0
-  let warmupElapsed = 0
-  while (warmupElapsed < warmupBudgetNs) {
-    // Only suspend on an actual promise: `await` on a plain value still costs a
-    // microtask turn per call, which at sub-microsecond task cost is most of what
-    // gets measured. Warmup, calibration and the sampling loop must all call the
-    // same way so the cost estimate matches what the loop measures (an async
-    // helper would reintroduce the promise per call).
-    const result = fn()
-    keep(isPromiseLike(result) ? await result : result)
-    warmupCalls++
-    warmupElapsed = Bun.nanoseconds() - warmupStart
+  let n = 1
+  while (Bun.nanoseconds() - warmupStart < warmupBudgetNs) {
+    const ns = await timeBatch(n)
+    singleCallNs = Math.max(1, ns / n)
+    if (ns < WARMUP_CHUNK_NS) n *= 2
   }
 
-  // Per-call cost estimate, used only to size batches and the sample floor. Reuses
-  // the warmup phase rather than paying a dedicated calibration call; a warmup
-  // fraction of 0 is the only case that runs one.
-  let singleCallNs: number
-  if (warmupCalls > 0) {
-    singleCallNs = Math.max(1, warmupElapsed / warmupCalls)
-  } else {
-    const calibStart = Bun.nanoseconds()
-    const result = fn()
-    keep(isPromiseLike(result) ? await result : result)
-    singleCallNs = Math.max(1, Bun.nanoseconds() - calibStart)
-  }
-
+  // The warmup estimate comes from a single batch, which a GC pause or a
+  // tier-up compile can inflate many times over (and under-batch a fast task
+  // into a flood of trials). A few batches at the planned size, timed exactly
+  // as the loop will, settle it on their median. Only batched (fast) tasks pay
+  // this, and each batch is at most ~1/10000th of the budget.
   let batchSize = sizeBatch(singleCallNs, timeBudgetNs)
   if (batchSize > 1) {
-    // The warmup estimate carries a timer read per call, which overstates a
-    // sub-100ns call several times over and would under-batch it. One batch timed
-    // as a block, exactly as the loop does, corrects that. Only batched (fast)
-    // tasks pay this, and one batch is at most ~1/10000th of the budget.
-    const calibStart = Bun.nanoseconds()
-    for (let b = 0; b < batchSize; b++) {
-      const result = fn()
-      keep(isPromiseLike(result) ? await result : result)
+    const perCall: number[] = []
+    for (let r = 0; r < CALIBRATION_ROUNDS; r++) {
+      perCall.push((await timeBatch(batchSize)) / batchSize)
     }
-    singleCallNs = Math.max(1, (Bun.nanoseconds() - calibStart) / batchSize)
+    singleCallNs = Math.max(1, medianOf(perCall))
     batchSize = sizeBatch(singleCallNs, timeBudgetNs)
   }
   const trialCostNs = singleCallNs * batchSize
@@ -163,23 +190,19 @@ export async function measureTask(
   // An exact sample count ignores the budget entirely, same as subprocess
   // timing's `samples`.
   const effectiveBudgetNs = opts.samples !== undefined ? 0 : timeBudgetNs
+  const maxTrials = opts.samples ?? Math.max(MAX_TRIALS, minSamples)
 
   const trials: Trial[] = []
   const start = Bun.nanoseconds()
   let elapsed = 0
   let i = 0
-  while (i < minSamples || elapsed < effectiveBudgetNs) {
-    const trialStart = Bun.nanoseconds()
-    for (let b = 0; b < batchSize; b++) {
-      const result = fn()
-      keep(isPromiseLike(result) ? await result : result)
-    }
-    const trialEnd = Bun.nanoseconds()
-    trials.push({ i, wallNs: (trialEnd - trialStart) / batchSize })
+  while (i < minSamples || (elapsed < effectiveBudgetNs && i < maxTrials)) {
+    const ns = await timeBatch(batchSize)
+    trials.push({ i, wallNs: ns / batchSize })
     i++
     elapsed = Bun.nanoseconds() - start
     if (opts.gc) Bun.gc(true)
-    if (opts.samples !== undefined && i >= opts.samples) break
+    if (i >= maxTrials && i >= minSamples) break
   }
 
   const wallTimes = trials.map((t) => t.wallNs)

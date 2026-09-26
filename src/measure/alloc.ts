@@ -1,5 +1,6 @@
 import { heapStats } from "bun:jsc"
 import type { MemoryEvidence } from "../ir/types.ts"
+import { isPromiseLike } from "./inprocess.ts"
 
 const DEFAULT_BATCH_SIZE = 100
 
@@ -32,7 +33,7 @@ export async function measureAllocPerOp(
   const before = currentHeapSizeBytes()
   for (let i = 0; i < batchSize; i++) {
     const result = fn()
-    if (result instanceof Promise) await result
+    if (isPromiseLike(result)) await result
   }
   Bun.gc(true)
   const after = currentHeapSizeBytes()

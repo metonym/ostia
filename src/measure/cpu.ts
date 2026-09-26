@@ -1,5 +1,6 @@
 import { captureJscProfile } from "../capture/jsc/index.ts"
 import type { CpuEvidence, JitTierBreakdown, Warning } from "../ir/types.ts"
+import { isPromiseLike } from "./inprocess.ts"
 
 const DEFAULT_WINDOW_MS = 200
 const JIT_COLD_THRESHOLD_PCT = 20
@@ -24,7 +25,7 @@ export async function captureTaskCpuProfile(
     const start = Bun.nanoseconds()
     while (Bun.nanoseconds() - start < budgetNs) {
       const result = fn()
-      if (result instanceof Promise) await result
+      if (isPromiseLike(result)) await result
     }
   }
   const { cpu, jit, diagnosticWallNs } = await captureJscProfile(looped)

@@ -1,5 +1,5 @@
 {
-  "runs": 15,
+  "samples": 15,
   "warmup": 3,
   "baseline": "main",
   "thresholds": {
@@ -16,7 +16,8 @@
     },
     {
       "label": "spawn-overhead",
-      "command": ["bun", "-e", "1"]
+      "command": ["bun", "-e", "1"],
+      "inputs": []
     },
     {
       "label": "dogfood-suites",

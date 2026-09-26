@@ -147,10 +147,4 @@ describe("parseHeapSnapshot", () => {
     expect(result.objectCount).toBe(5)
     expect(result.typeCounts.length).toBe(0)
   })
-
-  test("accepts custom origin parameter", () => {
-    const result = parseHeapSnapshot(rawFixture, "generateHeapSnapshot")
-
-    expect(result.origin).toBe("generateHeapSnapshot")
-  })
 })

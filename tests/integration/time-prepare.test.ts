@@ -171,7 +171,7 @@ describe("ostia time --prepare / --time-source", () => {
       `bun ${REPORT}`,
     ])
     expect(unit.exitCode).toBe(2)
-    expect(unit.stderr).toMatch(/Unknown --time-unit "min"/)
+    expect(unit.stderr).toMatch(/Invalid --time-unit "min"/)
     const re = await runCli(["time", "--time-source", "(\\d+", `bun ${REPORT}`])
     expect(re.exitCode).toBe(2)
     expect(re.stderr).toMatch(/Invalid --time-source regex/)
@@ -188,7 +188,7 @@ describe("ostia ci - prepare / timeSource workloads", () => {
       outDir,
       baselineDir: `${outDir}/baselines`,
       baseline: "main",
-      runs: 2,
+      samples: 2,
       warmup: 0,
       workloads,
     }

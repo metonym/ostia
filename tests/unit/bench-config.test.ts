@@ -13,6 +13,7 @@ function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
   return {
     suites: [],
     preload: [],
+    bunFlags: [],
     noiseCheck: true,
     ...overrides,
   }
@@ -176,6 +177,17 @@ describe("resolveBenchOptions", () => {
       "/tmp",
     )
     expect(resolved.preload).toEqual(["./cli-preload.ts"])
+  })
+
+  test("bunFlags: config list applies when CLI gives none, CLI list replaces it", async () => {
+    const fromConfig = await resolveBenchOptions(cli(), {
+      bunFlags: ["--conditions=browser"],
+    })
+    expect(fromConfig.bunFlags).toEqual(["--conditions=browser"])
+    const fromCli = await resolveBenchOptions(cli({ bunFlags: ["--smol"] }), {
+      bunFlags: ["--conditions=browser"],
+    })
+    expect(fromCli.bunFlags).toEqual(["--smol"])
   })
 
   test("preload: falls back to config list when CLI gives none", async () => {

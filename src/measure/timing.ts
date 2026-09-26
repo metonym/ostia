@@ -1,4 +1,4 @@
-import type { TimingStats, Trial, Warning } from "../ir/types.ts"
+import type { Measurement, TimingStats, Trial, Warning } from "../ir/types.ts"
 import {
   assertReusableTimeSource,
   type PrepareHook,
@@ -26,12 +26,6 @@ export interface TimingPhaseOptions extends SpawnTrialOptions {
    * excluded from the `nonzero-exit` warning entirely, as if it had exited
    * 0. */
   ignoreExitCodes?: number[]
-  /** Stops this command's trial loop after the first trial whose exit code
-   * is non-zero and not in `ignoreExitCodes` - the failing trial's sample is
-   * still recorded (unchanged), just nothing further is measured for it.
-   * Default false: a failing command still runs its full sample count, the
-   * same as any other command. */
-  failOnNonzero?: boolean
 }
 
 const DEFAULT_MIN_SAMPLES = 10
@@ -150,8 +144,10 @@ export function createTimingPhase(
       // always counts wall time, even when the samples are reported times.
       totalNs += result.wallNs
       i++
+      // A non-ignored non-zero exit already makes this command a harness
+      // failure (`isHarnessFailure`), so further trials can't change the
+      // outcome: stop here, keeping the failing trial's sample.
       if (
-        opts.failOnNonzero &&
         result.exitCode !== null &&
         result.exitCode !== 0 &&
         !ignoreExitCodeSet.has(result.exitCode)
@@ -226,4 +222,40 @@ export async function runTimingPhase(
   const phase = createTimingPhase(opts)
   await drainTimingPhase(phase)
   return phase.result()
+}
+
+/** A command measurement the harness couldn't take cleanly: some trial exited
+ * non-zero (with a code not in `ignoreExitCodes`), or no trial produced a
+ * sample at all (every one timed out or missed its `timeSource`). Not a
+ * regression - `ostia time` and `ostia ci` both exit 2 on it, by this one
+ * rule. */
+export function isHarnessFailure(
+  measurement: Pick<Measurement, "trials" | "timing">,
+  ignoreExitCodes: number[] = [],
+): boolean {
+  if (!measurement.timing) return true
+  const ignore = new Set(ignoreExitCodes)
+  return measurement.trials.some(
+    (t) =>
+      t.exitCode !== undefined && t.exitCode !== 0 && !ignore.has(t.exitCode),
+  )
+}
+
+/** Rejects a nonsensical sampling configuration up front, with the same
+ * message shape from `time()` and `bench()`. */
+export function assertSamplingOptions(
+  fnName: string,
+  opts: { samples?: number; minSamples?: number; budgetMs?: number },
+): void {
+  const atLeastOne = { samples: opts.samples, minSamples: opts.minSamples }
+  for (const [key, value] of Object.entries(atLeastOne)) {
+    if (value !== undefined && (!Number.isFinite(value) || value < 1)) {
+      throw new RangeError(`${fnName}: ${key} must be >= 1, got ${value}`)
+    }
+  }
+  if (opts.budgetMs !== undefined && !Number.isFinite(opts.budgetMs)) {
+    throw new RangeError(
+      `${fnName}: budgetMs must be finite, got ${opts.budgetMs}`,
+    )
+  }
 }

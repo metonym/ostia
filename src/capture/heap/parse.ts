@@ -20,10 +20,8 @@ interface TypeBucket {
   bytes: number
 }
 
-export function parseHeapSnapshot(
-  raw: RawHeapSnapshot,
-  origin: HeapEvidence["origin"] = "heap-prof",
-): HeapEvidence {
+export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
+  const origin = "heap-prof"
   const { node_fields, node_types } = raw.snapshot.meta
   const typeIx = node_fields.indexOf("type")
   const selfSizeIx = node_fields.indexOf("self_size")

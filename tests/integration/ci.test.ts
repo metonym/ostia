@@ -23,9 +23,11 @@ function config(overrides: Partial<OstiaConfig> = {}): OstiaConfig {
     outDir,
     baselineDir: `${outDir}/baselines`,
     baseline: "main",
-    runs: 3,
+    samples: 3,
     warmup: 1,
-    workloads: [{ label: "work", command: ["bun", FIXTURE] }],
+    workloads: [
+      { label: "work", command: ["bun", FIXTURE], inputs: [FIXTURE] },
+    ],
     ...overrides,
   }
 }
@@ -65,6 +67,27 @@ describe("runCi", () => {
     expect(second.summary.results[0]!.run.id).toBe(
       first.summary.results[0]!.run.id,
     )
+  }, 30_000)
+
+  test("a workload with no declared inputs always reruns, even after baseline save", async () => {
+    const cfg = config({
+      outDir: `${OUT_DIR}-no-inputs`,
+      workloads: [{ label: "work", command: ["bun", FIXTURE] }],
+    })
+    const baseline = await time({
+      commands: [["bun", FIXTURE]],
+      samples: 3,
+      warmup: 1,
+      noiseCheck: false,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    await runCi({ config: cfg, full: false })
+    const second = await runCi({ config: cfg, full: false })
+    expect(second.summary.executed).toBe(1)
+    expect(second.summary.cached).toBe(0)
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-no-inputs`]).exited
   }, 30_000)
 
   test("--full ignores the cache and always executes", async () => {
@@ -146,7 +169,7 @@ describe("runCi - exit semantics and noise floor (task 04.4)", () => {
     const outDir = `${OUT_DIR}-regress`
     const cfg = config({
       outDir,
-      runs: 10,
+      samples: 10,
       warmup: 2,
       workloads: [{ label: "sleep", command: ["bun", SLEEP_FIXTURE] }],
     })

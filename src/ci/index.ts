@@ -1,4 +1,4 @@
-import { bench, expandSuiteGlobs } from "../bench/index.ts"
+import { bench, expandSuiteGlobs, resolveBenchOptions } from "../bench/index.ts"
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts"
 import { readCachedRun, writeCachedRun } from "../cache/store.ts"
 import { createComparer, summarizeComparisons } from "../compare/index.ts"
@@ -15,14 +15,13 @@ import type {
   Environment,
   Measurement,
   ProfileDocument,
-  Trial,
   Workload,
 } from "../ir/types.ts"
 import {
   captureEnvironment,
   noisyMachineWarning,
 } from "../measure/environment.ts"
-import { runTimingPhase } from "../measure/timing.ts"
+import { isHarnessFailure, runTimingPhase } from "../measure/timing.ts"
 import { workloadLabel } from "../renderers/format.ts"
 import { TOOL_VERSION } from "../version.ts"
 
@@ -43,11 +42,10 @@ interface MeasuredWorkload {
   workload: Workload
   status: WorkloadStatus
   run: Measurement
-  /** `command` workloads only: every sampled trial (after `ignoreExitCodes`)
-   * exited non-zero - not a regression, a harness failure (the command
-   * itself is broken), so `ci` reports and gates on it separately from a
-   * timing verdict. Always `false` for `suites` workloads: there's no
-   * subprocess exit code to check at this granularity. */
+  /** `command` workloads only: see `isHarnessFailure` - the same rule
+   * `ostia time` exits 2 on. Not a regression, so `ci` reports and gates on
+   * it separately from a timing verdict. Always `false` for `suites`
+   * workloads: there's no subprocess exit code at this granularity. */
   harnessFailed: boolean
 }
 
@@ -77,7 +75,10 @@ export interface CiSummary {
 export class BaselineNotFoundError extends Error {
   constructor(public readonly path: string) {
     super(
-      `No baseline document at ${path}. Create one with: ostia time --export-json ${path} <command...>`,
+      `No baseline document at ${path}. Create one with: ostia baseline save ${path
+        .split("/")
+        .pop()!
+        .replace(/\.json$/, "")}`,
     )
   }
 }
@@ -110,20 +111,6 @@ function effectiveMissingBaselinePolicy(
 ): "warn" | "fail" {
   if (configured) return configured
   return missingBaseline === total ? "fail" : "warn"
-}
-
-function isHarnessFailure(
-  trials: Trial[],
-  ignoreExitCodes: number[] = [],
-): boolean {
-  const ignoreSet = new Set(ignoreExitCodes)
-  const exitCodes = trials
-    .filter((t) => !t.timedOut && !t.timeSourceNoMatch)
-    .map((t) => t.exitCode)
-    .filter((c): c is number => c !== undefined)
-  return (
-    exitCodes.length > 0 && exitCodes.every((c) => c !== 0 && !ignoreSet.has(c))
-  )
 }
 
 export interface MeasureConfigWorkloadsResult {
@@ -163,24 +150,17 @@ export async function measureConfigWorkloads(
       // `command` workloads, a `suites` entry always executes - caching
       // here is future work, not a regression from what `command` already does.
       const suiteFiles = await expandSuiteGlobs(wc.suites, process.cwd())
+      // The same CLI-over-config resolution `ostia bench` uses, so a
+      // `bench` section means the same thing under `ci` (`jobs: "auto"`,
+      // `bunFlags`, ...) - only the defaults ci needs differ.
+      const benchOpts = await resolveBenchOptions(
+        { suites: suiteFiles, preload: [], bunFlags: [], noiseCheck: false },
+        config.bench,
+      )
       const doc = await bench({
-        suites: suiteFiles,
-        outDir: config.outDir,
-        noiseCheck: false,
-        budgetMs: config.bench?.budgetMs,
-        samples: config.bench?.samples,
-        minSamples: config.bench?.minSamples,
-        gc: config.bench?.gc,
-        cpu: config.bench?.cpu,
-        alloc: config.bench?.alloc,
-        filter: config.bench?.filter,
-        isolate: config.bench?.isolate,
-        preload: config.bench?.preload,
-        jobs:
-          typeof config.bench?.jobs === "number"
-            ? config.bench.jobs
-            : undefined,
-        timeoutMs: config.bench?.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
+        ...benchOpts,
+        outDir: benchOpts.outDir ?? config.outDir,
+        timeoutMs: benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
       })
       for (const workload of doc.workloads) {
         const run = doc.measurements.find(
@@ -206,13 +186,18 @@ export async function measureConfigWorkloads(
     })
     const inputsDigest = await computeInputsDigest(wc.inputs ?? [])
     const cfgFp = configFingerprint({
-      runs: config.runs,
+      samples: config.samples ?? null,
+      budgetMs: config.budgetMs ?? null,
+      minSamples: config.minSamples ?? null,
       warmup: config.warmup,
     })
-    // A function-form prepare hook can do anything (its source text is in
-    // the workload id, but not what it reads), so its runs never come from
-    // cache: the same "fail conservative" rule as a workload with no inputs.
-    const cacheable = typeof wc.prepare !== "function"
+    // Only declared `inputs` say what a cached run depends on: with none
+    // declared, any change could affect the command, so it always reruns
+    // (`inputs: []` is the explicit "depends on nothing"). A function-form
+    // prepare hook can do anything (its source text is in the workload id,
+    // but not what it reads), so it never comes from cache either.
+    const cacheable =
+      wc.inputs !== undefined && typeof wc.prepare !== "function"
     const cacheKey = computeCacheKey({
       workloadId: workload.id,
       phase: "timing",
@@ -236,13 +221,14 @@ export async function measureConfigWorkloads(
     } else {
       const phaseResult = await runTimingPhase({
         argv: wc.command!,
-        samples: config.runs ?? undefined,
+        samples: config.samples,
+        budgetMs: config.budgetMs,
+        minSamples: config.minSamples,
         warmup: config.warmup,
         prepare: wc.prepare,
         timeSource: wc.timeSource,
         timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
         ignoreExitCodes: wc.ignoreExitCodes,
-        failOnNonzero: wc.failOnNonzero,
       })
       run = makeTimingMeasurement({
         workload,
@@ -261,7 +247,7 @@ export async function measureConfigWorkloads(
       workload,
       status,
       run,
-      harnessFailed: isHarnessFailure(run.trials, wc.ignoreExitCodes),
+      harnessFailed: isHarnessFailure(run, wc.ignoreExitCodes),
     })
   }
 
@@ -372,7 +358,7 @@ export function renderCiReport(summary: CiSummary): string {
       .filter((r) => r.harnessFailed)
       .map((r) => workloadLabel(r.workload))
     lines.push(
-      `${summary.failed} failed (harness error, every trial exited non-zero: ${failedLabels.join(", ")})`,
+      `${summary.failed} failed (harness error, a command exited non-zero or produced no samples: ${failedLabels.join(", ")})`,
     )
   }
 

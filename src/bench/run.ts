@@ -1,7 +1,11 @@
 import type { ProfileDocument } from "../ir/types.ts"
 import { renderers } from "../renderers/index.ts"
 import type { FormatName } from "../renderers/types.ts"
-import { filterTasks, getRegisteredTasks } from "./registry.ts"
+import {
+  getRegisteredTasks,
+  type RegisteredTask,
+  selectTasks,
+} from "./registry.ts"
 import { type MeasureTasksOpts, measureTasks } from "./run-tasks.ts"
 
 export interface RunOptions extends MeasureTasksOpts {
@@ -34,23 +38,13 @@ export async function run(opts: RunOptions = {}): Promise<ProfileDocument> {
     )
   }
 
-  // A forgotten .only silently gates a whole suite down to a handful of
-  // tasks, so it gets a stderr notice the same way ostia bench's runner does.
-  const onlyTasks = registered.filter((t) => t.only)
-  const candidates = onlyTasks.length > 0 ? onlyTasks : registered
-  if (onlyTasks.length > 0) {
-    process.stderr.write(
-      `bench: ${onlyTasks.length} task(s) selected by .only\n`,
-    )
-  }
-
-  const tasks = filterTasks(candidates, opts.filter)
-  if (tasks.length === 0) {
-    throw new Error(
-      `run(): filter ${JSON.stringify(opts.filter)} matched zero of ${candidates.length} registered task(s).`,
-    )
-  }
   const suiteFile = Bun.main
+  let tasks: RegisteredTask[]
+  try {
+    tasks = selectTasks(registered, opts.filter, suiteFile)
+  } catch (err) {
+    throw new Error(`run(): ${(err as Error).message}`)
+  }
   const doc = await measureTasks(suiteFile, tasks, opts)
 
   if (!opts.quiet) {

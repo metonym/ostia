@@ -1,5 +1,5 @@
 {
-  "runs": 8,
+  "samples": 8,
   "warmup": 2,
   "outDir": ".ostia",
   "baseline": "main",

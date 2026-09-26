@@ -1,3 +1,4 @@
+import { resolve } from "node:path"
 import { scanGlobs } from "../glob.ts"
 import { fp } from "../ir/fp.ts"
 import type { Phase } from "../ir/types.ts"
@@ -34,7 +35,9 @@ export async function computeInputsDigest(
   const paths = await scanGlobs(globs, cwd)
   const entries = await Promise.all(
     paths.map(async (path) => {
-      const buf = await Bun.file(`${cwd}/${path}`).arrayBuffer()
+      // An absolute pattern scans to absolute paths, relative ones to paths
+      // under `cwd`.
+      const buf = await Bun.file(resolve(cwd, path)).arrayBuffer()
       return { path, sha256: Bun.CryptoHasher.hash("sha256", buf, "hex") }
     }),
   )

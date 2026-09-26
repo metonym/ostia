@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { createTimingPhase, runTimingPhase } from "../../src/measure/timing"
+import {
+  assertSamplingOptions,
+  createTimingPhase,
+  runTimingPhase,
+} from "../../src/measure/timing"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 
@@ -67,4 +71,21 @@ describe("measure/timing - createTimingPhase", () => {
     // minSamples (2) is met, but the huge budget isn't, so the phase isn't done.
     expect(phase.done()).toBe(false)
   }, 20_000)
+})
+
+describe("measure/timing - assertSamplingOptions", () => {
+  test("rejects non-positive counts and a non-finite budget, naming the caller", () => {
+    expect(() => assertSamplingOptions("time", { samples: 0 })).toThrow(
+      "time: samples must be >= 1, got 0",
+    )
+    expect(() => assertSamplingOptions("bench", { minSamples: -1 })).toThrow(
+      "bench: minSamples must be >= 1, got -1",
+    )
+    expect(() => assertSamplingOptions("time", { budgetMs: Infinity })).toThrow(
+      "time: budgetMs must be finite",
+    )
+    expect(() =>
+      assertSamplingOptions("time", { samples: 3, budgetMs: 100 }),
+    ).not.toThrow()
+  })
 })

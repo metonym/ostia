@@ -74,6 +74,6 @@ group("document", () => {
   task("serializeDocument (1e3-trial doc)", () => serializeDocument(doc))
 
   task("makeArtifactRef (sha256 of bench/lib/fixtures.ts)", () =>
-    makeArtifactRef("run_x", "other", "bench/lib/fixtures.ts"),
+    makeArtifactRef("run_x", "cpuprofile", "bench/lib/fixtures.ts"),
   )
 })

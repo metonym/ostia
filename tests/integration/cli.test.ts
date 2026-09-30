@@ -412,6 +412,10 @@ describe("ostia ci --format (task 05.2)", () => {
         baseline: "main",
         samples: 3,
         warmup: 0,
+        // These tests are about output, not the verdict: 3 samples of a
+        // ~10ms spawn against a baseline saved a moment earlier drift past
+        // the default 5% often enough to flip the exit code to 1.
+        thresholds: { timingPct: 1000 },
         workloads: [{ label: "spawn", command: ["bun", "-e", "1"] }],
       }),
     )

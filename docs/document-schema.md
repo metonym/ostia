@@ -86,7 +86,7 @@ affect the id.
 | `diagnosticWallNs?` | Wall time of an instrumented run. |
 | `cpu?`, `jit?` | CPU evidence (frames, call tree, per-frame totals, samples) and JIT tier counts (`llint`, `baseline`, `dfg`, `ftl`). |
 | `heap?` | `{ typeCounts, objectCount?, heapSizeBytes? }` from a heap snapshot. |
-| `memory?` | `maxRssBytes` (subprocess timing), or on `memstats`: `kind: "retained"` with `bytesPerOp` (`--alloc`: heap each call keeps alive after a full GC) or `kind: "peak"` with `peakBytes` (`--peak-mem`: how far the task's first call raised peak RSS, median of 3 fresh processes; absent when earlier work hid it). A `memstats` measurement without `kind` predates the field and is `"retained"`. |
+| `memory?` | `maxRssBytes` (subprocess timing), or on `memstats`: `kind: "retained"` with `bytesPerOp` (`--alloc`: heap each call keeps alive after a full GC) or `kind: "peak"` with `peakBytes` (`--peak-mem`: how far the task's first call raised RSS, median of 3 fresh processes). A `memstats` measurement without `kind` predates the field and is `"retained"`. |
 | `warnings` | `Warning[]`. |
 | `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
 
@@ -142,7 +142,7 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 | `thin-comparison` | comparison | Fewer than 5 samples on a side; point-estimate verdict. |
 | `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
 | `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
-| `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) left 16MB or more the call could use without raising peak RSS, so `peakBytes` can be that much low, or absent. `data: { slackBytes, processes }`. |
+| `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) freed 16MB or more that the allocator still held, which the call could reuse without RSS rising, so `peakBytes` can be that much low. `data: { slackBytes, processes }`. |
 
 ## Files on disk
 

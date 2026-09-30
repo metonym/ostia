@@ -25,12 +25,13 @@
     `command: "ab"` with `base`, `geomeanThresholdPct`, `unconfirmed` and
     `outputDiffers`.
 - `ostia bench --peak-mem` (`peakMem` on `bench()`, the `bench` config, and
-  task/group options): how far the task's first call raises peak RSS,
-  garbage included (`memory.kind: "peak"`, `memory.peakBytes`, shown as
-  `Peak mem`), median of 3 fresh processes. Those processes run with
-  `OSTIA_PEAK_MEM=1`, so a suite can skip module-scope work that would peak
-  before the call does; when such work leaves 16MB or more the call could
-  reuse, the measurement carries a new `peak-hidden` warning.
+  task/group options): how far the task's first call raises RSS, garbage
+  included (`memory.kind: "peak"`, `memory.peakBytes`, shown as
+  `Peak mem`), median of 3 fresh processes. RSS is sampled from a worker
+  thread during the call and combined with the peak-RSS high-water mark.
+  Those processes run with `OSTIA_PEAK_MEM=1`, so a suite can skip
+  module-scope work whose freed memory the call could reuse unseen; when
+  that's 16MB or more, the measurement carries a new `peak-hidden` warning.
 - `ostia bench --cpu-interval US` (`cpuIntervalUs` on `bench()`, `run()` and
   the `bench` config).
 - `--format minimal` `run` lines carry `retainedBytesPerOp` (`--alloc`) and

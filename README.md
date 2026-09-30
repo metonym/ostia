@@ -217,7 +217,7 @@ ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" be
 - `--cpu` profiles each task at 100µs for about 2,000 samples (`--cpu-interval` changes
   the interval). Inlined helpers count as their callers' self time.
 - `--alloc` reports the heap each call *retains* after a full GC: a leak check, not an
-  allocation count. `--peak-mem` reports how far the task's first call raises peak RSS,
+  allocation count. `--peak-mem` reports how far the task's first call raises RSS,
   garbage included, in 3 fresh processes (`OSTIA_PEAK_MEM=1` is set there, so a suite can
   skip heavy setup that would peak first).
 - With no files, `ostia bench` uses the config's `bench` section. Each flag overrides its

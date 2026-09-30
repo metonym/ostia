@@ -348,7 +348,7 @@ Flags:
   --cpu-interval US    CPU sampling interval (default: 100)
   --alloc              extra per-task retained-heap-per-call measurement: what calls keep
                        alive after a full GC, not what they allocate (--no-alloc)
-  --peak-mem           extra per-task peak-RSS rise of the task's first call, garbage
+  --peak-mem           extra per-task RSS rise during the task's first call, garbage
                        included; median of 3 fresh processes (--no-peak-mem)
   --filter REGEX       only tasks whose "group/name" matches
   --preload PATH       import before each suite file (repeatable, in order)

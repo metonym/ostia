@@ -171,7 +171,7 @@ ostia bench [flags] <suite.ts...>
 | `--cpu` / `--no-cpu` | Extra per-task CPU profile with JIT tiers, about 2,000 samples. |
 | `--cpu-interval US` | CPU sampling interval (default: 100). |
 | `--alloc` / `--no-alloc` | Extra per-task measurement of the heap each call retains after a full GC. |
-| `--peak-mem` / `--no-peak-mem` | Extra per-task measurement of how far the task's first call raises peak RSS, in fresh processes. |
+| `--peak-mem` / `--no-peak-mem` | Extra per-task measurement of how far the task's first call raises RSS, in fresh processes. |
 | `--filter REGEX` | Only tasks whose `group/name` id matches (unanchored, case-sensitive). |
 | `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
@@ -265,27 +265,25 @@ allocated and dropped, so this is a leak check, not an allocation counter: a fun
 builds and discards a large tree reads near zero. The table shows it as `Retained/op`.
 
 `--peak-mem` adds a `phase: "memstats"` measurement (`memory.kind: "peak"`) of how far
-the task's first call raises the process's peak RSS, which does count garbage. Each task
-runs alone in a fresh process, three times, with `OSTIA_PEAK_MEM=1` in its environment:
-import the suite, run the group's and the task's `before` hooks, `Bun.gc(true)`, read RSS
-and the peak-RSS high-water mark (`process.resourceUsage().maxRSS`), call the task once,
-and read the high-water mark again. The rise, measured from the RSS the call started at,
-median of the three processes, is `memory.peakBytes`, shown as `Peak mem`. The same suite
-gives the same reading to within a few percent.
+the task's first call raises the process's RSS, which does count garbage. Each task runs
+alone in a fresh process, three times, with `OSTIA_PEAK_MEM=1` in its environment: import
+the suite, run the group's and the task's `before` hooks, `Bun.gc(true)`, and call the task
+once while a worker thread samples RSS (about once a microsecond). The peak is the higher of
+the sampled maximum and the peak-RSS high-water mark (`process.resourceUsage().maxRSS`),
+measured from the RSS the call started at; the median of the three processes is
+`memory.peakBytes`, shown as `Peak mem`. The same suite gives the same reading to within a
+few percent.
 
 It measures a first call, in the lower JIT tiers, like a build tool calling a library once
-per file; lower tiers can allocate what optimized code doesn't. There's no warmup because
-a warmup call would set the high-water mark to the call's own peak, and the measured call
-would then read zero. To measure a warmed-up call, warm the JIT in a `before` hook on a
-smaller input than the task's.
+per file; lower tiers can allocate what optimized code doesn't. To measure a warmed-up
+call, warm the JIT in a `before` hook on a smaller input than the task's.
 
-The same goes for anything else the process does before the call. A high-water mark only
-moves when the call exceeds every earlier peak, and memory that setup freed but the
-allocator hasn't handed back to the OS is memory the call can reuse without RSS rising.
-So module-scope code that allocates as much as the task (validating each input by running
-it, say) hides the task's peak. The reading is then low by up to that much, and the
-measurement carries a `peak-hidden` warning with the amount (`data.slackBytes`) when it's
-16MB or more. Skip such work in these processes:
+Memory that setup freed but the allocator still holds is memory the call can reuse without
+RSS rising. Linux hands freed memory back to the OS right away; macOS holds it for seconds.
+So on macOS, module-scope code that allocates as much as the task (validating each input by
+running it, say) can hide the task's peak. The reading is then low by up to that much, and
+the measurement carries a `peak-hidden` warning with the amount (`data.slackBytes`) when
+it's 16MB or more. Skip such work in these processes:
 
 ```ts
 if (!process.env.OSTIA_PEAK_MEM) checkOutputs() // runs every input once

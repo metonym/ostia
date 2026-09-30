@@ -50,7 +50,7 @@ digits.
 | `p75`, `p99`, `mad` | measured | 75th and 99th percentile; median absolute deviation. |
 | `userNs`, `systemNs` | subprocess commands | Median user / system CPU time per trial. |
 | `retainedBytesPerOp` | `--alloc` | Heap each call keeps alive after a full GC, whole bytes. |
-| `peakBytes` | `--peak-mem` | How far the task's first call raised peak RSS, bytes (median of 3 fresh processes). Absent, with a `peak-hidden` warning, when earlier work hid it. |
+| `peakBytes` | `--peak-mem` | How far the task's first call raised RSS, bytes (median of 3 fresh processes). A `peak-hidden` warning says when it may read low. |
 | `relative` | 2+ runs | Median over the group's reference (its `baseline: true` task, else its fastest). |
 | `baseline` | when set | `true` for the group's reference task. |
 | `noiseFloorPct` | noise check ran | The machine's noise floor for this document. |

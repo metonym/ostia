@@ -48,7 +48,7 @@ export interface BenchOptions {
    * override this per task or group. */
   alloc?: boolean
   /** Capture one extra `phase: "memstats"` measurement per task: how far the
-   * task's first call raises peak RSS, garbage included - the reading
+   * task's first call raises RSS, garbage included - the reading
    * `alloc` can't give. Median of 3 fresh processes, each run with
    * `OSTIA_PEAK_MEM=1` in its environment (see `measurePeakMem`).
    * `TaskOptions.peakMem` / `GroupOptions.peakMem` override this per task or

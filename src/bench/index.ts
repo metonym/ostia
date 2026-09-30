@@ -440,23 +440,14 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       if (!readings?.length) return []
       const median = (values: number[]) =>
         percentile(Float64Array.from(values).sort(), 0.5)
-      // A call that stayed under ordinary slack peaked at about nothing.
-      const seen = readings.flatMap((r) =>
-        r.peakBytes !== undefined
-          ? [r.peakBytes]
-          : r.slackBytes < PEAK_SLACK_NOISE_BYTES
-            ? [0]
-            : [],
-      )
+      const peak = median(readings.map((r) => r.peakBytes))
       const slack = Math.max(...readings.map((r) => r.slackBytes))
-      const understated =
-        slack >= PEAK_SLACK_NOISE_BYTES &&
-        (seen.length === 0 || slack > median(seen) / 4)
+      const understated = slack >= PEAK_SLACK_NOISE_BYTES && slack > peak / 4
       const warnings: Warning[] = understated
         ? [
             {
               code: "peak-hidden",
-              message: `Before the call, earlier work in the process had left up to ${formatBytes(slack)} it could use without raising peak RSS (module-scope setup or before hooks that allocate), so ${seen.length === 0 ? "the call's peak couldn't be seen" : "this reading can be low by up to that much"}. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
+              message: `Before the call, earlier work in the process had freed up to ${formatBytes(slack)} the allocator still held (module-scope setup or before hooks that allocate), which the call could reuse without RSS rising: this reading can be low by up to that much. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
               data: { slackBytes: slack, processes: readings.length },
             },
           ]
@@ -470,7 +461,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           memory: {
             origin: "resourceUsage",
             kind: "peak",
-            ...(seen.length > 0 && { peakBytes: median(seen) }),
+            peakBytes: peak,
           },
           warnings,
           artifacts: [],

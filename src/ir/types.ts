@@ -252,11 +252,10 @@ export interface MemoryEvidence {
    * calls create and drop is collected before the second reading, so this
    * is what the calls keep alive (a leak check), not what they allocate. */
   bytesPerOp?: number
-  /** How far one call pushed the process's peak RSS above its RSS when the
-   * call started, garbage included, from `ostia bench --peak-mem`: median
-   * over 3 fresh processes, each making the task's first call after its
-   * `before` hooks and a full GC. Absent when every process's earlier work
-   * had already peaked higher (a `peak-hidden` warning says so). */
+  /** How far one call raised the process's RSS above where it started,
+   * garbage included, from `ostia bench --peak-mem`: median over 3 fresh
+   * processes, each making the task's first call after its `before` hooks
+   * and a full GC. A `peak-hidden` warning says when it may read low. */
   peakBytes?: number
 }
 

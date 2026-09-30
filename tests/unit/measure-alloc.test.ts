@@ -44,8 +44,8 @@ describe("measure/alloc - retained, not allocated", () => {
 })
 
 describe("measure/peak", () => {
-  // Fresh processes: this one has already peaked well above 40MB running
-  // other tests, which would hide the call - the case `slackBytes` reports.
+  // Fresh processes: this one has run other tests, whose freed memory the
+  // call could reuse unseen.
   async function inFreshProcess(body: string) {
     const proc = Bun.spawn(
       [
@@ -70,14 +70,18 @@ describe("measure/peak", () => {
     expect(result.wallNs).toBeGreaterThan(0)
   }, 20_000)
 
-  test("reports the slack when earlier work already peaked higher", async () => {
+  test("sees the call, or reports the slack, after earlier work peaked higher", async () => {
     const result = await inFreshProcess(`
       const since = memorySnapshot()
       new Array(8_000_000).fill(1.5)
       console.log(JSON.stringify(await measurePeakMem(() => new Array(5_000_000).fill(1.5).length, since)))`)
-    // The call fits in what the earlier 64MB left behind.
-    expect(result.peakBytes ?? 0).toBeLessThan(30 * 1024 * 1024)
-    expect(result.slackBytes).toBeGreaterThan(30 * 1024 * 1024)
+    // Where the allocator returns freed memory at once (Linux), the call's
+    // RSS rise is all visible; where it holds on to it (macOS), the call
+    // reuses it and the reading says how much could be missing.
+    expect(
+      result.peakBytes > 30 * 1024 * 1024 ||
+        result.slackBytes > 30 * 1024 * 1024,
+    ).toBe(true)
   }, 20_000)
 
   test("works with an async task", async () => {

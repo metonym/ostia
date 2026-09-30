@@ -40,9 +40,8 @@ export function environmentMismatch(doc: ProfileDocument): Warning | undefined {
 export interface MemoryReadings {
   /** `--alloc`: heap each call retains, bytes. */
   retained?: number
-  /** `--peak-mem`: peak-RSS rise of one call, bytes, or `"hidden"` when the
-   * measurement ran but earlier work in its processes peaked higher. */
-  peak?: number | "hidden"
+  /** `--peak-mem`: RSS rise of one call, bytes. */
+  peak?: number
   /** The `memstats` measurements' warnings (e.g. `peak-hidden`). */
   warnings: Warning[]
 }
@@ -58,7 +57,7 @@ export function memoryReadings(
     const readings = byWorkload.get(m.workloadId) ?? { warnings: [] }
     if (m.memory.bytesPerOp !== undefined)
       readings.retained = m.memory.bytesPerOp
-    if (m.memory.kind === "peak") readings.peak = m.memory.peakBytes ?? "hidden"
+    if (m.memory.peakBytes !== undefined) readings.peak = m.memory.peakBytes
     readings.warnings.push(...m.warnings)
     byWorkload.set(m.workloadId, readings)
   }

@@ -83,11 +83,7 @@ function memoryColumns(memory: Map<string, MemoryReadings>): {
     {
       name: "Peak mem",
       cell: (r: MemoryReadings | undefined) =>
-        r?.peak === undefined
-          ? "-"
-          : r.peak === "hidden"
-            ? "hidden"
-            : formatBytes(r.peak),
+        r?.peak === undefined ? "-" : formatBytes(r.peak),
     },
   ].filter((_, i) =>
     readings.some((r) =>

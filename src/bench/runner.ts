@@ -6,6 +6,8 @@ import {
   type MemorySnapshot,
   measurePeakMem,
   memorySnapshot,
+  type RssSampler,
+  startRssSampler,
 } from "../measure/peak.ts"
 import {
   getRegisteredTasks,
@@ -82,7 +84,9 @@ async function main(): Promise<number> {
   // What `measurePeakMem` compares the suite's own footprint against, taken
   // once ostia itself (which the suite imports) is loaded.
   let launched: MemorySnapshot | undefined
+  let sampler: RssSampler | undefined
   if (opts.peakMemFor) {
+    sampler = await startRssSampler()
     await import("../index.ts")
     launched = memorySnapshot()
   }
@@ -125,7 +129,7 @@ async function main(): Promise<number> {
     }
     await t.groupBefore?.()
     await t.opts?.before?.()
-    const result = await measurePeakMem(t.fn, launched)
+    const result = await measurePeakMem(t.fn, launched, sampler)
     await t.opts?.after?.()
     await t.groupAfter?.()
     await Bun.write(outputPath, JSON.stringify(result))

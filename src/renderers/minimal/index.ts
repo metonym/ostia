@@ -105,9 +105,7 @@ interface MinimalRunLine {
   systemNs?: number
   /** `--alloc`: heap each call keeps alive after a full GC, whole bytes. */
   retainedBytesPerOp?: number
-  /** `--peak-mem`: how far the task's first call raised peak RSS, bytes.
-   * Absent, with a `peak-hidden` warning, when earlier work in the process
-   * had already peaked higher. */
+  /** `--peak-mem`: how far the task's first call raised RSS, bytes. */
   peakBytes?: number
   /** Median over the group's reference median (its baseline task, else its
    * fastest). Only present when the document has more than one timing run. */
@@ -338,7 +336,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
     if (readings?.retained !== undefined) {
       line.retainedBytesPerOp = Math.round(readings.retained)
     }
-    if (typeof readings?.peak === "number") {
+    if (readings?.peak !== undefined) {
       line.peakBytes = Math.round(readings.peak)
     }
     addWorkloadFields(line, workload)

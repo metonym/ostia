@@ -697,7 +697,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-peak-mem`]).exited
   }, 30_000)
 
-  test("--peak-mem warns peak-hidden when module-scope work peaks first, and sets OSTIA_PEAK_MEM so a suite can skip it", async () => {
+  test("--peak-mem sees through or warns about module-scope work, and sets OSTIA_PEAK_MEM so a suite can skip it", async () => {
     const run = async (gated: boolean) => {
       process.env.OSTIA_PEAK_MEM_FIXTURE_GATED = gated ? "1" : ""
       try {
@@ -716,11 +716,12 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
       }
     }
 
-    const hidden = await run(false)
-    expect(hidden.warnings.map((w) => w.code)).toEqual(["peak-hidden"])
-    expect(
-      (hidden.warnings[0]!.data as { slackBytes: number }).slackBytes,
-    ).toBeGreaterThan(16 * 1024 * 1024)
+    // Ungated, the setup's 40MB is either back with the OS by the time the
+    // call runs (Linux: the call reads in full) or still held for the call
+    // to reuse (macOS: the reading warns).
+    const ungated = await run(false)
+    const warned = ungated.warnings.some((w) => w.code === "peak-hidden")
+    expect(warned || ungated.memory!.peakBytes! > 30 * 1024 * 1024).toBe(true)
 
     const gated = await run(true)
     expect(gated.warnings).toEqual([])

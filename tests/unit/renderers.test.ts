@@ -509,7 +509,7 @@ describe("--alloc / --peak-mem evidence in every document renderer", () => {
     expect(text).toContain("| 2.00KB | 3.00MB |")
   })
 
-  test("a peak hidden by earlier work reads 'hidden', with its warning on the row", async () => {
+  test("a peak-hidden warning shows on the task's row in every renderer", async () => {
     const doc = fixedDoc()
     const workload = doc.workloads[0]!
     doc.measurements.push(
@@ -518,11 +518,11 @@ describe("--alloc / --peak-mem evidence in every document renderer", () => {
         phase: "memstats",
         configFingerprint: "cfg_peak",
         diagnosticWallNs: 1_000_000,
-        memory: { origin: "resourceUsage", kind: "peak" },
+        memory: { origin: "resourceUsage", kind: "peak", peakBytes: 4096 },
         warnings: [
           {
             code: "peak-hidden",
-            message: "hidden by setup",
+            message: "freed by setup",
             data: { slackBytes: 64 * 1024 * 1024, processes: 3 },
           },
         ],
@@ -530,17 +530,15 @@ describe("--alloc / --peak-mem evidence in every document renderer", () => {
       }),
     )
     const table = (await renderers.table.render(doc, {})).text!
-    expect(table).toContain("hidden")
     expect(table).toContain("! peak-hidden")
     const markdown = (await renderers.markdown.render(doc, {})).text!
-    expect(markdown).toContain("| hidden |")
     expect(markdown).toContain("(`peak-hidden`)")
     const line = (await renderers.minimal.render(doc, {}))
       .text!.trim()
       .split("\n")
       .map((l) => JSON.parse(l))
       .find((l) => l.workloadId === workload.id)
-    expect(line.peakBytes).toBeUndefined()
+    expect(line.peakBytes).toBe(4096)
     expect(line.warnings.map((w: { code: string }) => w.code)).toContain(
       "peak-hidden",
     )

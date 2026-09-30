@@ -175,8 +175,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       }
       if (showPeak) {
         const peak = readings?.peak
-        const peakCell =
-          peak === undefined ? "" : peak === "hidden" ? peak : formatBytes(peak)
+        const peakCell = peak !== undefined ? formatBytes(peak) : ""
         line += ` ${peakCell.padEnd(peakWidth)}`
       }
       if (showRelative) {

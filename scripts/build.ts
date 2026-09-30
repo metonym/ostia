@@ -24,6 +24,7 @@ const result = await Bun.build({
     join(root, "src/cli/main.ts"),
     join(root, "src/index.ts"),
     join(root, "src/bench/runner.ts"),
+    join(root, "src/ab/ab-runner.ts"),
   ],
   outdir: out,
   target: "bun",
@@ -44,9 +45,15 @@ if (existsSync(cliOut)) {
   renameSync(cliOut, join(out, "cli.js"))
 }
 
-const runnerOut = join(out, "runner.js")
-if (existsSync(runnerOut)) {
-  renameSync(runnerOut, join(out, "runner.ts"))
+// The runners are spawned by path (`new URL("./runner.ts", import.meta.url)`
+// in src/bench, `./ab-runner.ts` in src/ab), so they keep their source names.
+for (const runner of ["runner", "ab-runner"]) {
+  const runnerOut = join(out, `${runner}.js`)
+  if (!existsSync(runnerOut)) {
+    console.error(`build: missing ${runner}.js`)
+    process.exit(1)
+  }
+  renameSync(runnerOut, join(out, `${runner}.ts`))
 }
 
 await bundleDts({

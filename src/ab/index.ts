@@ -22,7 +22,7 @@ import {
 } from "../measure/environment.ts"
 import { killSwitch } from "../spawn/index.ts"
 import { percentile } from "../stats/index.ts"
-import type { AbRunnerOpts } from "./runner.ts"
+import type { AbRunnerOpts } from "./ab-runner.ts"
 
 export interface AbOptions {
   suites: string[]
@@ -61,7 +61,7 @@ export interface AbOptions {
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
 export class AbBaseError extends Error {}
 
-const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
+const RUNNER_PATH = new URL("./ab-runner.ts", import.meta.url).pathname
 
 const DEFAULTS = {
   base: "HEAD",

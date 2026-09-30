@@ -54,7 +54,7 @@ async function main(): Promise<number> {
   const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2)
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {
     process.stderr.write(
-      "ab runner: usage: runner.ts <candSuite> <baseSuite|''> <outputPath> <optsJson>\n",
+      "ab runner: usage: ab-runner.ts <candSuite> <baseSuite|''> <outputPath> <optsJson>\n",
     )
     return 2
   }

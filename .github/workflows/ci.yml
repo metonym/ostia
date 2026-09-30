@@ -74,5 +74,8 @@ jobs:
         if: github.event_name == 'push'
         run: bun run baseline
 
+      # On push the baseline is seeded from the same commit, so any "regression"
+      # is runner noise. Still run it to exercise the pipeline, but don't gate.
       - name: Dogfood (ostia ci)
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: bun src/cli/main.ts ci

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- `ostia ab` failed on every suite from the published package ("JSON Parse
+  error: Unrecognized token '/'", exit 2): the ab runner wasn't built, so the
+  bench runner was spawned in its place. The package now ships
+  `ab-runner.ts`, and CI runs `ab`, `bench --peak-mem` and `bench --cpu` from
+  the packed package.
+
 ## 0.2.8 — 2026-09-30
 
 **Features**

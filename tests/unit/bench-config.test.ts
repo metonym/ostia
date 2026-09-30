@@ -198,4 +198,23 @@ describe("resolveBenchOptions", () => {
     )
     expect(resolved.preload).toEqual(["./config-preload.ts"])
   })
+
+  test("cpuIntervalUs and peakMem: CLI wins, else config, else unset/false", async () => {
+    const config: BenchConfig = { cpuIntervalUs: 50, peakMem: true }
+    const fromConfig = await resolveBenchOptions(cli(), config, "/tmp")
+    expect(fromConfig.cpuIntervalUs).toBe(50)
+    expect(fromConfig.peakMem).toBe(true)
+
+    const fromCli = await resolveBenchOptions(
+      cli({ cpuIntervalUs: 200, peakMem: false }),
+      config,
+      "/tmp",
+    )
+    expect(fromCli.cpuIntervalUs).toBe(200)
+    expect(fromCli.peakMem).toBe(false)
+
+    const neither = await resolveBenchOptions(cli(), undefined, "/tmp")
+    expect(neither.cpuIntervalUs).toBeUndefined()
+    expect(neither.peakMem).toBe(false)
+  })
 })

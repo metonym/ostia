@@ -19,6 +19,7 @@ import type {
   JitTierBreakdown,
   Measurement,
   MemoryEvidence,
+  PairedEvidence,
   Phase,
   ProfileDocument,
   TimingStats,
@@ -238,6 +239,45 @@ export function makeInstrumentedMeasurement(
     jit: input.jit,
     warnings: input.warnings,
     artifacts: input.artifacts,
+  }
+}
+
+export interface PairedMeasurementInput {
+  workload: Workload
+  configFingerprint: string
+  /** The candidate side's per-call timing over the rounds. */
+  timing: TimingStats
+  paired: PairedEvidence
+  diagnosticWallNs: number
+  warnings: Warning[]
+}
+
+/** A `phase: "paired"` measurement: `timing` is the candidate side, `paired`
+ * the base side and the per-round ratios. Not instrumented - both sides ran
+ * through the same plain timing loops. */
+export function makePairedMeasurement(
+  input: PairedMeasurementInput,
+): Measurement {
+  const id = fp(
+    "run",
+    input.workload.id,
+    "paired",
+    input.configFingerprint,
+    Bun.version,
+    TOOL_VERSION,
+  )
+  return {
+    id,
+    workloadId: input.workload.id,
+    phase: "paired",
+    instrumented: false,
+    configFingerprint: input.configFingerprint,
+    trials: [],
+    timing: input.timing,
+    diagnosticWallNs: input.diagnosticWallNs,
+    paired: input.paired,
+    warnings: input.warnings,
+    artifacts: [],
   }
 }
 

@@ -35,6 +35,7 @@ recomputes them from the stored samples, so every loaded `TimingStats` has them.
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, geomeanPct, verdict }`. |
 
 ## Workloads
 
@@ -75,16 +76,17 @@ affect the id.
 |---|---|
 | `id` | Hash of the workload id, phase, config fingerprint, Bun and ostia versions. |
 | `workloadId` | The workload measured. |
-| `phase` | `"timing"`, `"cpu"`, `"heap"` or `"memstats"`. |
+| `phase` | `"timing"`, `"cpu"`, `"heap"`, `"memstats"` or `"paired"` (`ab`). |
 | `instrumented` | `true` for cpu/heap/memstats: a separate, profiled run, never mixed into timing. |
 | `configFingerprint` | Hash of the sampling settings that produced it. |
 | `trials` | `Trial[]`. |
-| `timing?` | `TimingStats`, on timing measurements with at least one sample. |
+| `timing?` | `TimingStats`, on timing measurements with at least one sample; on a paired measurement, the candidate side's per-call times, one sample per round. |
+| `paired?` | Paired measurements only; see below. |
 | `interleaved?` | Trials were round-robined with other commands. |
 | `diagnosticWallNs?` | Wall time of an instrumented run. |
 | `cpu?`, `jit?` | CPU evidence (frames, call tree, per-frame totals, samples) and JIT tier counts (`llint`, `baseline`, `dfg`, `ftl`). |
 | `heap?` | `{ typeCounts, objectCount?, heapSizeBytes? }` from a heap snapshot. |
-| `memory?` | `maxRssBytes` (subprocess timing) or `bytesPerOp` (`--alloc`). |
+| `memory?` | `maxRssBytes` (subprocess timing), or on `memstats`: `kind: "retained"` with `bytesPerOp` (`--alloc`: heap each call keeps alive after a full GC) or `kind: "peak"` with `peakBytes` (`--peak-mem`: how far the task's first call raised peak RSS, median of 3 fresh processes; absent when earlier work hid it). A `memstats` measurement without `kind` predates the field and is `"retained"`. |
 | `warnings` | `Warning[]`. |
 | `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
 
@@ -95,6 +97,14 @@ contribute no sample.
 `TimingStats`: `{ unit: "ns", samples, mean, median, stddev, min, max, outliers: { mild, severe }, p25, p75, p99, mad, batch? }`.
 For batched in-process tasks, `samples` are per-call times and `batch` is the number of
 calls per trial.
+
+`PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
+medianRatio, p25, p75, flagged?, repeats?, confirmed?, verdict, sameOutput }`.
+`baseSamples[i]` and `timing.samples[i]` are the two sides' per-call times in round `i`,
+and `ratios[i]` is candidate over base. `flagged` is what the first process saw;
+`repeats` are the fresh-process re-measurements of a flagged task (`{ medianRatio, p25,
+p75, flagged? }`), and `verdict` is `flagged` only when `confirmed`. See
+[cli.md](cli.md#ostia-ab).
 
 ## Comparisons
 
@@ -124,7 +134,7 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 | `timeout` | subprocess timing | Trials were killed by `timeoutMs`. |
 | `time-source-no-match` | subprocess timing | Trials' output didn't match the `timeSource` pattern. `data: { pattern, trials, output }`. |
 | `noisy-machine` | first measurement (`ci`: every executed one) | 1-minute load average above 75% of available cores. |
-| `low-sample-count` | in-process timing | Fewer samples than the task's cost class calls for (explicit `minSamples` only). |
+| `low-sample-count` | in-process timing, `--cpu` capture | Timing: fewer samples than the task's cost class calls for (explicit `minSamples` only). CPU: fewer than 1,000 samples; `data: { samples, target, intervalUs }`. |
 | `jit-cold` | `--cpu` capture | More than 20% of samples in the llint/baseline tiers. |
 | `empty-profile` | CPU capture | The profile recorded no samples (`--cpu` or `profile()`). |
 | `artifact-missing` | CPU/heap capture | The expected `.cpuprofile`/`.heapsnapshot` file wasn't written. |
@@ -132,11 +142,13 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 | `thin-comparison` | comparison | Fewer than 5 samples on a side; point-estimate verdict. |
 | `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
 | `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
+| `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) left 16MB or more the call could use without raising peak RSS, so `peakBytes` can be that much low, or absent. `data: { slackBytes, processes }`. |
 
 ## Files on disk
 
-- `outDir` (default `node_modules/.cache/ostia`): the `ci` cache, `artifacts/`, and
-  `bench` scratch files.
+- `outDir` (default `node_modules/.cache/ostia`): the `ci` cache, `artifacts/`, `bench`
+  and `ab` scratch files, and `ab/<sha>/`, the base trees `ab` extracts (one per commit,
+  reused).
 - `baselineDir` (default `.ostia/baselines`): `<name>.json` baselines.
 
 Documents are written atomically (temp file, then rename), so an interrupted write never

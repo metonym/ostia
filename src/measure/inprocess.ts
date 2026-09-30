@@ -52,7 +52,7 @@ const WARMUP_CHUNK_NS = 1_000_000
 const CALIBRATION_ROUNDS = 5
 // Ring buffer the loop writes every result into: the JIT can't prove a stored
 // value unused, so it can't elide the call or its allocations.
-const SINK_SIZE = 256
+export const SINK_SIZE = 256
 
 export interface InprocessTimingResult {
   trials: Trial[]
@@ -123,7 +123,7 @@ let loopSerial = 0
  * 80ns depending on its position in the suite. The serial in the source keeps
  * JSC's code cache from handing two tasks the same compiled body. An async task
  * gets an awaiting loop; a sync one never pays for a microtask per call. */
-function compileLoop(isAsync: boolean): Loop {
+export function compileLoop(isAsync: boolean): Loop {
   const body = `/* ostia task loop ${loopSerial++} */
 const t0 = Bun.nanoseconds()
 for (let b = 0; b < n; b++) sink[b & ${SINK_SIZE - 1}] = ${isAsync ? "await " : ""}fn()

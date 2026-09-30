@@ -37,6 +37,7 @@ import {
   type TimeSource,
 } from "./spawn/index.ts"
 
+export { ab } from "./ab/index.ts"
 export { bench } from "./bench/index.ts"
 export { range } from "./bench/range.ts"
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts"

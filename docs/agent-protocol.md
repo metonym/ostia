@@ -2,12 +2,13 @@
 
 `--format minimal` is a line protocol for scripts and LLM agents: one JSON object per
 line on stdout, nothing else. It drops the raw sample arrays and prose that make a full
-`ProfileDocument` large. It works on `time`, `bench`, `compare`, `ci`, `report` and
+`ProfileDocument` large. It works on `time`, `bench`, `ab`, `compare`, `ci`, `report` and
 `baseline show`.
 
 ```sh
 ostia time --samples 10 "bun a.ts" --format minimal
 ostia bench bench/*.ts --format minimal
+ostia ab bench/*.ts --base origin/main --format minimal
 ostia compare before.json after.json --format minimal
 ostia ci --format minimal; echo $?
 ```
@@ -31,8 +32,9 @@ knows keeps working. `run` lines also carry the document's `schemaVersion` (curr
 
 ### `run`
 
-One per timing measurement, for every command. Times are in nanoseconds (`unit: "ns"`),
-rounded to 6 significant digits.
+One per timing measurement, for every command; for `ab`, one per paired task, with the
+candidate's stats. Times are in nanoseconds (`unit: "ns"`), rounded to 6 significant
+digits.
 
 | Field | Present | Meaning |
 |---|---|---|
@@ -47,11 +49,14 @@ rounded to 6 significant digits.
 | `stddevPct` | measured | `stddev / mean` in percent. |
 | `p75`, `p99`, `mad` | measured | 75th and 99th percentile; median absolute deviation. |
 | `userNs`, `systemNs` | subprocess commands | Median user / system CPU time per trial. |
+| `retainedBytesPerOp` | `--alloc` | Heap each call keeps alive after a full GC, whole bytes. |
+| `peakBytes` | `--peak-mem` | How far the task's first call raised peak RSS, bytes (median of 3 fresh processes). Absent, with a `peak-hidden` warning, when earlier work hid it. |
 | `relative` | 2+ runs | Median over the group's reference (its `baseline: true` task, else its fastest). |
 | `baseline` | when set | `true` for the group's reference task. |
 | `noiseFloorPct` | noise check ran | The machine's noise floor for this document. |
-| `warnings` | always | `[{ code, data? }]`: the measurement's warnings, plus CPU-capture and comparison warnings for the same workload. Codes are listed in [document-schema.md](document-schema.md#warnings). |
+| `warnings` | always | `[{ code, data? }]`: the measurement's warnings, plus CPU-capture, memory and comparison warnings for the same workload. Codes are listed in [document-schema.md](document-schema.md#warnings). |
 | `delta` | `compare`/`ci` | See below. |
+| `paired` | `ab` | See below. |
 
 `delta`:
 
@@ -65,9 +70,22 @@ rounded to 6 significant digits.
 | `effectiveTimingPct` | The threshold actually applied, after noise-floor widening. |
 | `matched` | Always `true`. |
 
+`paired` (`ab` only; ratios are candidate/base, so above 1 is slower):
+
+| Field | Meaning |
+|---|---|
+| `baseMedian` | The base side's median per-call time, ns. |
+| `medianRatio`, `p25`, `p75` | Median and quartiles of the per-round time ratios. |
+| `rounds` | Rounds measured. |
+| `verdict` | `"regressed"`, `"improved"` or `"unchanged"`, after confirmation. |
+| `flagged` | What the first process saw, when it crossed the threshold. |
+| `confirmed` | With `flagged`: whether every fresh-process repeat flagged the same way. |
+| `repeats` | With `flagged`: each repeat's median ratio. |
+| `sameOutput` | Whether the first call returned deep-equal values on both sides. |
+
 ### `unmatched`
 
-`compare`/`ci` only. One per workload present in only one of the two documents.
+`compare`/`ci`/`ab` only. One per workload present in only one of the two documents.
 
 ```json
 {"event":"unmatched","protocolVersion":1,"workloadId":"wl_…","task":"old-task","side":"base"}
@@ -75,16 +93,21 @@ rounded to 6 significant digits.
 
 ### `summary`
 
-`compare`/`ci` only; always the last line. Never emitted for `time`, `bench` or `report`.
+`compare`/`ci`/`ab` only; always the last line. Never emitted for `time`, `bench` or
+`report`.
 
 | Field | Meaning |
 |---|---|
-| `command` | `"compare"` or `"ci"`. |
-| `matched`, `regressed`, `improved`, `unchanged` | Counts over matched workloads (timing verdicts). |
+| `command` | `"compare"`, `"ci"` or `"ab"`. |
+| `matched`, `regressed`, `improved`, `unchanged` | Counts over matched workloads (timing verdicts; for `ab`, confirmed verdicts). |
 | `unmatched` | Count of `unmatched` events. |
 | `cached`, `executed`, `failed`, `missingBaseline` | `ci` only. `failed` counts harness failures. |
 | `geomeanPct` | Geometric mean of candidate/base median ratios, as a signed percent; `null` when there were no timing comparisons. |
-| `effectiveTimingPct` | Threshold after noise-floor widening. |
+| `effectiveTimingPct` | Threshold after noise-floor widening; for `ab`, `--threshold` as given. |
+| `base` | `ab` only: `{ ref, sha }` the working tree was paired against. |
+| `geomeanThresholdPct` | `ab` only: the run fails when `geomeanPct` exceeds it. |
+| `unconfirmed` | `ab` only: flagged in the first process, not reproduced by the repeats; counted in `unchanged`. |
+| `outputDiffers` | `ab` only: tasks whose first call returned different values on each side. |
 | `noiseFloorPct` | When the candidate document has one. |
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |
@@ -106,9 +129,9 @@ The same across commands:
 | Code | Meaning |
 |---|---|
 | `0` | Pass. |
-| `1` | At least one workload failed its comparison (`compare`, `ci`). `time` and `bench` never return 1. |
+| `1` | At least one workload failed its comparison (`compare`, `ci`), or a confirmed regression or the geomean over its threshold (`ab`). `time` and `bench` never return 1. |
 | `2` | Harness error: the numbers couldn't be produced or compared. |
-| `130` | Cancelled with Ctrl-C (`time`, `bench`). |
+| `130` | Cancelled with Ctrl-C (`time`, `bench`, `ab`). |
 
 `--help` exits 0; a missing required argument prints the help and exits 2.
 
@@ -126,11 +149,11 @@ structured detail. stdout stays pure JSON for the machine formats.
 
 | `code` | Cause |
 |---|---|
-| `invalid-flag` | Unknown flag or subcommand, bad flag value, bad `--time-source` regex, wrong number of `--prepare` hooks, invalid baseline name. |
+| `invalid-flag` | Unknown flag or subcommand, bad flag value, bad `--time-source` regex, wrong number of `--prepare` hooks, invalid baseline name, `ab` outside a git repository or with a `--base` that isn't a commit. |
 | `config-missing` | No `ostia.config.ts`/`ostia.config.json`, or no `workloads` (`ci`, `baseline`). |
 | `config-invalid` | The config file can't be loaded: invalid JSON, an `ostia.config.ts` that throws on import, or a renamed field (e.g. `runs`, now `samples`). |
 | `baseline-missing` | No baseline file, or the baseline doesn't cover the configured workloads (`onMissingBaseline`). |
-| `no-matches` | `compare` found no workload id in both documents. |
+| `no-matches` | `compare` found no workload id in both documents; `ab` found no task on both sides. |
 | `spawn-failed` | A run threw: a command couldn't start, a `prepare` hook failed or timed out, a suite failed or timed out. |
 | `command-failed` | A command had a non-ignored non-zero exit (`time`, `ci`), or produced no samples for another reason. |
 | `timeout` | `time`: a command produced no samples because its trials timed out. |

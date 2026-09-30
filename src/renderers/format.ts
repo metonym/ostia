@@ -1,4 +1,5 @@
 import type {
+  CpuEvidence,
   Environment,
   GitMetadata,
   Measurement,
@@ -49,6 +50,22 @@ export function formatDuration(
 ): string {
   const value = ns / UNIT_DIVISORS[unit]
   return `${value.toFixed(sigFigDecimals(value))} ${unit}`
+}
+
+/** Samples in a CPU capture: its sample stream when it kept one, else the
+ * per-frame self counts. */
+export function cpuSampleCount(cpu: CpuEvidence): number {
+  return (
+    cpu.samples?.nodeIds.length ??
+    cpu.totals.reduce((sum, t) => sum + t.samples, 0)
+  )
+}
+
+/** `512B`, `2.00KB`, `14.90MB`. */
+export function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes.toFixed(0)}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
 }
 
 /** One header line describing the machine a document was measured on, e.g.

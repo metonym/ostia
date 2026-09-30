@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
+import { AbBaseError, ab } from "../ab/index.ts"
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
-import { availableJobs, bench, resolveBenchOptions } from "../bench/index.ts"
+import {
+  availableJobs,
+  bench,
+  expandSuiteGlobs,
+  resolveBenchOptions,
+} from "../bench/index.ts"
 import {
   BaselineNotFoundError,
   MissingBaselineError,
@@ -338,8 +344,12 @@ Flags:
   --jobs N|auto        suite files at once (default: 1; >1 adds noise)
   --isolate            one process per task, not per file (--no-isolate to undo config)
   --gc                 Bun.gc(true) between trials (--no-gc)
-  --cpu                extra per-task CPU profile with JIT tiers (--no-cpu)
-  --alloc              extra per-task bytes-allocated-per-call measurement (--no-alloc)
+  --cpu                extra per-task CPU profile with JIT tiers, ~2,000 samples (--no-cpu)
+  --cpu-interval US    CPU sampling interval (default: 100)
+  --alloc              extra per-task retained-heap-per-call measurement: what calls keep
+                       alive after a full GC, not what they allocate (--no-alloc)
+  --peak-mem           extra per-task peak-RSS rise of the task's first call, garbage
+                       included; median of 3 fresh processes (--no-peak-mem)
   --filter REGEX       only tasks whose "group/name" matches
   --preload PATH       import before each suite file (repeatable, in order)
   --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
@@ -351,13 +361,47 @@ Flags:
   --quiet              don't print the report
   --help               show this message
 
-Per-task/per-group options ({ budgetMs, minSamples, gc, isolate, cpu, alloc }) override
+Per-task/per-group options ({ budgetMs, minSamples, gc, isolate, cpu, alloc, peakMem }) override
 the suite-wide defaults. Exit codes: 0 ok, 2 a suite failed (or a bad flag), 130 Ctrl-C.
 
 Examples:
   ostia bench bench/*.ts
   ostia bench bench/*.ts --filter parse --cpu --alloc
   ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
+`
+
+const AB_HELP = `ostia ab [flags] <suite.ts...>
+
+Pair every task on a git ref's committed tree (base) against the working tree (candidate), in
+one process, alternating ~10ms batches, and gate on the per-round time ratio. Drift between
+the two sides cancels within a round. With no files, uses ostia.config's "bench" suites.
+
+Flags:
+  --base REF           git ref for the base side (default: HEAD)
+  --rounds N           base/candidate rounds per task (default: 15)
+  --threshold PCT      flag a task whose median ratio moves past PCT (default: 10)
+  --geomean-threshold PCT  fail when the geometric mean of all ratios is slower than PCT
+                       (default: 1.5)
+  --confirm N          re-measure each flagged task in N fresh processes (default: 2; 0 skips)
+  --filter REGEX       only tasks whose "group/name" matches
+  --preload PATH       import before each suite file (repeatable, in order)
+  --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
+  --timeout MS         kill a suite (or repeat) process after MS
+  --out-dir PATH       scratch directory and base-tree cache (default: node_modules/.cache/ostia)
+  --no-noise-check     skip the ~200ms noise-floor measurement
+  --export-json PATH   write the ProfileDocument to PATH
+  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --quiet              don't print the report
+  --help               show this message
+
+A flagged task counts only when every fresh-process repeat flags it the same way. Exit codes:
+0 pass, 1 a confirmed regression or the geomean over its threshold, 2 nothing paired or a
+harness error (not a git repo, unknown ref, a suite failed), 130 Ctrl-C.
+
+Examples:
+  ostia ab bench/parse.bench.ts
+  ostia ab bench/*.ts --base origin/main --rounds 21
+  ostia ab bench/*.ts --filter parse --format minimal
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -451,6 +495,7 @@ Examples:
 type FlagSpec =
   | { kind: "string" }
   | { kind: "int"; min?: number; allowAuto?: boolean }
+  | { kind: "number"; min: number }
   | { kind: "bool"; value: boolean }
   | { kind: "enum"; values: readonly string[] }
   | { kind: "list" }
@@ -505,6 +550,22 @@ function parseFlags<T extends object>(
       case "int":
         bag[def.dest] = parseIntFlag(name, value(), def.spec)
         break
+      case "number": {
+        const raw = value()
+        const n = Number(raw)
+        if (
+          raw === undefined ||
+          raw === "" ||
+          !Number.isFinite(n) ||
+          n < def.spec.min
+        ) {
+          throw new CliUsageError(
+            `Invalid ${name} "${raw}": expected a number ≥ ${def.spec.min}`,
+          )
+        }
+        bag[def.dest] = n
+        break
+      }
       case "bool":
         bag[def.dest] = def.spec.value
         break
@@ -769,7 +830,9 @@ interface BenchArgs {
   jobs?: number
   gc?: boolean
   cpu?: boolean
+  cpuIntervalUs?: number
   alloc?: boolean
+  peakMem?: boolean
   filter?: string
   isolate?: boolean
   preload: string[]
@@ -792,8 +855,11 @@ const BENCH_FLAGS: Record<string, FlagDef> = {
   "--no-gc": { dest: "gc", spec: { kind: "bool", value: false } },
   "--cpu": { dest: "cpu", spec: { kind: "bool", value: true } },
   "--no-cpu": { dest: "cpu", spec: { kind: "bool", value: false } },
+  "--cpu-interval": { dest: "cpuIntervalUs", spec: { kind: "int", min: 1 } },
   "--alloc": { dest: "alloc", spec: { kind: "bool", value: true } },
   "--no-alloc": { dest: "alloc", spec: { kind: "bool", value: false } },
+  "--peak-mem": { dest: "peakMem", spec: { kind: "bool", value: true } },
+  "--no-peak-mem": { dest: "peakMem", spec: { kind: "bool", value: false } },
   "--filter": { dest: "filter", spec: { kind: "string" } },
   "--isolate": { dest: "isolate", spec: { kind: "bool", value: true } },
   "--no-isolate": { dest: "isolate", spec: { kind: "bool", value: false } },
@@ -830,18 +896,29 @@ function parseBenchArgs(argv: string[]): BenchArgs {
     BENCH_FLAGS,
     args,
     (arg, a) => a.suites.push(arg),
-    (arg, i, a) => {
-      if (arg === "--bun-flags") {
-        a.bunFlags.push(...splitCommand(argv[i + 1] ?? ""))
-        return i + 1
-      }
-      if (arg.startsWith("--bun-flags=")) {
-        a.bunFlags.push(...splitCommand(arg.slice("--bun-flags=".length)))
-        return i
-      }
-      return undefined
-    },
+    bunFlagsArg(argv),
   )
+}
+
+/** `--bun-flags FLAGS` / `--bun-flags=FLAGS`: whitespace-split and appended,
+ * repeatable - a `special` handler, since a value like `--conditions=browser`
+ * would otherwise be mistaken for a flag of its own. */
+function bunFlagsArg(argv: string[]) {
+  return (
+    arg: string,
+    i: number,
+    a: { bunFlags: string[] },
+  ): number | undefined => {
+    if (arg === "--bun-flags") {
+      a.bunFlags.push(...splitCommand(argv[i + 1] ?? ""))
+      return i + 1
+    }
+    if (arg.startsWith("--bun-flags=")) {
+      a.bunFlags.push(...splitCommand(arg.slice("--bun-flags=".length)))
+      return i
+    }
+    return undefined
+  }
 }
 
 async function benchCommand(argv: string[]): Promise<number> {
@@ -874,6 +951,155 @@ async function benchCommand(argv: string[]): Promise<number> {
   const emitCode = await emitDocument(doc, parsed)
   if (emitCode !== 0) return emitCode
   return aborted ? 130 : 0
+}
+
+interface AbArgs {
+  suites: string[]
+  base?: string
+  rounds?: number
+  thresholdPct?: number
+  geomeanThresholdPct?: number
+  confirm?: number
+  filter?: string
+  preload: string[]
+  bunFlags: string[]
+  timeoutMs?: number
+  outDir?: string
+  noiseCheck: boolean
+  exportJson?: string
+  format: FormatName
+  quiet: boolean
+  help: boolean
+}
+
+const AB_FLAGS: Record<string, FlagDef> = {
+  "--base": { dest: "base", spec: { kind: "string" } },
+  "--rounds": { dest: "rounds", spec: { kind: "int", min: 3 } },
+  "--threshold": { dest: "thresholdPct", spec: { kind: "number", min: 0 } },
+  "--geomean-threshold": {
+    dest: "geomeanThresholdPct",
+    spec: { kind: "number", min: 0 },
+  },
+  "--confirm": { dest: "confirm", spec: { kind: "int", min: 0 } },
+  "--filter": { dest: "filter", spec: { kind: "string" } },
+  "--preload": { dest: "preload", spec: { kind: "list" } },
+  "--timeout": { dest: "timeoutMs", spec: { kind: "int", min: 1 } },
+  "--out-dir": { dest: "outDir", spec: { kind: "string" } },
+  "--no-noise-check": {
+    dest: "noiseCheck",
+    spec: { kind: "bool", value: false },
+  },
+  "--export-json": { dest: "exportJson", spec: { kind: "string" } },
+  "--format": {
+    dest: "format",
+    spec: { kind: "enum", values: DOCUMENT_FORMATS },
+  },
+  "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
+  "--help": { dest: "help", spec: { kind: "bool", value: true } },
+  "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
+function parseAbArgs(argv: string[]): AbArgs {
+  const args: AbArgs = {
+    suites: [],
+    preload: [],
+    bunFlags: [],
+    noiseCheck: true,
+    format: "table",
+    quiet: false,
+    help: false,
+  }
+  return parseFlags(
+    argv,
+    "ab",
+    AB_FLAGS,
+    args,
+    (arg, a) => a.suites.push(arg),
+    bunFlagsArg(argv),
+  )
+}
+
+async function abCommand(argv: string[]): Promise<number> {
+  const parsed = parseAbArgs(argv)
+  if (parsed.help) return showHelp(AB_HELP, true)
+
+  // The suite-level settings `ostia bench` reads from the config's `bench`
+  // section apply here the same way; the sampling ones don't (pairing has
+  // its own rounds).
+  const config = (await loadConfig())?.bench
+  const suites =
+    parsed.suites.length > 0
+      ? parsed.suites
+      : config?.suites
+        ? await expandSuiteGlobs(config.suites, process.cwd())
+        : []
+  if (suites.length === 0) return showHelp(AB_HELP, false)
+
+  let doc: ProfileDocument
+  let aborted: boolean
+  try {
+    ;({ result: doc, aborted } = await withSigintAbort((signal) =>
+      ab({
+        suites,
+        base: parsed.base,
+        rounds: parsed.rounds,
+        thresholdPct: parsed.thresholdPct,
+        geomeanThresholdPct: parsed.geomeanThresholdPct,
+        confirm: parsed.confirm,
+        filter: parsed.filter ?? config?.filter,
+        preload:
+          parsed.preload.length > 0 ? parsed.preload : (config?.preload ?? []),
+        bunFlags:
+          parsed.bunFlags.length > 0
+            ? parsed.bunFlags
+            : (config?.bunFlags ?? []),
+        timeoutMs: parsed.timeoutMs ?? config?.timeoutMs,
+        outDir: parsed.outDir ?? config?.outDir,
+        noiseCheck: parsed.noiseCheck,
+        signal,
+      }),
+    ))
+  } catch (err) {
+    if (err instanceof AbBaseError) {
+      await writeCliError("invalid-flag", `--base: ${err.message}`)
+      return 2
+    }
+    await writeCliError("spawn-failed", `A/B run failed: ${errorMessage(err)}`)
+    return 2
+  }
+
+  const summary = doc.ab!
+  // Decided before rendering, same as `compare`: `minimal`'s trailing
+  // `summary` event needs the real exit code inline.
+  const exitCode = aborted
+    ? 130
+    : summary.matched === 0
+      ? 2
+      : summary.verdict === "fail"
+        ? 1
+        : 0
+  const byId = new Map(doc.workloads.map((w) => [w.id, w]))
+  const workloadsFor = (ids: string[] = []) =>
+    ids.flatMap((id) => byId.get(id) ?? [])
+  const emitCode = await emitDocument(doc, parsed, {
+    protocol: {
+      command: "ab",
+      exitCode,
+      unmatched: {
+        baseOnly: workloadsFor(doc.unmatched?.baseOnly),
+        candOnly: workloadsFor(doc.unmatched?.candOnly),
+      },
+      ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
+    } satisfies MinimalProtocolContext,
+  })
+  if (emitCode !== 0) return emitCode
+  if (exitCode === 2) {
+    await writeCliError(
+      "no-matches",
+      `No task exists both at ${summary.base.ref} and in the working tree; nothing was paired.`,
+    )
+  }
+  return exitCode
 }
 
 interface CompareArgs {
@@ -1442,6 +1668,7 @@ const MAIN_HELP = `ostia - profiling and benchmarking for Bun
 Commands:
   time      Time commands N times and report timing/CPU/heap
   bench     Run in-process benchmark suites (group()/task())
+  ab        Pair suites against a git ref in one process, gate on regressions
   compare   Compare two ProfileDocuments
   report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)
   ci        Run configured workloads against a baseline, gate on regressions
@@ -1459,6 +1686,7 @@ async function main(): Promise<number> {
     {
       time: timeCommand,
       bench: benchCommand,
+      ab: abCommand,
       compare: compareCommand,
       report: reportCommand,
       ci: ciCommand,

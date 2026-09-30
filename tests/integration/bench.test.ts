@@ -558,6 +558,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
     for (const cpuRun of cpuRuns) {
       expect(cpuRun.instrumented).toBe(true)
       expect(cpuRun.cpu).toBeDefined()
+      expect(cpuRun.cpu!.samplingIntervalUs).toBe(100)
       expect(cpuRun.jit).toBeDefined()
       const timingRun = timingRuns.find(
         (m) => m.workloadId === cpuRun.workloadId,
@@ -566,6 +567,34 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
     }
 
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-cpu`]).exited
+  }, 20_000)
+
+  test("cpuIntervalUs sets the sampling interval and is part of the cpu measurement's fingerprint", async () => {
+    const run = (cpuIntervalUs: number | undefined, suffix: string) =>
+      bench({
+        suites: [SUITE],
+        filter: "noop",
+        budgetMs: 5,
+        noiseCheck: false,
+        cpu: true,
+        cpuIntervalUs,
+        outDir: `${OUT_DIR}-cpu-interval-${suffix}`,
+      })
+    const coarse = (await run(20, "a")).measurements.find(
+      (m) => m.phase === "cpu",
+    )!
+    const byDefault = (await run(undefined, "b")).measurements.find(
+      (m) => m.phase === "cpu",
+    )!
+    expect(coarse.cpu!.samplingIntervalUs).toBe(20)
+    expect(coarse.configFingerprint).not.toBe(byDefault.configFingerprint)
+
+    await Bun.spawn([
+      "rm",
+      "-rf",
+      `${OUT_DIR}-cpu-interval-a`,
+      `${OUT_DIR}-cpu-interval-b`,
+    ]).exited
   }, 20_000)
 
   test('--alloc adds an extra phase: "memstats" measurement with bytesPerOp', async () => {
@@ -583,6 +612,7 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
     for (const run of memstatsRuns) {
       expect(run.instrumented).toBe(true)
       expect(run.memory?.origin).toBe("heapStats")
+      expect(run.memory?.kind).toBe("retained")
       expect(run.memory?.bytesPerOp).toBeGreaterThanOrEqual(0)
     }
 
@@ -636,5 +666,81 @@ describe("bench() - --cpu and --alloc (item 12)", () => {
       `${OUT_DIR}-cpu-cmp-base`,
       `${OUT_DIR}-cpu-cmp-cand`,
     ]).exited
+  }, 20_000)
+
+  test("--peak-mem adds a memstats measurement of one call's peak RSS rise, per task", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-peak-mem.ts`],
+      budgetMs: 20,
+      noiseCheck: false,
+      alloc: true,
+      peakMem: true,
+      outDir: `${OUT_DIR}-peak-mem`,
+    })
+    const byTask = new Map(doc.workloads.map((w) => [w.entry!.task, w.id]))
+    const memstats = (task: string) =>
+      doc.measurements.filter(
+        (m) => m.workloadId === byTask.get(task) && m.phase === "memstats",
+      )
+
+    const garbage = memstats("mem/garbage")
+    const peak = garbage.find((m) => m.memory?.kind === "peak")!
+    const retained = garbage.find((m) => m.memory?.kind === "retained")!
+    expect(peak.memory!.origin).toBe("resourceUsage")
+    expect(peak.memory!.peakBytes!).toBeGreaterThan(30 * 1024 * 1024)
+    expect(retained.memory!.bytesPerOp!).toBeLessThan(100_000)
+
+    // `{ peakMem: false }` on the task wins over the suite-wide flag.
+    const optedOut = memstats("mem/opted out")
+    expect(optedOut.map((m) => m.memory?.kind)).toEqual(["retained"])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-peak-mem`]).exited
+  }, 30_000)
+
+  test("--peak-mem warns peak-hidden when module-scope work peaks first, and sets OSTIA_PEAK_MEM so a suite can skip it", async () => {
+    const run = async (gated: boolean) => {
+      process.env.OSTIA_PEAK_MEM_FIXTURE_GATED = gated ? "1" : ""
+      try {
+        const doc = await bench({
+          suites: [
+            `${import.meta.dir}/../fixtures/bench-suite-peak-mem-heavy-setup.ts`,
+          ],
+          budgetMs: 5,
+          noiseCheck: false,
+          peakMem: true,
+          outDir: `${OUT_DIR}-peak-hidden`,
+        })
+        return doc.measurements.find((m) => m.memory?.kind === "peak")!
+      } finally {
+        delete process.env.OSTIA_PEAK_MEM_FIXTURE_GATED
+      }
+    }
+
+    const hidden = await run(false)
+    expect(hidden.warnings.map((w) => w.code)).toEqual(["peak-hidden"])
+    expect(
+      (hidden.warnings[0]!.data as { slackBytes: number }).slackBytes,
+    ).toBeGreaterThan(16 * 1024 * 1024)
+
+    const gated = await run(true)
+    expect(gated.warnings).toEqual([])
+    expect(gated.memory!.peakBytes!).toBeGreaterThan(30 * 1024 * 1024)
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-peak-hidden`]).exited
+  }, 60_000)
+
+  test("a relative outDir resolves against cwd, where the suite processes run", async () => {
+    // Any cwd other than this process's: bench() used to read the suites'
+    // results back relative to its own cwd and silently found none.
+    const cwd = `${import.meta.dir}/..`
+    const doc = await bench({
+      suites: ["fixtures/bench-suite.ts"],
+      cwd,
+      budgetMs: 5,
+      noiseCheck: false,
+      outDir: ".ostia-test-bench-cwd",
+    })
+    expect(doc.workloads).toHaveLength(3)
+    await Bun.spawn(["rm", "-rf", `${cwd}/.ostia-test-bench-cwd`]).exited
   }, 20_000)
 })

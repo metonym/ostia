@@ -36,3 +36,31 @@ export function environmentMismatch(doc: ProfileDocument): Warning | undefined {
   }
   return undefined
 }
+
+export interface MemoryReadings {
+  /** `--alloc`: heap each call retains, bytes. */
+  retained?: number
+  /** `--peak-mem`: peak-RSS rise of one call, bytes, or `"hidden"` when the
+   * measurement ran but earlier work in its processes peaked higher. */
+  peak?: number | "hidden"
+  /** The `memstats` measurements' warnings (e.g. `peak-hidden`). */
+  warnings: Warning[]
+}
+
+/** Each workload's `--alloc`/`--peak-mem` readings, for the memory columns
+ * and warnings every document renderer shows next to its timing row. */
+export function memoryReadings(
+  doc: ProfileDocument,
+): Map<string, MemoryReadings> {
+  const byWorkload = new Map<string, MemoryReadings>()
+  for (const m of doc.measurements) {
+    if (m.phase !== "memstats" || !m.memory) continue
+    const readings = byWorkload.get(m.workloadId) ?? { warnings: [] }
+    if (m.memory.bytesPerOp !== undefined)
+      readings.retained = m.memory.bytesPerOp
+    if (m.memory.kind === "peak") readings.peak = m.memory.peakBytes ?? "hidden"
+    readings.warnings.push(...m.warnings)
+    byWorkload.set(m.workloadId, readings)
+  }
+  return byWorkload
+}

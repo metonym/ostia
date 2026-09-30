@@ -100,7 +100,8 @@ Caching rules for `inputs` are in [cli.md](cli.md#caching).
 ## `bench`
 
 Used by `ostia bench` (as defaults under its flags) and by `ostia ci`/`ostia baseline save`
-for `suites` workloads.
+for `suites` workloads. `ostia ab` reads `suites`, `filter`, `preload`, `bunFlags`, `outDir`
+and `timeoutMs` from it.
 
 | Field | Default | CLI flag |
 |---|---|---|
@@ -112,7 +113,9 @@ for `suites` workloads.
 | `isolate` | `false` | `--isolate` / `--no-isolate` |
 | `gc` | `false` | `--gc` / `--no-gc` |
 | `cpu` | `false` | `--cpu` / `--no-cpu` |
+| `cpuIntervalUs` | 100 | `--cpu-interval` |
 | `alloc` | `false` | `--alloc` / `--no-alloc` |
+| `peakMem` | `false` | `--peak-mem` / `--no-peak-mem` |
 | `filter` | unset | `--filter` |
 | `preload` | `[]` | `--preload` (CLI list replaces config list) |
 | `bunFlags` | `[]` | `--bun-flags` (CLI list replaces config list), e.g. `["--conditions=browser"]` |

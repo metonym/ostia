@@ -6,8 +6,9 @@ import type {
   Workload,
 } from "../../ir/types.ts"
 import { cpuTimes } from "../format.ts"
+import { pairedRuns } from "../paired.ts"
 import { relativeReferences } from "../relative.ts"
-import { skippedWorkloads, timingRuns } from "../select.ts"
+import { memoryReadings, skippedWorkloads, timingRuns } from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 /** Bumped only on a breaking change to the event shapes below (a key
@@ -36,6 +37,27 @@ interface MinimalDelta {
    * `Comparison.thresholds.effectiveTimingPct`. */
   effectiveTimingPct: number
   matched: true
+}
+
+/** `ab` only: the base side and the per-round candidate/base ratios behind
+ * a `run` line whose stats are the candidate's. Ratios above 1 mean the
+ * candidate is slower. */
+interface MinimalPaired {
+  /** Base side's median per-call time, ns. */
+  baseMedian: number
+  medianRatio: number
+  p25: number
+  p75: number
+  rounds: number
+  /** Final: `flagged` when fresh processes confirmed it, else
+   * `"unchanged"`. */
+  verdict: "regressed" | "improved" | "unchanged"
+  /** What this workload's first process saw, before confirmation. */
+  flagged?: "regressed" | "improved"
+  confirmed?: boolean
+  /** Median ratio of each fresh-process repeat. */
+  repeats?: number[]
+  sameOutput: boolean
 }
 
 /** One JSON object per timing run, nothing else: no header, no raw sample
@@ -81,6 +103,12 @@ interface MinimalRunLine {
   /** Median user / system CPU time per trial, ns: subprocess commands only. */
   userNs?: number
   systemNs?: number
+  /** `--alloc`: heap each call keeps alive after a full GC, whole bytes. */
+  retainedBytesPerOp?: number
+  /** `--peak-mem`: how far the task's first call raised peak RSS, bytes.
+   * Absent, with a `peak-hidden` warning, when earlier work in the process
+   * had already peaked higher. */
+  peakBytes?: number
   /** Median over the group's reference median (its baseline task, else its
    * fastest). Only present when the document has more than one timing run. */
   relative?: number
@@ -93,6 +121,8 @@ interface MinimalRunLine {
   /** From `comparisons` when present (ostia compare / ci): the change against
    * the baseline document for this task. */
   delta?: MinimalDelta
+  /** `ab` only; see `MinimalPaired`. */
+  paired?: MinimalPaired
 }
 
 /** One per workload present on only one side of a `compare`/`ci` run - a
@@ -111,7 +141,7 @@ interface MinimalUnmatchedLine {
 interface MinimalSummaryLine {
   event: "summary"
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
-  command: "compare" | "ci"
+  command: "compare" | "ci" | "ab"
   matched: number
   regressed: number
   improved: number
@@ -127,6 +157,16 @@ interface MinimalSummaryLine {
   noiseFloorPct?: number
   /** `ci` only. */
   baseline?: { name: string; path: string }
+  /** `ab` only: the git ref the working tree was paired against. */
+  base?: { ref: string; sha: string }
+  /** `ab` only: the gate on `geomeanPct`. */
+  geomeanThresholdPct?: number
+  /** `ab` only: flagged in the first process but not reproduced by the
+   * fresh-process repeats; counted in `unchanged`. */
+  unconfirmed?: number
+  /** `ab` only: workloads whose first call returned different values on the
+   * two sides. Informational. */
+  outputDiffers?: number
   git?: { base?: GitMetadata; cand?: GitMetadata }
   exportedTo?: string
   verdict: "pass" | "fail"
@@ -147,7 +187,7 @@ export type MinimalEvent =
  * `bench`, `report`) renders with no `protocol`, which keeps `minimal` to
  * plain `run` lines with no trailing summary. */
 export interface MinimalProtocolContext {
-  command: "compare" | "ci"
+  command: "compare" | "ci" | "ab"
   exitCode: number
   unmatched?: { baseOnly: Workload[]; candOnly: Workload[] }
   baseGit?: GitMetadata
@@ -230,14 +270,23 @@ function skippedLine(
 function runLines(doc: ProfileDocument): MinimalRunLine[] {
   const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
   const noiseFloorPct = doc.environment?.noise.floorPct
-  const rows = timingRuns(doc).map((run) => ({
+  const timingRows = timingRuns(doc).map((run) => ({
     run,
     workload: byWorkload.get(run.workloadId),
   }))
-  const refs = rows.length > 1 ? relativeReferences(rows) : undefined
+  const refs =
+    timingRows.length > 1 ? relativeReferences(timingRows) : undefined
+  const rows = [
+    ...timingRows,
+    ...pairedRuns(doc).map((run) => ({
+      run,
+      workload: byWorkload.get(run.workloadId),
+    })),
+  ]
   const comparisonByRun = new Map(
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
+  const memory = memoryReadings(doc)
   const cpuWarningsByWorkloadId = new Map<string, Measurement["warnings"]>()
   for (const m of doc.measurements) {
     if (m.phase !== "cpu" || m.warnings.length === 0) continue
@@ -271,6 +320,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       warnings: [
         ...run.warnings,
         ...(cpuWarningsByWorkloadId.get(run.workloadId) ?? []),
+        ...(memory.get(run.workloadId)?.warnings ?? []),
         ...(comparison?.warnings ?? []),
       ].map((w) =>
         w.data ? { code: w.code, data: w.data } : { code: w.code },
@@ -284,12 +334,35 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       line.userNs = sig(times.userNs)
       line.systemNs = sig(times.systemNs)
     }
+    const readings = memory.get(run.workloadId)
+    if (readings?.retained !== undefined) {
+      line.retainedBytesPerOp = Math.round(readings.retained)
+    }
+    if (typeof readings?.peak === "number") {
+      line.peakBytes = Math.round(readings.peak)
+    }
     addWorkloadFields(line, workload)
-    if (refs) line.relative = sig(t.median / (refs.get(row) ?? t.median))
+    const ref = refs?.get(row)
+    if (ref !== undefined) line.relative = sig(t.median / ref)
     if (workload?.baseline) line.baseline = true
     if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
     const delta = deltaFrom(comparison)
     if (delta) line.delta = delta
+    const p = run.paired
+    if (p) {
+      line.paired = {
+        baseMedian: sig(p.baseMedianNs),
+        medianRatio: sig(p.medianRatio),
+        p25: sig(p.p25),
+        p75: sig(p.p75),
+        rounds: p.rounds,
+        verdict: p.verdict,
+        ...(p.flagged && { flagged: p.flagged }),
+        ...(p.confirmed !== undefined && { confirmed: p.confirmed }),
+        ...(p.repeats && { repeats: p.repeats.map((r) => sig(r.medianRatio)) }),
+        sameOutput: p.sameOutput,
+      }
+    }
     return line
   })
 
@@ -317,7 +390,10 @@ function summaryLine(
   doc: ProfileDocument,
   protocol: MinimalProtocolContext,
 ): MinimalSummaryLine {
-  const s = doc.comparisonSummary
+  const s =
+    protocol.command === "ab" && doc.ab
+      ? { ...doc.ab, effectiveTimingPct: doc.ab.thresholdPct }
+      : doc.comparisonSummary
   const unmatchedCount =
     (protocol.unmatched?.baseOnly.length ?? 0) +
     (protocol.unmatched?.candOnly.length ?? 0)
@@ -341,6 +417,12 @@ function summaryLine(
     line.failed = protocol.failed ?? 0
     line.missingBaseline = protocol.missingBaseline ?? 0
     if (protocol.baseline) line.baseline = protocol.baseline
+  }
+  if (protocol.command === "ab" && doc.ab) {
+    line.base = doc.ab.base
+    line.geomeanThresholdPct = doc.ab.geomeanThresholdPct
+    line.unconfirmed = doc.ab.unconfirmed
+    line.outputDiffers = doc.ab.outputDiffers
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

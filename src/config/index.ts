@@ -49,7 +49,9 @@ export interface BenchConfig {
   minSamples?: number
   gc?: boolean
   cpu?: boolean
+  cpuIntervalUs?: number
   alloc?: boolean
+  peakMem?: boolean
   filter?: string
   isolate?: boolean
   outDir?: string

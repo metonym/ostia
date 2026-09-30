@@ -20,10 +20,13 @@ export interface AllocCaptureResult {
   diagnosticWallNs: number
 }
 
-/** Bytes allocated per call: `Bun.gc(true)` settles the heap, one batch of
- * `batchSize` calls runs, `Bun.gc(true)` settles it again, and the heap size
- * delta is divided by the batch size. A separate, instrumented measurement
- * from timing - this never feeds the task's timing stats. */
+/** Retained heap growth per call: `Bun.gc(true)` settles the heap, one batch
+ * of `batchSize` calls runs, `Bun.gc(true)` settles it again, and the heap
+ * size delta is divided by the batch size. The second full GC collects
+ * whatever the calls allocated and dropped, so this reads what they keep
+ * alive (a leak check), and a garbage-heavy task reads near zero however
+ * much it allocates. A separate, instrumented measurement from timing - this
+ * never feeds the task's timing stats. */
 export async function measureAllocPerOp(
   fn: () => unknown | Promise<unknown>,
   batchSize: number = DEFAULT_BATCH_SIZE,
@@ -42,6 +45,7 @@ export async function measureAllocPerOp(
   return {
     memory: {
       origin: "heapStats",
+      kind: "retained",
       bytesPerOp: Math.max(0, (after - before) / batchSize),
     },
     diagnosticWallNs,

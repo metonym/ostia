@@ -5,9 +5,12 @@ import {
   makeTimingMeasurement,
   newDocument,
 } from "../ir/document.ts"
-import type { ProfileDocument } from "../ir/types.ts"
+import type { ProfileDocument, Workload } from "../ir/types.ts"
 import { measureAllocPerOp } from "../measure/alloc.ts"
-import { captureTaskCpuProfile, jitColdWarning } from "../measure/cpu.ts"
+import {
+  captureTaskCpuProfile,
+  DEFAULT_TASK_CPU_INTERVAL_US,
+} from "../measure/cpu.ts"
 import {
   captureEnvironment,
   noisyMachineWarning,
@@ -28,6 +31,8 @@ export interface MeasureTasksOpts extends InprocessTimingOptions {
   /** Suite-wide default for capturing an extra `phase: "cpu"` measurement
    * per task (task/group `TaskOptions.cpu`/`GroupOptions.cpu` still win). */
   cpu?: boolean
+  /** `cpu`'s sampling interval, µs (default: 100). */
+  cpuIntervalUs?: number
   /** Suite-wide default for capturing an extra `phase: "memstats"`
    * measurement per task (task/group `TaskOptions.alloc`/`GroupOptions.alloc`
    * still win). */
@@ -39,6 +44,26 @@ export interface MeasureTasksOpts extends InprocessTimingOptions {
    * true) and stamp it on the document as `environment`. Set false to skip
    * the ~200ms reference measurement. */
   noiseCheck?: boolean
+}
+
+/** The workload a registered task measures. Shared by every runner, so the
+ * same task gets the same id whether `bench()` or `ab()` measured it. */
+export function taskWorkload(
+  suiteFile: string,
+  t: RegisteredTask,
+  isolated?: boolean,
+): Workload {
+  const id = taskIdOf(t)
+  return makeEntryWorkload(suiteFile, id, {
+    label: id,
+    baseline: t.baseline,
+    group: t.groupName,
+    description: t.opts?.description,
+    groupDescription: t.groupDescription,
+    isolated,
+    params: t.params,
+    skipped: t.skipped,
+  })
 }
 
 /** Runs exactly `tasks` (already filtered/selected by the caller) in this
@@ -73,17 +98,7 @@ export async function measureTasks(
   const measurements = []
   for (let idx = 0; idx < tasks.length; idx++) {
     const t = tasks[idx]!
-    const id = taskIdOf(t)
-    const workload = makeEntryWorkload(suiteFile, id, {
-      label: id,
-      baseline: t.baseline,
-      group: t.groupName,
-      description: t.opts?.description,
-      groupDescription: t.groupDescription,
-      isolated: opts.markIsolated,
-      params: t.params,
-      skipped: t.skipped,
-    })
+    const workload = taskWorkload(suiteFile, t, opts.markIsolated)
     workloads.push(workload)
 
     if (t.skipped) continue
@@ -127,17 +142,17 @@ export async function measureTasks(
     // Extra instrumented measurements on the same workload, never mixed into
     // the timing numbers above.
     if (taskCpu(t, opts.cpu ?? false)) {
-      const cpuResult = await captureTaskCpuProfile(t.fn)
-      const jitWarning = jitColdWarning(cpuResult.jit)
+      const intervalUs = opts.cpuIntervalUs ?? DEFAULT_TASK_CPU_INTERVAL_US
+      const cpuResult = await captureTaskCpuProfile(t.fn, { intervalUs })
       measurements.push(
         makeInstrumentedMeasurement({
           workload,
           phase: "cpu",
-          configFingerprint: configFingerprint({ cpu: true }),
+          configFingerprint: configFingerprint({ cpu: true, intervalUs }),
           diagnosticWallNs: cpuResult.diagnosticWallNs,
           cpu: cpuResult.cpu,
           jit: cpuResult.jit,
-          warnings: jitWarning ? [jitWarning] : [],
+          warnings: cpuResult.warnings,
           artifacts: [],
         }),
       )

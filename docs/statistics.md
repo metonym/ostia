@@ -115,6 +115,28 @@ instrumented run.
 timing comparisons, as a signed percent (negative means faster on average).
 `summary.verdict` is `"fail"` when any comparison failed.
 
+## Paired A/B (`ab`)
+
+`compareDocuments` compares documents measured at different times, so it has to widen its
+threshold to the noisier side's noise floor. `ab()` measures base and candidate in the
+same process, in alternating ~10ms batches, and never compares across time at all:
+
+- Each round yields one ratio, candidate time over base time. Drift over the run affects
+  both halves of a round alike, so it divides out.
+- A task is flagged when the median ratio is past `1 ± thresholdPct/100` and the 25th
+  (for a regression) or 75th (for an improvement) percentile is on the same side of 1:
+  the change held in at least three quarters of rounds. No p-value; with 15 rounds, the
+  quartile condition is what keeps a few disturbed rounds from flagging a task.
+- A flagged task is re-measured in fresh processes (`confirm`, default 2) and counts only
+  when every repeat flags it the same way. Rounds share one process's JIT decisions, and
+  the two sides are separate copies of the code that the JIT compiles separately, so one
+  process can consistently favor one side.
+- `geomeanPct` is the geometric mean of the tasks' median ratios (for a flagged task, the
+  median over its first run and repeats). The run fails when it exceeds
+  `geomeanThresholdPct`, which catches a slowdown spread across many tasks.
+
+The noise floor is still measured and reported, but doesn't widen `thresholdPct`.
+
 ### Environment mismatch
 
 When base and candidate differ in OS, architecture, Bun version, or (when both have it)

@@ -5,7 +5,7 @@ The CLI is a thin wrapper over these functions; both produce the same `ProfileDo
 
 ```ts
 import {
-  time, profile, bench, group, task, sweep, range, run, keep,
+  time, profile, bench, ab, group, task, sweep, range, run, keep,
   compareDocuments, DEFAULT_THRESHOLDS, defineConfig,
   createDocument, loadDocument, saveDocument, OstiaDocumentError,
   renderers, MINIMAL_PROTOCOL_VERSION,
@@ -114,7 +114,9 @@ const doc = await bench({
   isolate: false,
   gc: false,
   cpu: false,
+  cpuIntervalUs: 100,  // default
   alloc: false,
+  peakMem: false,
   filter: "parse/",
   preload: ["bench/setup.ts"],
   bunFlags: ["--conditions=browser"],
@@ -135,13 +137,13 @@ suites and tasks that had finished.
 | Option | Meaning |
 |---|---|
 | `budgetMs`, `samples`, `minSamples` | Override the suite-wide sampling settings for this task. |
-| `isolate`, `gc`, `cpu`, `alloc` | Override the suite-wide flag (and the group's) for this task. |
+| `isolate`, `gc`, `cpu`, `alloc`, `peakMem` | Override the suite-wide flag (and the group's) for this task. |
 | `baseline` | This task is the group's Relative reference (default: the group's fastest). |
 | `description` | Stored as `Workload.description` and shown in `minimal` output. |
 | `params` | Structured parameters; part of the workload id. Merged over the current `sweep()` point. |
 | `before`, `after` | Run once, unmeasured, before the task's warmup and after its last trial, in the task's own process (works with `isolate`). |
 
-`GroupOptions` takes `description`, `isolate`, `gc`, `cpu`, `alloc`, `before` and `after`;
+`GroupOptions` takes `description`, `isolate`, `gc`, `cpu`, `alloc`, `peakMem`, `before` and `after`;
 the flags are defaults for the group's tasks, and `before`/`after` run once around the
 group's first and last measured task.
 
@@ -228,9 +230,40 @@ try {
 ```
 
 Options: `filter`, `budgetMs`, `samples`, `minSamples`, `warmup` (a fraction of the
-budget, default 0.1), `gc`, `cpu`, `alloc`, `noiseCheck`, `quiet` (don't print), `format`
-(default `"table"`). There is no subprocess, so `isolate` is ignored; prefer `ostia bench`
-or `bench()` for numbers you will compare.
+budget, default 0.1), `gc`, `cpu`, `cpuIntervalUs`, `alloc`, `noiseCheck`, `quiet` (don't
+print), `format` (default `"table"`). There is no subprocess, so `isolate` and `peakMem`
+are ignored; prefer `ostia bench` or `bench()` for numbers you will compare.
+
+## `ab(opts)` → `Promise<ProfileDocument>`
+
+Paired A/B timing of suite files against a git ref; the same behavior as `ostia ab`
+([cli.md](cli.md#ostia-ab)). The suite files are the ones `bench()` runs, unchanged.
+
+```ts
+const doc = await ab({
+  suites: ["bench/parse.bench.ts"],
+  base: "origin/main",        // default "HEAD"; the candidate is the working tree
+  rounds: 15,                 // default
+  thresholdPct: 10,           // default
+  geomeanThresholdPct: 1.5,   // default
+  confirm: 2,                 // fresh-process repeats per flagged task; default
+  filter: "parse/",
+  preload: ["bench/setup.ts"],
+  bunFlags: ["--conditions=browser"],
+  timeoutMs: 120_000,
+  outDir: "node_modules/.cache/ostia",
+  cwd: process.cwd(),
+  noiseCheck: true,
+})
+doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, geomeanPct, verdict, ... }
+doc.measurements  // one phase: "paired" measurement per paired task
+if (doc.ab!.verdict === "fail") process.exitCode = 1
+```
+
+It rejects with a `RangeError` for bad settings, and with an error naming the problem
+when `cwd` isn't in a git repository or `base` isn't a commit. A task that returns its
+result gets an output comparison between the two sides for free
+(`paired.sameOutput`).
 
 ## `compareDocuments(base, cand, thresholds?)` → `CompareResult`
 

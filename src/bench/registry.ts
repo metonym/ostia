@@ -30,9 +30,14 @@ export interface TaskOptions {
   cpu?: boolean
   /** Overrides the suite-wide `bench({ alloc })` / `--alloc` (and any
    * `GroupOptions.alloc`) for this task only: after the timing measurement,
-   * capture one extra `phase: "memstats"` measurement with bytes
-   * allocated per call. */
+   * capture one extra `phase: "memstats"` measurement of the heap each call
+   * retains (what survives a full GC, not what it allocates). */
   alloc?: boolean
+  /** Overrides the suite-wide `bench({ peakMem })` / `--peak-mem` (and any
+   * `GroupOptions.peakMem`) for this task only: capture one extra
+   * `phase: "memstats"` measurement of how far one call raises the
+   * process's peak RSS, in fresh processes. */
+  peakMem?: boolean
   /** Structured parameters this task represents (e.g. `{ size: 800, impl:
    * "fast" }`), written to `Workload.params` and folded into the workload id
    * so points with the same task name don't collide. Inside `sweep()`, the
@@ -65,6 +70,9 @@ export interface GroupOptions {
   /** Default `alloc` for every task in this group, unless a task overrides
    * it with its own `TaskOptions.alloc`. */
   alloc?: boolean
+  /** Default `peakMem` for every task in this group, unless a task
+   * overrides it with its own `TaskOptions.peakMem`. */
+  peakMem?: boolean
   /** Runs once, unmeasured, before the group's first task's warmup (not
    * before every task) - in whichever process runs that task, so it works
    * with `isolate`. */
@@ -80,6 +88,7 @@ export interface RegisteredTask {
   groupGc?: boolean
   groupCpu?: boolean
   groupAlloc?: boolean
+  groupPeakMem?: boolean
   groupBefore?: Hook
   groupAfter?: Hook
   name: string
@@ -106,6 +115,7 @@ let currentGroup:
       gc?: boolean
       cpu?: boolean
       alloc?: boolean
+      peakMem?: boolean
       before?: Hook
       after?: Hook
       skip?: boolean
@@ -128,6 +138,7 @@ function registerGroup(
     gc: opts?.gc,
     cpu: opts?.cpu,
     alloc: opts?.alloc,
+    peakMem: opts?.peakMem,
     before: opts?.before,
     after: opts?.after,
     skip: flags.skip,
@@ -180,6 +191,7 @@ function registerTask(
     groupGc: currentGroup?.gc,
     groupCpu: currentGroup?.cpu,
     groupAlloc: currentGroup?.alloc,
+    groupPeakMem: currentGroup?.peakMem,
     groupBefore: currentGroup?.before,
     groupAfter: currentGroup?.after,
     name,
@@ -282,6 +294,10 @@ export function taskCpu(t: RegisteredTask, suiteCpu: boolean): boolean {
 
 export function taskAlloc(t: RegisteredTask, suiteAlloc: boolean): boolean {
   return t.opts?.alloc ?? t.groupAlloc ?? suiteAlloc
+}
+
+export function taskPeakMem(t: RegisteredTask, suitePeakMem: boolean): boolean {
+  return t.opts?.peakMem ?? t.groupPeakMem ?? suitePeakMem
 }
 
 /** mitata-compatible: filter value is a JS regex source, substring-matched (no

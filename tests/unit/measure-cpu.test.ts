@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test"
-import { captureTaskCpuProfile, jitColdWarning } from "../../src/measure/cpu"
+import {
+  captureTaskCpuProfile,
+  cpuWindowMs,
+  jitColdWarning,
+} from "../../src/measure/cpu"
+import { cpuSampleCount } from "../../src/renderers/format"
 
 function hotInner(n: number): number {
   let acc = 0
@@ -8,20 +13,45 @@ function hotInner(n: number): number {
 }
 
 describe("measure/cpu", () => {
-  test("loops the task for the given window and returns cpu/jit evidence", async () => {
-    const result = await captureTaskCpuProfile(() => hotInner(1_000), 30)
+  test("samples at 100µs by default, for about 2,000 samples", async () => {
+    const result = await captureTaskCpuProfile(() => hotInner(1_000))
     expect(result.cpu.origin).toBe("jsc-profile")
+    expect(result.cpu.samplingIntervalUs).toBe(100)
     expect(result.jit.origin).toBe("jsc-profile")
-    expect(result.diagnosticWallNs).toBeGreaterThan(0)
+    expect(result.diagnosticWallNs).toBeGreaterThan(300e6)
+    // The target is 2,000; a loaded machine samples less often than asked.
+    expect(cpuSampleCount(result.cpu)).toBeGreaterThan(1000)
   }, 10_000)
 
   test("works with an async task", async () => {
-    const result = await captureTaskCpuProfile(async () => {
-      await Promise.resolve()
-      return hotInner(100)
-    }, 30)
+    const result = await captureTaskCpuProfile(
+      async () => {
+        await Promise.resolve()
+        return hotInner(100)
+      },
+      { intervalUs: 10 },
+    )
     expect(result.cpu.origin).toBe("jsc-profile")
+    expect(result.cpu.samplingIntervalUs).toBe(10)
   }, 10_000)
+
+  test("warns low-sample-count when the task barely runs JS during the capture", async () => {
+    const result = await captureTaskCpuProfile(() => Bun.sleep(50), {
+      intervalUs: 10,
+    })
+    const warning = result.warnings.find((w) => w.code === "low-sample-count")
+    expect(warning).toBeDefined()
+    expect(warning!.data).toMatchObject({ target: 2000, intervalUs: 10 })
+  }, 10_000)
+})
+
+describe("cpuWindowMs", () => {
+  test("sized for 2,000 samples at twice the interval, within 200ms..10s", () => {
+    expect(cpuWindowMs(100)).toBe(400)
+    expect(cpuWindowMs(1000)).toBe(4000)
+    expect(cpuWindowMs(10)).toBe(200)
+    expect(cpuWindowMs(100_000)).toBe(10_000)
+  })
 })
 
 describe("jitColdWarning", () => {

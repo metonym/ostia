@@ -3,6 +3,7 @@
 ```
 ostia time <command...>        time commands as subprocesses; optional --cpu / --heap capture
 ostia bench <suite.ts...>      run in-process group()/task() suites
+ostia ab <suite.ts...>         pair suites against a git ref in one process, gate on regressions
 ostia compare <a> <b>          compare two ProfileDocuments
 ostia report <document.json>   render a saved document
 ostia ci                       run configured workloads against a baseline, gate on regressions
@@ -13,7 +14,7 @@ Every command takes `--help`. A flag's value can follow it (`--format minimal`) 
 attached (`--format=minimal`); `--ignore-failure[=CODES]` only takes the attached form. Exit codes and the machine-readable error
 line are described in [agent-protocol.md](agent-protocol.md).
 
-Output formats shared by `time`, `bench`, `compare` and `ci`: `table` (default), `json`,
+Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`: `table` (default), `json`,
 `jsonl`, `markdown`, `minimal`. `report` additionally accepts the CPU visualization
 formats.
 
@@ -167,8 +168,10 @@ ostia bench [flags] <suite.ts...>
 | `--jobs N\|auto` | Suite files run at once (default: 1). |
 | `--isolate` / `--no-isolate` | One process per task instead of per file. |
 | `--gc` / `--no-gc` | `Bun.gc(true)` between trials (default: off). |
-| `--cpu` / `--no-cpu` | Extra per-task CPU profile with JIT tiers. |
-| `--alloc` / `--no-alloc` | Extra per-task bytes-allocated-per-call measurement. |
+| `--cpu` / `--no-cpu` | Extra per-task CPU profile with JIT tiers, about 2,000 samples. |
+| `--cpu-interval US` | CPU sampling interval (default: 100). |
+| `--alloc` / `--no-alloc` | Extra per-task measurement of the heap each call retains after a full GC. |
+| `--peak-mem` / `--no-peak-mem` | Extra per-task measurement of how far the task's first call raises RSS, in fresh processes. |
 | `--filter REGEX` | Only tasks whose `group/name` id matches (unanchored, case-sensitive). |
 | `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
@@ -185,7 +188,7 @@ files given on the command line replace the config's lists rather than appending
 `--no-*` forms exist to override a config `true` for one run.
 
 Per-task and per-group options (`budgetMs`, `samples`, `minSamples`, `gc`, `isolate`,
-`cpu`, `alloc`) override the suite-wide values; see [library.md](library.md).
+`cpu`, `alloc`, `peakMem`) override the suite-wide values; see [library.md](library.md).
 
 Exit codes: `0` ok, `2` a suite failed to import or run, a task threw, a subprocess timed
 out, or a bad flag; `130` Ctrl-C. A failing suite stops the run: queued suites are
@@ -230,26 +233,77 @@ measured at 1.
 
 The noise-floor check runs once per `bench()` call, in the parent process.
 
-### `--gc`, `--cpu`, `--alloc`
+### `--gc`, `--cpu`, `--alloc`, `--peak-mem`
 
 `--gc` calls `Bun.gc(true)` between trials, outside the timed region. Off by default, in
 which case collection cost lands on whichever trials the GC happens to run in.
 
-`--cpu` adds a `phase: "cpu"` measurement per task: the task looped for 200ms under the
-JSC sampling profiler, JIT tiers included. When more than 20% of its samples are in the
+`--cpu` adds a `phase: "cpu"` measurement per task: the task looped under the JSC
+sampling profiler, JIT tiers included. It samples every 100µs (`--cpu-interval` changes
+this) and loops the task long enough to collect about 2,000 samples: 400ms at the default
+interval, longer at a coarser one (up to 10s), and never less than one whole call. The
+header of each CPU section shows the sample count; below 1,000 the measurement carries a
+`low-sample-count` warning (`{ samples, target, intervalUs }`), since frame shares that
+thin move by several points between runs. When more than 20% of its samples are in the
 llint/baseline tiers, it carries a `jit-cold` warning (`{ llintPct, baselinePct, dfgPct,
 ftlPct }`). With CPU evidence on both sides, `compare` reports per-frame deltas.
 
-`--alloc` adds a `phase: "memstats"` measurement: bytes allocated per call, from a batch
-of 100 calls bracketed by `Bun.gc(true)`. The table then shows an `Alloc/op` column.
+Self time is attributed to the frame the JIT compiled, so a small helper that got
+inlined into its caller shows up as the caller's self time, not its own, and can appear
+or vanish from the table between runs as inlining decisions change. When a helper you
+expect to see is missing, look at its callers.
+
+```sh
+ostia bench bench/parse.bench.ts --cpu --filter 'large input$' --export-json cpu.json
+ostia report cpu.json --format collapsed | sort -t' ' -k2 -nr | head
+```
+
+`--alloc` adds a `phase: "memstats"` measurement (`memory.kind: "retained"`) of the heap
+each call keeps alive: `Bun.gc(true)`, a batch of 100 calls, `Bun.gc(true)` again, and the
+heap size delta divided by 100. The second full GC collects everything the calls
+allocated and dropped, so this is a leak check, not an allocation counter: a function that
+builds and discards a large tree reads near zero. The table shows it as `Retained/op`.
+
+`--peak-mem` adds a `phase: "memstats"` measurement (`memory.kind: "peak"`) of how far
+the task's first call raises the process's RSS, which does count garbage. Each task runs
+alone in a fresh process, three times, with `OSTIA_PEAK_MEM=1` in its environment: import
+the suite, run the group's and the task's `before` hooks, `Bun.gc(true)`, and call the task
+once while a worker thread samples RSS (about once a microsecond). The peak is the higher of
+the sampled maximum and the peak-RSS high-water mark (`process.resourceUsage().maxRSS`),
+measured from the RSS the call started at; the median of the three processes is
+`memory.peakBytes`, shown as `Peak mem`. The same suite gives the same reading to within a
+few percent.
+
+It measures a first call, in the lower JIT tiers, like a build tool calling a library once
+per file; lower tiers can allocate what optimized code doesn't. To measure a warmed-up
+call, warm the JIT in a `before` hook on a smaller input than the task's.
+
+Memory that setup freed but the allocator still holds is memory the call can reuse without
+RSS rising. Linux hands freed memory back to the OS right away; macOS holds it for seconds.
+So on macOS, module-scope code that allocates as much as the task (validating each input by
+running it, say) can hide the task's peak. The reading is then low by up to that much, and
+the measurement carries a `peak-hidden` warning with the amount (`data.slackBytes`) when
+it's 16MB or more. Skip such work in these processes:
+
+```ts
+if (!process.env.OSTIA_PEAK_MEM) checkOutputs() // runs every input once
+```
+
+Ordinary setup (reading fixtures, building inputs) leaves a few MB of this slack, so read
+small differences with that in mind; `--peak-mem` is for calls that allocate megabytes.
 
 ```
-Task                                   Median     Spread             Range              Alloc/op   Relative
------------------------------------------------------------------------------------------------------------
-dedupe:
-  dedupe/naive (indexOf scan, O(n²))   179.3 µs   185.2 µs…233.4 µs  174.8 µs…242.4 µs  104B       7.34× slower
-  dedupe/Set-based (O(n))              24.4 µs    25.9 µs…34.7 µs    18.2 µs…348.5 µs   0B         1.00×
+Task                     Median     Spread             Range              Retained/op Peak mem   Relative
+---------------------------------------------------------------------------------------------------------
+mem:
+  mem/garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MB    4291943.33× slower
+    ! slow-first-run
+  mem/retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KB      48.00KB    2731.39× slower
+  mem/noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
 ```
+
+The first task allocates and drops a 40MB array per call: `Retained/op` sees nothing,
+`Peak mem` sees all of it. The second keeps 8KB per call alive, which both see.
 
 ### `--preload` and `--bun-flags`
 
@@ -293,6 +347,119 @@ There's no watch mode. Pair `ostia bench` with a file watcher and a small budget
 ```sh
 watchexec -e ts -- ostia bench bench/parse.ts --budget 100
 ```
+
+## `ostia ab`
+
+```
+ostia ab [flags] <suite.ts...>
+```
+
+| Flag | Meaning |
+|---|---|
+| `--base REF` | Git ref whose committed tree is the base side (default: `HEAD`). |
+| `--rounds N` | Rounds per task, each one base batch and one candidate batch (default: 15, at least 3). |
+| `--threshold PCT` | Flag a task whose median candidate/base ratio moves more than `PCT` percent (default: 10). |
+| `--geomean-threshold PCT` | Fail when the geometric mean of all tasks' ratios is more than `PCT` percent slower (default: 1.5). |
+| `--confirm N` | Re-measure each flagged task in `N` fresh processes (default: 2; 0 trusts the first process). |
+| `--filter REGEX` | Only tasks whose `group/name` id matches. |
+| `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
+| `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
+| `--timeout MS` | SIGKILL a suite (or repeat) process after `MS`. No default. |
+| `--out-dir PATH` | Scratch directory and base-tree cache (default: `node_modules/.cache/ostia`). |
+| `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
+| `--export-json PATH` | Write the document to `PATH`. |
+| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--quiet` | Don't print the report. |
+
+`ostia ab` answers "did my change make this slower?" on a machine too noisy for two runs
+minutes apart to agree. It runs each suite file's tasks twice over in one process: once
+from the base ref's committed tree and once from the working tree (uncommitted changes
+included), in alternating batches, and judges each task on the ratio of the two within
+each round. Anything that drifts over the run, such as another process's load or thermal
+throttling, hits both halves of a round alike and cancels in the ratio. `ostia compare`
+between two documents can't do that: on a shared machine, the same code measured minutes
+apart can differ by 10–25%, and the noise-floor widening that keeps `compare` from
+reporting that as a regression also hides real 5–10% changes.
+
+```sh
+ostia ab bench/parse.bench.ts                 # working tree vs HEAD
+ostia ab bench/*.ts --base origin/main        # a branch's changes, e.g. in CI
+ostia ab bench/*.ts --filter 'source map' --rounds 21
+```
+
+```
+A/B: working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%
+
+Task       Base       Candidate  Change    p25…p75            Verdict
+---------------------------------------------------------------------
+g:
+  g/work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    regressed, confirmed (repeats: +103.1%, +101.8%)
+  g/same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%
+
+Output differs from the base (1):
+  g/work
+
+Geomean +41.0% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
+```
+
+**The base tree.** The ref's commit is extracted with `git archive` into
+`<out-dir>/ab/<sha>/` once and reused by later runs against the same commit. The suite
+file is imported from both trees, so its relative imports, and `tsconfig` `paths` such as
+a package importing itself by name, resolve within each tree; bare package imports
+(dependencies, and `ostia` itself) resolve to the project's own `node_modules` from both,
+which is why `--out-dir` should stay inside the project. The consequences: a change to a
+dependency's version isn't what's being compared, files that aren't committed (generated
+fixtures, gitignored inputs) don't exist in the base tree, and git submodules aren't
+extracted. A suite file that doesn't exist at the ref has nothing to pair with.
+
+Every script in the extracted tree gets one inert line appended,
+`;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to its working-tree
+copy. JSC reuses compiled code between identical sources, and identical copies didn't
+measure independently: with no change at all, whichever copy was imported (and warmed up)
+first ran 5–15% faster, reproducibly across processes. With the salt, an A/A run reads
+within a fraction of a percent either way.
+
+**Pairing.** Tasks pair across the two trees by their `group/name` id and `params`, the
+same identity the workload id hashes, so a paired task has the same workload id as in
+`ostia bench`. A task on only one side is listed as unmatched. `task.skip()` skips both
+sides; group and task `before`/`after` hooks run for both sides.
+
+**Measuring.** For each task: one call of each side, a warmup that doubles both sides'
+batch until each spans 1ms, a batch size planned so the slower side's batch takes about
+10ms, three untimed warm rounds, then `--rounds` rounds of one batch per side, alternating
+which side goes first. Each side runs through its own compiled timing loop. The
+candidate's per-call times become the measurement's `timing`; the base side's and the
+per-round ratios go in `paired`.
+
+**Verdict.** A task is flagged `regressed` when its median ratio is above
+`1 + threshold` and the 25th percentile is above 1, so the candidate was slower in at
+least three quarters of rounds; `improved` is the mirror image. Pairing can't cancel one
+thing: how the JIT happened to compile each side's copy of the code in that process,
+which can skew a small task by 20% in either direction with tight quartiles. So each
+flagged task is measured again in `--confirm` fresh processes, and only counts when every
+repeat flags it the same way; otherwise it reads `unconfirmed` and counts as unchanged.
+
+A slowdown spread thinly across many tasks, too small to flag any one of them, shows up
+in the geometric mean of the tasks' median ratios, where per-task noise averages out. For
+a flagged task, the median over its first run and its repeats goes into the geomean. With
+many tasks, an A/A run (no change) typically lands within ±0.3%; with few, the geomean is
+only as steady as those few tasks, so raise `--geomean-threshold` accordingly.
+
+**Output.** Each task's first call on each side is compared with `Bun.deepEquals`
+(prototypes ignored), and tasks whose results differ are listed. This is informational,
+expected for a change in behavior, and never fails the run. Return the result from the
+task (`task("x", () => parse(input))`) for it to mean anything.
+
+The noise floor is measured and reported as usual but doesn't widen the threshold:
+pairing already cancels the drift it measures.
+
+Exit codes: `0` pass, `1` a confirmed regression or the geomean over its threshold, `2`
+nothing paired (`no-matches`), not in a git repository or an unknown ref
+(`invalid-flag`), or a suite failed (`spawn-failed`); `130` Ctrl-C.
+
+With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
+`preload`, `bunFlags`, `outDir` and `timeoutMs`. The sampling settings (`budgetMs`,
+`samples`, `isolate`, ...) don't apply.
 
 ## `ostia compare`
 

@@ -439,11 +439,11 @@ describe("renderers - golden output on fixed fake data", () => {
   })
 })
 
-describe("table renderer - Alloc/op column (item 12)", () => {
-  test("prints an Alloc/op column only when a memstats measurement is present", async () => {
+describe("table renderer - Retained/op column (item 12)", () => {
+  test("prints a Retained/op column only when a memstats measurement is present", async () => {
     const doc = fixedDoc()
     const withoutAlloc = await renderers.table.render(doc, {})
-    expect(withoutAlloc.text).not.toContain("Alloc/op")
+    expect(withoutAlloc.text).not.toContain("Retained/op")
 
     const workload = doc.workloads[0]!
     const allocRun = makeInstrumentedMeasurement({
@@ -458,8 +458,102 @@ describe("table renderer - Alloc/op column (item 12)", () => {
     doc.measurements.push(allocRun)
 
     const withAlloc = await renderers.table.render(doc, {})
-    expect(withAlloc.text).toContain("Alloc/op")
+    expect(withAlloc.text).toContain("Retained/op")
     expect(withAlloc.text).toContain("2.00KB")
+    expect(withAlloc.text).not.toContain("Peak mem")
+  })
+})
+
+describe("--alloc / --peak-mem evidence in every document renderer", () => {
+  function docWithMemory() {
+    const doc = fixedDoc()
+    const workload = doc.workloads[0]!
+    const memstats = (
+      memory: Parameters<typeof makeInstrumentedMeasurement>[0]["memory"],
+      cfg: string,
+    ) =>
+      makeInstrumentedMeasurement({
+        workload,
+        phase: "memstats",
+        configFingerprint: cfg,
+        diagnosticWallNs: 1_000_000,
+        memory,
+        warnings: [],
+        artifacts: [],
+      })
+    doc.measurements.push(
+      memstats(
+        { origin: "heapStats", kind: "retained", bytesPerOp: 2048 },
+        "cfg_alloc",
+      ),
+      memstats(
+        { origin: "resourceUsage", kind: "peak", peakBytes: 3 * 1024 * 1024 },
+        "cfg_peak",
+      ),
+    )
+    return { doc, workload }
+  }
+
+  test("table shows a Peak mem column next to Retained/op", async () => {
+    const { doc } = docWithMemory()
+    const { text } = await renderers.table.render(doc, {})
+    expect(text).toContain("Retained/op")
+    expect(text).toContain("Peak mem")
+    expect(text).toContain("3.00MB")
+  })
+
+  test("markdown adds Retained/op and Peak mem columns", async () => {
+    const { doc } = docWithMemory()
+    const { text } = await renderers.markdown.render(doc, {})
+    expect(text).toContain("| Retained/op | Peak mem |")
+    expect(text).toContain("| 2.00KB | 3.00MB |")
+  })
+
+  test("a peak-hidden warning shows on the task's row in every renderer", async () => {
+    const doc = fixedDoc()
+    const workload = doc.workloads[0]!
+    doc.measurements.push(
+      makeInstrumentedMeasurement({
+        workload,
+        phase: "memstats",
+        configFingerprint: "cfg_peak",
+        diagnosticWallNs: 1_000_000,
+        memory: { origin: "resourceUsage", kind: "peak", peakBytes: 4096 },
+        warnings: [
+          {
+            code: "peak-hidden",
+            message: "freed by setup",
+            data: { slackBytes: 64 * 1024 * 1024, processes: 3 },
+          },
+        ],
+        artifacts: [],
+      }),
+    )
+    const table = (await renderers.table.render(doc, {})).text!
+    expect(table).toContain("! peak-hidden")
+    const markdown = (await renderers.markdown.render(doc, {})).text!
+    expect(markdown).toContain("(`peak-hidden`)")
+    const line = (await renderers.minimal.render(doc, {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .find((l) => l.workloadId === workload.id)
+    expect(line.peakBytes).toBe(4096)
+    expect(line.warnings.map((w: { code: string }) => w.code)).toContain(
+      "peak-hidden",
+    )
+  })
+
+  test("minimal run lines carry retainedBytesPerOp and peakBytes", async () => {
+    const { doc, workload } = docWithMemory()
+    const { text } = await renderers.minimal.render(doc, {})
+    const line = text!
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+      .find((l) => l.workloadId === workload.id)
+    expect(line.retainedBytesPerOp).toBe(2048)
+    expect(line.peakBytes).toBe(3 * 1024 * 1024)
   })
 })
 

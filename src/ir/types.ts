@@ -22,6 +22,11 @@ export interface ProfileDocument {
    * schema bump. Absent when `noiseCheck: false` (or `--no-noise-check`)
    * skipped the reference measurement. */
   environment?: Environment
+  /** Run-level result of a paired A/B run (`ostia ab` / `ab()`): what the
+   * candidate was paired against and the gate's verdict. Additive, no schema
+   * bump. Present only on documents from `ab()`, whose measurements are
+   * `phase: "paired"`. */
+  ab?: AbSummary
   /** Repo state when this document was measured, from `git rev-parse` /
    * `git status --porcelain` in the process's cwd. Additive, no schema
    * bump. Absent outside a git repo (or when `git` itself isn't
@@ -116,7 +121,7 @@ export interface Workload {
   skipped?: boolean
 }
 
-export type Phase = "timing" | "cpu" | "heap" | "memstats"
+export type Phase = "timing" | "cpu" | "heap" | "memstats" | "paired"
 
 export interface Measurement {
   id: string
@@ -131,6 +136,9 @@ export interface Measurement {
   heap?: HeapEvidence
   memory?: MemoryEvidence
   jit?: JitTierBreakdown
+  /** `phase: "paired"` only: the base side and the per-round ratios. The
+   * measurement's `timing` is the candidate side. */
+  paired?: PairedEvidence
   warnings: Warning[]
   artifacts: ArtifactRef[]
   /** True when this timing measurement's trials were run round-robin against
@@ -229,19 +237,99 @@ export interface HeapEvidence {
 
 export interface MemoryEvidence {
   origin: "resourceUsage" | "heapStats"
+  /** What a `phase: "memstats"` measurement measured: `"retained"` for
+   * `--alloc` (`bytesPerOp`), `"peak"` for `--peak-mem` (`peakBytes`).
+   * Absent on subprocess timing's `maxRssBytes`, and on `memstats`
+   * measurements written before this field existed, which are always
+   * `"retained"`. */
+  kind?: "retained" | "peak"
   /** Largest `Trial.maxRssBytes` across a timing measurement's trials. */
   maxRssBytes?: number
-  /** Bytes allocated per call, from `ostia bench --alloc`: heap size delta
-   * (`bun:jsc`'s `heapStats().heapSize`, falling back to
-   * `process.memoryUsage().heapUsed`) around one `Bun.gc(true)`-bracketed
-   * batch, divided by the batch size. */
+  /** Retained heap growth per call, from `ostia bench --alloc`: heap size
+   * delta (`bun:jsc`'s `heapStats().heapSize`, falling back to
+   * `process.memoryUsage().heapUsed`) around one batch bracketed by
+   * `Bun.gc(true)` on both sides, divided by the batch size. Garbage the
+   * calls create and drop is collected before the second reading, so this
+   * is what the calls keep alive (a leak check), not what they allocate. */
   bytesPerOp?: number
+  /** How far one call raised the process's RSS above where it started,
+   * garbage included, from `ostia bench --peak-mem`: median over 3 fresh
+   * processes, each making the task's first call after its `before` hooks
+   * and a full GC. A `peak-hidden` warning says when it may read low. */
+  peakBytes?: number
 }
 
 export interface JitTierBreakdown {
   origin: "jsc-profile"
   tiers: { llint: number; baseline: number; dfg: number; ftl: number }
   topFramesByTier?: { tier: string; frameKey: string; samples: number }[]
+}
+
+/** Evidence of a `phase: "paired"` measurement: base and candidate run in
+ * alternating batches in one process (`measure/paired.ts`), so drift over the
+ * run hits both sides of a round alike and cancels in the ratio. */
+export interface PairedEvidence {
+  /** Rounds run: one base batch and one candidate batch each, alternating
+   * which goes first. */
+  rounds: number
+  /** Calls per side per round. */
+  batch: number
+  /** Base per-call time for each round, ns; `ratios[i]` pairs with
+   * `baseSamples[i]` and the candidate's `timing.samples[i]`. */
+  baseSamples: number[]
+  baseMedianNs: number
+  /** Candidate/base time per round. */
+  ratios: number[]
+  medianRatio: number
+  /** 25th/75th percentile of `ratios`. */
+  p25: number
+  p75: number
+  /** Set when this process's rounds crossed the threshold: median ratio
+   * past `1 ± threshold` and on the same side of 1 in at least three
+   * quarters of rounds. */
+  flagged?: "regressed" | "improved"
+  /** Each fresh-process re-measurement of a flagged workload. */
+  repeats?: {
+    medianRatio: number
+    p25: number
+    p75: number
+    flagged?: "regressed" | "improved"
+  }[]
+  /** Set when `flagged` is: whether every repeat flagged the same way. */
+  confirmed?: boolean
+  /** `flagged` when confirmed, else `"unchanged"`. */
+  verdict: "regressed" | "improved" | "unchanged"
+  /** Whether the first call's return value was deep-equal on both sides
+   * (`Bun.deepEquals`, prototypes ignored). Informational: expected to be
+   * `false` for a change in behavior, never a failure. */
+  sameOutput: boolean
+}
+
+/** Run-level result of `ab()`, stamped on the document as `ab`. */
+export interface AbSummary {
+  base: { ref: string; sha: string }
+  rounds: number
+  thresholdPct: number
+  geomeanThresholdPct: number
+  /** Workloads measured on both sides. */
+  matched: number
+  /** Confirmed verdicts. */
+  regressed: number
+  improved: number
+  unchanged: number
+  /** Flagged in-process, but a fresh-process repeat disagreed; counted in
+   * `unchanged`. */
+  unconfirmed: number
+  /** Workloads whose first call returned different values on each side. */
+  outputDiffers: number
+  /** Geometric mean of each workload's median ratio, as a signed percent
+   * (negative: candidate faster on average). A flagged workload contributes
+   * the median over its main run and repeats. `null` when nothing was
+   * paired. */
+  geomeanPct: number | null
+  /** `"fail"` when any workload regressed (confirmed) or `geomeanPct`
+   * exceeds `geomeanThresholdPct`. */
+  verdict: "pass" | "fail"
 }
 
 /** Every `Warning.code` a renderer or consumer may see. Kept as a runtime
@@ -263,6 +351,7 @@ export const WARNING_CODES = [
   "aborted",
   "time-source-no-match",
   "environment-mismatch",
+  "peak-hidden",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

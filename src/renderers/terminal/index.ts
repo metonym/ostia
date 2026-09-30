@@ -1,6 +1,8 @@
 import type { Measurement, ProfileDocument, Workload } from "../../ir/types.ts"
 import {
+  cpuSampleCount,
   cpuTimes,
+  formatBytes,
   formatCpuTimes,
   formatDuration,
   formatEnvironmentLine,
@@ -9,18 +11,26 @@ import {
   pickDurationUnit,
   workloadLabel,
 } from "../format.ts"
+import {
+  abNotes,
+  formatAbHeader,
+  formatAbSummary,
+  formatRatio,
+  type PairedRun,
+  pairedRuns,
+  pairedVerdict,
+} from "../paired.ts"
 import { groupOf, relativeReferences } from "../relative.ts"
-import { environmentMismatch, skippedWorkloads, timingRuns } from "../select.ts"
+import {
+  environmentMismatch,
+  memoryReadings,
+  skippedWorkloads,
+  timingRuns,
+} from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
 
 function fmtMs(ns: number): string {
   return (ns / 1e6).toFixed(3)
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes.toFixed(0)}B`
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KB`
-  return `${(bytes / (1024 * 1024)).toFixed(2)}MB`
 }
 
 interface TimingRow {
@@ -47,6 +57,9 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const envLine = doc.environment
       ? [formatEnvironmentLine(doc.environment), ""]
       : []
+
+    // Only `ab()` writes paired measurements, and it always stamps `ab`.
+    if (doc.ab) return { text: renderPaired(doc, pairedRuns(doc), envLine) }
 
     const skipped = skippedWorkloads(doc, runs)
     if (runs.length === 0 && skipped.length === 0) {
@@ -77,15 +90,17 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       }
     }
 
-    const allocByWorkloadId = new Map(
-      doc.measurements
-        .filter(
-          (m): m is Measurement & { memory: { bytesPerOp: number } } =>
-            m.phase === "memstats" && m.memory?.bytesPerOp !== undefined,
-        )
-        .map((m) => [m.workloadId, m.memory.bytesPerOp]),
-    )
-    const showAlloc = allocByWorkloadId.size > 0
+    const memory = memoryReadings(doc)
+    let showAlloc = false
+    let showPeak = false
+    for (const r of memory.values()) {
+      if (r.retained !== undefined) showAlloc = true
+      if (r.peak !== undefined) showPeak = true
+    }
+    const rowWarnings = (run: Measurement) => {
+      const extra = memory.get(run.workloadId)?.warnings
+      return extra?.length ? [...run.warnings, ...extra] : run.warnings
+    }
     const cpuTimesByRow = new Map(
       measuredRows.map((row) => [row, cpuTimes(row.run)]),
     )
@@ -116,15 +131,17 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     const medianWidth = 10
     const spreadWidth = 18
     const rangeWidth = 18
-    const allocWidth = 10
+    const allocWidth = 11
+    const peakWidth = 10
     const cpuTimesWidth = 18
 
     const lines: string[] = [...envLine]
-    const allocHeader = showAlloc ? ` ${"Alloc/op".padEnd(allocWidth)}` : ""
+    const allocHeader = showAlloc ? ` ${"Retained/op".padEnd(allocWidth)}` : ""
+    const peakHeader = showPeak ? ` ${"Peak mem".padEnd(peakWidth)}` : ""
     const cpuTimesHeader = showCpuTimes
       ? ` ${"User/Sys".padEnd(cpuTimesWidth)}`
       : ""
-    const header = `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}${cpuTimesHeader}${allocHeader}${showRelative ? " Relative" : ""}`
+    const header = `${"Task".padEnd(labelWidth)}   ${"Median".padEnd(medianWidth)} ${"Spread".padEnd(spreadWidth)} ${"Range".padEnd(rangeWidth)}${cpuTimesHeader}${allocHeader}${peakHeader}${showRelative ? " Relative" : ""}`
     lines.push(header)
     lines.push("-".repeat(header.length))
 
@@ -152,22 +169,26 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
         const times = cpuTimesByRow.get(row)
         line += ` ${(times ? formatCpuTimes(times) : "").padEnd(cpuTimesWidth)}`
       }
+      const readings = workload ? memory.get(workload.id) : undefined
       if (showAlloc) {
-        const bytesPerOp = workload
-          ? allocByWorkloadId.get(workload.id)
-          : undefined
-        const allocCell =
-          bytesPerOp !== undefined ? formatBytes(bytesPerOp) : ""
+        const retained = readings?.retained
+        const allocCell = retained !== undefined ? formatBytes(retained) : ""
         line += ` ${allocCell.padEnd(allocWidth)}`
+      }
+      if (showPeak) {
+        const peak = readings?.peak
+        const peakCell = peak !== undefined ? formatBytes(peak) : ""
+        line += ` ${peakCell.padEnd(peakWidth)}`
       }
       if (showRelative) {
         const relative = t.median / (references.get(row) ?? t.median)
         line += ` ${formatRelative(relative, !!workload?.baseline)}`
       }
       lines.push(line)
-      if (run.warnings.length > 0) {
+      const warnings = rowWarnings(run)
+      if (warnings.length > 0) {
         lines.push(
-          `${" ".repeat(indent.length)}  ! ${run.warnings.map((w) => w.code).join(", ")}`,
+          `${" ".repeat(indent.length)}  ! ${warnings.map((w) => w.code).join(", ")}`,
         )
         rowsWithWarnings.push(row)
       }
@@ -177,7 +198,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       lines.push("")
       lines.push("Warnings:")
       for (const row of rowsWithWarnings) {
-        for (const w of row.run.warnings) {
+        for (const w of rowWarnings(row.run)) {
           lines.push(`  ${row.label}: ${w.message}`)
         }
       }
@@ -197,6 +218,90 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
 
     return { text: `${lines.map((l) => l.trimEnd()).join("\n")}\n` }
   },
+}
+
+/** An `ab()` document: one row per paired workload, base and candidate side
+ * by side, then what differed and the run's verdict. */
+function renderPaired(
+  doc: ProfileDocument,
+  runs: PairedRun[],
+  envLine: string[],
+): string {
+  const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
+  const lines = [...envLine]
+  if (doc.ab) lines.push(`A/B: ${formatAbHeader(doc.ab)}`, "")
+
+  const rows = runs.map((run) => {
+    const workload = byWorkload.get(run.workloadId)
+    const p = run.paired
+    const unit = pickDurationUnit(Math.min(p.baseMedianNs, run.timing.median))
+    return {
+      run,
+      group: groupOf(workload),
+      label: workloadLabel(workload),
+      cells: [
+        formatDuration(p.baseMedianNs, unit),
+        formatDuration(run.timing.median, unit),
+        formatRatio(p.medianRatio),
+        `${formatRatio(p.p25)}…${formatRatio(p.p75)}`,
+      ],
+      verdict: pairedVerdict(p),
+    }
+  })
+
+  if (rows.length > 0) {
+    const labelWidth = Math.max(
+      4,
+      ...rows.map((r) => (r.group !== undefined ? 2 : 0) + r.label.length),
+    )
+    const widths = [10, 10, 9, 18]
+    const header = `${"Task".padEnd(labelWidth)}   ${["Base", "Candidate", "Change", "p25…p75"].map((h, i) => h.padEnd(widths[i]!)).join(" ")} Verdict`
+    lines.push(header, "-".repeat(header.length))
+    let lastGroup: string | undefined
+    for (const row of rows) {
+      if (row.group !== lastGroup && row.group !== undefined) {
+        lines.push(`${row.group}:`)
+      }
+      lastGroup = row.group
+      const indent = row.group !== undefined ? "  " : ""
+      lines.push(
+        `${(indent + row.label).padEnd(labelWidth)}   ${row.cells.map((c, i) => c.padEnd(widths[i]!)).join(" ")} ${row.verdict}`,
+      )
+      if (row.run.warnings.length > 0) {
+        lines.push(
+          `${indent}  ! ${row.run.warnings.map((w) => w.code).join(", ")}`,
+        )
+      }
+    }
+  }
+
+  const notes = abNotes(doc)
+  if (notes.outputDiffers.length > 0) {
+    lines.push(
+      "",
+      `Output differs from the base (${notes.outputDiffers.length}):`,
+    )
+    for (const label of notes.outputDiffers) lines.push(`  ${label}`)
+  }
+  if (notes.baseOnly.length > 0 || notes.candOnly.length > 0) {
+    lines.push("", "Unmatched:")
+    if (notes.baseOnly.length > 0)
+      lines.push(`  base only: ${notes.baseOnly.join(", ")}`)
+    if (notes.candOnly.length > 0)
+      lines.push(`  candidate only: ${notes.candOnly.join(", ")}`)
+  }
+
+  const warned = rows.filter((r) => r.run.warnings.length > 0)
+  if (warned.length > 0) {
+    lines.push("", "Warnings:")
+    for (const row of warned) {
+      for (const w of row.run.warnings)
+        lines.push(`  ${row.label}: ${w.message}`)
+    }
+  }
+
+  if (doc.ab) lines.push("", formatAbSummary(doc.ab))
+  return `${lines.map((l) => l.trimEnd()).join("\n")}\n`
 }
 
 function renderComparisons(
@@ -295,7 +400,7 @@ function renderInstrumentedRuns(
     if (run.phase === "cpu") {
       if (run.cpu) {
         lines.push(
-          `CPU capture - ${label} (instrumented, ${run.cpu.samplingIntervalUs}µs interval, diagnostic wall ${fmtMs(run.diagnosticWallNs ?? 0)}ms)`,
+          `CPU capture - ${label} (instrumented, ${run.cpu.samplingIntervalUs}µs interval, ${cpuSampleCount(run.cpu)} samples, diagnostic wall ${fmtMs(run.diagnosticWallNs ?? 0)}ms)`,
         )
         const totalUs = run.cpu.totals.reduce((s, t) => s + t.selfUs, 0) || 1
         for (const t of run.cpu.totals.slice(0, TOP_FRAMES)) {

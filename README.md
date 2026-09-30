@@ -2,12 +2,13 @@
 
 ostia is a profiling and benchmarking toolkit for Bun. It times subprocess commands
 (like hyperfine) and in-process functions (like mitata), optionally captures CPU
-profiles, heap snapshots, JIT tiers and allocation counts, and writes everything to one
-schema-versioned JSON document (`ProfileDocument`). Two documents compare with a
+profiles, heap snapshots, JIT tiers, retained heap and peak memory, and writes everything
+to one schema-versioned JSON document (`ProfileDocument`). Two documents compare with a
 bootstrap confidence interval and a Mann-Whitney test, with the regression threshold
-widened to the machine's measured noise floor. `ostia ci` gates a config file of
-workloads against a saved baseline, and `--format minimal` gives scripts and LLM agents
-a compact JSON line protocol. The CLI is a thin wrapper over the library, so anything
+widened to the machine's measured noise floor. `ostia ab` pairs the working tree against
+a git ref in one process, which holds up on machines too noisy for that. `ostia ci` gates
+a config file of workloads against a saved baseline, and `--format minimal` gives scripts
+and LLM agents a compact JSON line protocol. The CLI is a thin wrapper over the library, so anything
 `ostia time`/`ostia bench` do, `time()`/`bench()` do too.
 
 Zero runtime dependencies. Requires Bun ≥ 1.4.
@@ -71,6 +72,30 @@ dedupe:
   dedupe/Set-based (O(n))              23.5 µs    24.9 µs…72.5 µs    18.7 µs…208.3 µs   1.00×
 ```
 
+### Check a change for regressions
+
+Commit the suite, then change the code: say the Set-based dedupe becomes
+`input.filter((x, i) => input.indexOf(x) === i)`.
+
+```sh
+ostia ab suite.ts   # every task: working tree vs HEAD, paired in one process
+```
+
+```
+A/B: working tree vs HEAD (3945768) · 15 rounds · threshold 10% · geomean threshold 1.5%
+
+Task                                   Base       Candidate  Change    p25…p75            Verdict
+-------------------------------------------------------------------------------------------------
+dedupe:
+  dedupe/naive (indexOf scan, O(n²))   183.5 µs   178.5 µs   -1.9%     -3.5%…-0.3%
+  dedupe/Set-based (O(n))              25.2 µs    181.2 µs   +618.1%   +554.2%…+659.2%    regressed, confirmed (repeats: +630.6%, +584.5%)
+
+Geomean +165.4% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
+```
+
+Base and candidate run in alternating ~10ms batches, so machine drift cancels within each
+round; a flagged task counts only if two fresh processes agree. Exit 1 on a regression.
+
 ### Gate CI on a baseline
 
 ```json
@@ -105,7 +130,7 @@ Scratch output (cache, artifacts) goes to `node_modules/.cache/ostia`. Baselines
 
 ## Using ostia from an AI agent
 
-`--format minimal` (on `time`, `bench`, `compare`, `report`, `ci`) prints one JSON
+`--format minimal` (on `time`, `bench`, `ab`, `compare`, `report`, `ci`) prints one JSON
 object per line on stdout and nothing else. Every line has `event` and
 `protocolVersion: 1`. Timing values are in nanoseconds.
 
@@ -117,9 +142,9 @@ ostia ci --format minimal; echo $?
 
 | `event` | When | Key fields |
 |---|---|---|
-| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples`, `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `relative?`, `noiseFloorPct?`, `warnings[]`, and on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }` |
-| `unmatched` | One per workload on only one side of `compare`/`ci` | `workloadId`, `task`, `side: "base" \| "cand"` |
-| `summary` | Last line of `compare`/`ci` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
+| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples`, `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `retainedBytesPerOp?`/`peakBytes?` (`--alloc`/`--peak-mem`), `relative?`, `noiseFloorPct?`, `warnings[]`, on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }`, and on `ab`: `paired: { baseMedian, medianRatio, p25, p75, rounds, verdict, flagged?, confirmed?, repeats?, sameOutput }` |
+| `unmatched` | One per workload on only one side of `compare`/`ci`/`ab` | `workloadId`, `task`, `side: "base" \| "cand"` |
+| `summary` | Last line of `compare`/`ci`/`ab` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `base?`/`geomeanThresholdPct?`/`unconfirmed?`/`outputDiffers?` (`ab`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
 
 ```
 {"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
@@ -133,9 +158,9 @@ Exit codes, the same for every command:
 | Code | Meaning |
 |---|---|
 | `0` | Pass |
-| `1` | At least one workload regressed (`compare`/`ci` only; `time`/`bench` never return 1) |
+| `1` | At least one workload regressed (`compare`/`ci`/`ab` only; `time`/`bench` never return 1) |
 | `2` | Harness error: a command exited non-zero or produced no samples, a suite failed, nothing matched, a bad flag, a missing/invalid config or baseline |
-| `130` | Cancelled with Ctrl-C (`time`/`bench`; partial results are still exported) |
+| `130` | Cancelled with Ctrl-C (`time`/`bench`/`ab`; partial results are still exported) |
 
 On exit 2, stderr's last line is `{"event":"error","protocolVersion":1,"code":...,"message":...,"data"?:...}`
 when stderr is not a TTY or a machine format (`minimal`/`json`/`jsonl`) was requested.
@@ -177,6 +202,7 @@ Runs in-process `group()`/`task()` suites. Each suite file runs in its own child
 ```sh
 ostia bench bench/*.ts
 ostia bench bench/*.ts --filter parse --cpu --alloc
+ostia bench bench/*.ts --filter large --peak-mem
 ostia bench bench/*.ts --isolate
 ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
 ```
@@ -188,8 +214,36 @@ ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" be
   the most comparable numbers.
 - `--jobs N|auto` runs suite files in parallel. Faster, but noisier; keep the default of 1
   for anything you `compare` or gate in `ci`.
+- `--cpu` profiles each task at 100µs for about 2,000 samples (`--cpu-interval` changes
+  the interval). Inlined helpers count as their callers' self time.
+- `--alloc` reports the heap each call *retains* after a full GC: a leak check, not an
+  allocation count. `--peak-mem` reports how far the task's first call raises RSS,
+  garbage included, in 3 fresh processes (`OSTIA_PEAK_MEM=1` is set there, so a suite can
+  skip heavy setup that would peak first).
 - With no files, `ostia bench` uses the config's `bench` section. Each flag overrides its
-  config field; `--no-gc`/`--no-cpu`/`--no-alloc`/`--no-isolate` override a config `true`.
+  config field; `--no-gc`/`--no-cpu`/`--no-alloc`/`--no-peak-mem`/`--no-isolate` override
+  a config `true`.
+
+### `ostia ab`
+
+Runs suites on a git ref's committed tree and on the working tree in one process,
+alternating short batches, and gates on the per-round time ratio.
+
+```sh
+ostia ab bench/*.ts                    # vs HEAD
+ostia ab bench/*.ts --base origin/main
+ostia ab bench/*.ts --threshold 5 --rounds 21
+```
+
+- The same suite files as `ostia bench`, unchanged. The ref's tree is extracted once per
+  commit under `node_modules/.cache/ostia/ab/`; relative imports resolve within each tree,
+  package imports to the project's `node_modules`.
+- A task is flagged when its median ratio moves past `--threshold` (default 10%) in at
+  least three quarters of rounds, and counts only if `--confirm` (default 2) fresh
+  processes agree. The run also fails when the geometric mean of all ratios is more than
+  `--geomean-threshold` (default 1.5%) slower.
+- Tasks whose first call returns different values on each side are listed (not a
+  failure). Exit: `0` pass, `1` regression, `2` nothing paired or a harness error.
 
 ### `ostia compare`
 
@@ -265,7 +319,7 @@ ostia baseline show main --format markdown
 
 ```ts
 import {
-  time, bench, group, task, sweep, range, run, profile, keep,
+  time, bench, ab, group, task, sweep, range, run, profile, keep,
   compareDocuments, defineConfig, createDocument, loadDocument, saveDocument, renderers,
 } from "ostia"
 import type { ProfileDocument, MinimalEvent } from "ostia"
@@ -275,6 +329,7 @@ import type { ProfileDocument, MinimalEvent } from "ostia"
 |---|---|
 | `time(opts)` | Subprocess timing, same as `ostia time`. Returns a `ProfileDocument`. |
 | `bench(opts)` | Runs suite files, same as `ostia bench`. |
+| `ab(opts)` | Paired A/B of suite files against a git ref, same as `ostia ab`. |
 | `group(name, fn, opts?)` / `task(name, fn, opts?)` | Register in-process tasks; `.skip`/`.only` variants. |
 | `sweep(dims, fn)` / `range(start, end, mult?)` | Parameter sweeps; tasks inherit the point as `params`. |
 | `run(opts?)` | Runs the tasks registered in the current file, in this process (`bun suite.ts`). |

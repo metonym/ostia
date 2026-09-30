@@ -1,5 +1,63 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `ostia ab` / `ab()`: paired A/B timing against a git ref. Every task in the
+  given suite files runs on the ref's committed tree (base, default `HEAD`)
+  and on the working tree (candidate) in one process, in alternating ~10ms
+  batches, and is judged on the per-round time ratio, so machine drift
+  cancels within each round instead of swamping a comparison of two runs
+  taken minutes apart. A task is flagged when its median ratio moves past
+  `--threshold` (default 10%) in at least three quarters of rounds, and
+  counts only when `--confirm` (default 2) fresh processes flag it the same
+  way. The run also fails when the geometric mean of all ratios is more than
+  `--geomean-threshold` (default 1.5%) slower. Tasks whose first call returns
+  different values on each side are listed. Suites need no changes: the ref's
+  tree is extracted once per commit under `<outDir>/ab/<sha>` (each script
+  salted with one inert line, so JSC doesn't share compiled code between
+  the two copies) and the suite is imported from both trees. Exit codes: 0
+  pass, 1 regression, 2 nothing paired or a harness error.
+  - Documents gain `phase: "paired"` measurements (`timing` is the candidate,
+    `paired` the base side and ratios) and a top-level `ab` summary.
+  - `--format minimal`: `run` lines gain `paired`; the `summary` line takes
+    `command: "ab"` with `base`, `geomeanThresholdPct`, `unconfirmed` and
+    `outputDiffers`.
+- `ostia bench --peak-mem` (`peakMem` on `bench()`, the `bench` config, and
+  task/group options): how far the task's first call raises RSS, garbage
+  included (`memory.kind: "peak"`, `memory.peakBytes`, shown as
+  `Peak mem`), median of 3 fresh processes. RSS is sampled from a worker
+  thread during the call and combined with the peak-RSS high-water mark.
+  Those processes run with `OSTIA_PEAK_MEM=1`, so a suite can skip
+  module-scope work whose freed memory the call could reuse unseen; when
+  that's 16MB or more, the measurement carries a new `peak-hidden` warning.
+- `ostia bench --cpu-interval US` (`cpuIntervalUs` on `bench()`, `run()` and
+  the `bench` config).
+- `--format minimal` `run` lines carry `retainedBytesPerOp` (`--alloc`) and
+  `peakBytes` (`--peak-mem`).
+
+**Changes**
+
+- `--cpu` in `bench` samples every 100µs instead of 1000µs and loops the
+  task for long enough to collect about 2,000 samples (400ms by default;
+  longer at a coarser `--cpu-interval`, up to 10s), instead of a fixed 200ms
+  that gave a ~3ms task a few hundred samples. CPU sections show the sample
+  count, and a capture under 1,000 samples carries a `low-sample-count`
+  warning. The docs now note that inlined helpers count as their callers'
+  self time.
+- `--alloc` is documented as what it measures: heap each call *retains*
+  after a full GC, not bytes allocated. Its measurement carries
+  `memory.kind: "retained"`, and the table column is `Retained/op` (was
+  `Alloc/op`).
+
+**Fixes**
+
+- `bench({ cwd })` with a relative `outDir` (the default) returned an empty
+  document when `cwd` wasn't the process's own working directory: suite
+  processes wrote their results under `cwd` and the parent looked for them
+  under its own.
+
 ## 0.2.7 — 2026-09-26
 
 **Fixes**

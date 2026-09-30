@@ -1,14 +1,27 @@
 import { type BenchConfig, DEFAULT_OUT_DIR } from "../config/index.ts"
 import { scanGlobs } from "../glob.ts"
-import { loadDocument, newDocument } from "../ir/document.ts"
+import {
+  configFingerprint,
+  loadDocument,
+  makeInstrumentedMeasurement,
+  newDocument,
+} from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
-import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
+import type {
+  Measurement,
+  ProfileDocument,
+  Warning,
+  Workload,
+} from "../ir/types.ts"
 import {
   captureEnvironment,
   noisyMachineWarning,
 } from "../measure/environment.ts"
+import type { PeakMemResult } from "../measure/peak.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
+import { formatBytes } from "../renderers/format.ts"
 import { killSwitch } from "../spawn/index.ts"
+import { percentile } from "../stats/index.ts"
 import type { RunnerOpts } from "./runner.ts"
 
 export interface BenchOptions {
@@ -20,16 +33,27 @@ export interface BenchOptions {
   samples?: number
   minSamples?: number
   gc?: boolean
-  /** Capture one extra `phase: "cpu"` measurement per task (200ms of the
-   * task looped under the JSC sampling profiler, JIT tiers included), never
-   * mixed into the timing numbers. `TaskOptions.cpu` / `GroupOptions.cpu`
-   * override this per task or group. */
+  /** Capture one extra `phase: "cpu"` measurement per task (the task looped
+   * under the JSC sampling profiler for long enough to collect ~2,000
+   * samples, JIT tiers included), never mixed into the timing numbers.
+   * `TaskOptions.cpu` / `GroupOptions.cpu` override this per task or group. */
   cpu?: boolean
-  /** Capture one extra `phase: "memstats"` measurement per task: bytes
-   * allocated per call, from a `Bun.gc(true)`-bracketed batch.
-   * `TaskOptions.alloc` / `GroupOptions.alloc` override this per task or
-   * group. */
+  /** `cpu`'s sampling interval, µs (default: 100). A coarser interval
+   * lengthens the capture to keep the sample count, up to 10s per task. */
+  cpuIntervalUs?: number
+  /** Capture one extra `phase: "memstats"` measurement per task: retained
+   * heap growth per call, from a batch with `Bun.gc(true)` on both sides.
+   * What the calls keep alive, not what they allocate - garbage is collected
+   * before the second reading. `TaskOptions.alloc` / `GroupOptions.alloc`
+   * override this per task or group. */
   alloc?: boolean
+  /** Capture one extra `phase: "memstats"` measurement per task: how far the
+   * task's first call raises RSS, garbage included - the reading
+   * `alloc` can't give. Median of 3 fresh processes, each run with
+   * `OSTIA_PEAK_MEM=1` in its environment (see `measurePeakMem`).
+   * `TaskOptions.peakMem` / `GroupOptions.peakMem` override this per task or
+   * group. */
+  peakMem?: boolean
   filter?: string
   /** Suite files to run at once, each still in its own child process (default:
    * 1). Files are independent by design, so this is a wall-clock win for
@@ -110,7 +134,9 @@ export interface BenchCliOverrides {
   jobs?: number
   gc?: boolean
   cpu?: boolean
+  cpuIntervalUs?: number
   alloc?: boolean
+  peakMem?: boolean
   filter?: string
   isolate?: boolean
   preload: string[]
@@ -152,7 +178,9 @@ export async function resolveBenchOptions(
     jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
     gc: cli.gc ?? config?.gc ?? false,
     cpu: cli.cpu ?? config?.cpu ?? false,
+    cpuIntervalUs: cli.cpuIntervalUs ?? config?.cpuIntervalUs,
     alloc: cli.alloc ?? config?.alloc ?? false,
+    peakMem: cli.peakMem ?? config?.peakMem ?? false,
     filter: cli.filter ?? config?.filter,
     isolate: cli.isolate ?? config?.isolate ?? false,
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
@@ -166,8 +194,16 @@ export async function resolveBenchOptions(
 
 interface PlannedTask {
   id: string
+  workloadId: string
   isolate: boolean
+  peakMem: boolean
 }
+
+/** Fresh processes per `--peak-mem` reading; the median is reported. */
+const PEAK_MEM_PROCESSES = 3
+// Below this, slack is what any suite that loads fixtures leaves behind
+// (8MB for caligula's) and too common to warn about.
+const PEAK_SLACK_NOISE_BYTES = 16 * 1024 * 1024
 
 /** One subprocess spawn dedicated to a single isolated task. */
 interface WorkItem {
@@ -178,9 +214,11 @@ interface WorkItem {
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   assertSamplingOptions("bench", opts)
 
-  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
-  const tmpDir = `${outDir}/bench-tmp`
   const cwd = opts.cwd ?? process.cwd()
+  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
+  // Against `cwd`, where the runner subprocesses write, not this process's
+  // cwd, where it reads their results back.
+  const tmpDir = `${outDir.startsWith("/") ? outDir : `${cwd}/${outDir}`}/bench-tmp`
   const jobs = Math.max(1, Math.floor(opts.jobs ?? 1))
 
   const taskOpts = {
@@ -189,7 +227,9 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     minSamples: opts.minSamples,
     gc: opts.gc,
     cpu: opts.cpu,
+    cpuIntervalUs: opts.cpuIntervalUs,
     alloc: opts.alloc,
+    peakMem: opts.peakMem,
     // Measured once here in the parent instead: every runner subprocess
     // repeating the ~200ms reference measurement only to have all but the
     // first result discarded cost seconds on an isolated or multi-file run.
@@ -216,6 +256,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   const spawnPooled = async (
     argvList: string[][],
     describe: (index: number) => string,
+    env?: Record<string, string>,
   ): Promise<void> => {
     const inFlight = new Set<ReturnType<typeof Bun.spawn>>()
     let next = 0
@@ -232,6 +273,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           const kill = killSwitch(opts.timeoutMs, opts.signal)
           const proc = Bun.spawn(argvList[index]!, {
             cwd,
+            ...(env && { env: { ...process.env, ...env } }),
             stdout: "inherit",
             stderr: "inherit",
             stdin: "ignore",
@@ -351,6 +393,82 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       ),
     )
 
+    // Phase 3: each `peakMem` task's first call, alone in a fresh process,
+    // PEAK_MEM_PROCESSES times.
+    const peakItems: { suiteIndex: number; workloadId: string }[] = []
+    for (let s = 0; s < plans.length; s++) {
+      for (const t of plans[s]!) {
+        if (!t.peakMem) continue
+        for (let r = 0; r < PEAK_MEM_PROCESSES; r++) {
+          peakItems.push({ suiteIndex: s, workloadId: t.workloadId })
+        }
+      }
+    }
+    const peakPaths = peakItems.map(
+      (item, i) =>
+        `${tmpDir}/${fp("bench-peak", resolvedSuites[item.suiteIndex]!, i)}.json`,
+    )
+    await spawnPooled(
+      peakItems.map((item, i) => [
+        "bun",
+        ...bunFlags,
+        RUNNER_PATH,
+        resolvedSuites[item.suiteIndex]!,
+        peakPaths[i]!,
+        JSON.stringify({
+          filter: opts.filter,
+          preload: resolvedPreloads,
+          peakMemFor: item.workloadId,
+        } satisfies RunnerOpts),
+      ]),
+      (i) => opts.suites[peakItems[i]!.suiteIndex]!,
+      // Lets a suite skip heavy module-scope work (validating every input by
+      // running it, say) that would peak before the measured call does.
+      { OSTIA_PEAK_MEM: "1" },
+    )
+    const peakReadings = new Map<string, PeakMemResult[]>()
+    for (let i = 0; i < peakItems.length; i++) {
+      const file = Bun.file(peakPaths[i]!)
+      if (!(await file.exists())) continue
+      const id = peakItems[i]!.workloadId
+      const readings = peakReadings.get(id) ?? []
+      readings.push((await file.json()) as PeakMemResult)
+      peakReadings.set(id, readings)
+    }
+    const peakMeasurement = (workload: Workload): Measurement[] => {
+      const readings = peakReadings.get(workload.id)
+      if (!readings?.length) return []
+      const median = (values: number[]) =>
+        percentile(Float64Array.from(values).sort(), 0.5)
+      const peak = median(readings.map((r) => r.peakBytes))
+      const slack = Math.max(...readings.map((r) => r.slackBytes))
+      const understated = slack >= PEAK_SLACK_NOISE_BYTES && slack > peak / 4
+      const warnings: Warning[] = understated
+        ? [
+            {
+              code: "peak-hidden",
+              message: `Before the call, earlier work in the process had freed up to ${formatBytes(slack)} the allocator still held (module-scope setup or before hooks that allocate), which the call could reuse without RSS rising: this reading can be low by up to that much. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
+              data: { slackBytes: slack, processes: readings.length },
+            },
+          ]
+        : []
+      return [
+        makeInstrumentedMeasurement({
+          workload,
+          phase: "memstats",
+          configFingerprint: configFingerprint({ peakMem: true }),
+          diagnosticWallNs: median(readings.map((r) => r.wallNs)),
+          memory: {
+            origin: "resourceUsage",
+            kind: "peak",
+            peakBytes: peak,
+          },
+          warnings,
+          artifacts: [],
+        }),
+      ]
+    }
+
     // Reassemble each suite's contribution in the plan's order (registration
     // order, filtered) regardless of which item a task landed in, then
     // concatenate suites in command-line order - the same ordering guarantee
@@ -392,6 +510,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           for (const m of doc.measurements) {
             if (m.workloadId === workload.id) measurements.push(m)
           }
+          measurements.push(...peakMeasurement(workload))
         } else {
           const workload = sharedDoc.workloads[sharedPtr]!
           workloads.push(workload)
@@ -400,6 +519,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
             []) {
             measurements.push(m)
           }
+          measurements.push(...peakMeasurement(workload))
         }
       }
     }

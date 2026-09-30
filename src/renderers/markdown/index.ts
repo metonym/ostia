@@ -117,10 +117,11 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
     const mismatch = environmentMismatch(doc)
     if (mismatch) lines.push(`> ⚠ ${mismatch.message}`, "")
 
-    const paired = pairedRuns(doc)
-    if (paired.length > 0 || doc.ab) {
+    // Only `ab()` writes paired measurements, and it always stamps `ab`.
+    if (doc.ab) {
+      const paired = pairedRuns(doc)
       lines.push("## A/B", "")
-      if (doc.ab) lines.push(formatAbHeader(doc.ab), "")
+      lines.push(formatAbHeader(doc.ab), "")
       if (paired.length > 0) {
         lines.push(
           "| Task | Base | Candidate | Change | p25…p75 | Verdict |",
@@ -158,7 +159,7 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
           lines.push(`- **${label}**: ${w.message} (\`${w.code}\`)`)
       }
       if (paired.some((r) => r.warnings.length > 0)) lines.push("")
-      if (doc.ab) lines.push(`**${formatAbSummary(doc.ab)}**`, "")
+      lines.push(`**${formatAbSummary(doc.ab)}**`, "")
     }
 
     const runs = timingRuns(doc)
@@ -286,10 +287,10 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
         lines.push("")
       }
 
-      const rowWarnings = (run: (typeof runs)[number]) => [
-        ...run.warnings,
-        ...(memoryByWorkload.get(run.workloadId)?.warnings ?? []),
-      ]
+      const rowWarnings = (run: (typeof runs)[number]) => {
+        const extra = memoryByWorkload.get(run.workloadId)?.warnings
+        return extra?.length ? [...run.warnings, ...extra] : run.warnings
+      }
       const withWarnings = runs.filter((r) => rowWarnings(r).length > 0)
       if (withWarnings.length > 0) {
         lines.push("### Warnings", "")

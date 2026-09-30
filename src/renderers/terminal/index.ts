@@ -58,10 +58,8 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       ? [formatEnvironmentLine(doc.environment), ""]
       : []
 
-    const paired = pairedRuns(doc)
-    if (paired.length > 0 || doc.ab) {
-      return { text: renderPaired(doc, paired, envLine) }
-    }
+    // Only `ab()` writes paired measurements, and it always stamps `ab`.
+    if (doc.ab) return { text: renderPaired(doc, pairedRuns(doc), envLine) }
 
     const skipped = skippedWorkloads(doc, runs)
     if (runs.length === 0 && skipped.length === 0) {
@@ -93,12 +91,16 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     }
 
     const memory = memoryReadings(doc)
-    const showAlloc = [...memory.values()].some((r) => r.retained !== undefined)
-    const showPeak = [...memory.values()].some((r) => r.peak !== undefined)
-    const rowWarnings = (run: Measurement) => [
-      ...run.warnings,
-      ...(memory.get(run.workloadId)?.warnings ?? []),
-    ]
+    let showAlloc = false
+    let showPeak = false
+    for (const r of memory.values()) {
+      if (r.retained !== undefined) showAlloc = true
+      if (r.peak !== undefined) showPeak = true
+    }
+    const rowWarnings = (run: Measurement) => {
+      const extra = memory.get(run.workloadId)?.warnings
+      return extra?.length ? [...run.warnings, ...extra] : run.warnings
+    }
     const cpuTimesByRow = new Map(
       measuredRows.map((row) => [row, cpuTimes(row.run)]),
     )

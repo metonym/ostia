@@ -7,6 +7,7 @@ import {
   AbSetupError,
   ab,
 } from "../../src/ab/index.ts"
+import { OstiaUsageError } from "../../src/errors.ts"
 import { bench } from "../../src/index.ts"
 import type { MinimalEvent } from "../../src/renderers/minimal/index.ts"
 
@@ -104,6 +105,9 @@ describe("ab() - paired A/B against a git ref", () => {
     const work = byTask.get("g/work")!
     expect(work.phase).toBe("paired")
     expect(work.paired!.medianRatio).toBeGreaterThan(2)
+    expect(work.paired!.ratioP25).toBeGreaterThan(1)
+    expect(work.paired!.ratioP75).toBeGreaterThanOrEqual(work.paired!.ratioP25)
+    expect(work.paired!.repeats![0]!.ratioP25).toBeGreaterThan(1)
     expect(work.paired!.flagged).toBe("regressed")
     expect(work.paired!.repeats).toHaveLength(2)
     expect(work.paired!.confirmed).toBe(true)
@@ -439,6 +443,34 @@ task("gen", () => spin(N))
     expect(left).toBe("")
   }, 20_000)
 
+  test("a suite file that doesn't exist is a usage error", async () => {
+    const err = await ab({ ...QUICK, suites: ["bench/nope.bench.ts"] }).catch(
+      (e) => e,
+    )
+    expect(err).toBeInstanceOf(OstiaUsageError)
+    expect(err.message).toBe("Suite not found: bench/nope.bench.ts")
+  }, 20_000)
+
+  test("a .only in the candidate leaves base-only tasks out, like --filter does", async () => {
+    await Bun.write(
+      `${REPO}/bench/s.bench.ts`,
+      SUITE.replace('  task("stable", () => spin(20_000))\n', "").replace(
+        'task("work"',
+        'task.only("work"',
+      ),
+    )
+    const doc = await ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
+    expect(doc.ab!.matched).toBe(1)
+    expect(doc.unmatched!.baseOnly).toEqual([])
+  }, 60_000)
+
+  test("concurrent runs sharing an outDir don't delete each other's scratch files", async () => {
+    const run = () => ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
+    const [a, b] = await Promise.all([run(), run()])
+    expect(a.ab!.matched).toBe(2)
+    expect(b.ab!.matched).toBe(2)
+  }, 60_000)
+
   test("rejects a ref that isn't a commit", async () => {
     await expect(
       ab({ ...QUICK, suites: ["bench/s.bench.ts"], base: "no-such-ref" }),
@@ -484,6 +516,7 @@ describe("ostia ab", () => {
     const work = events.find((e) => e.event === "run" && e.task === "g/work")
     expect(work?.event === "run" && work.paired?.verdict).toBe("regressed")
     expect(work?.event === "run" && work.paired?.confirmed).toBe(true)
+    expect(work?.event === "run" && work.paired?.ratioP25).toBeGreaterThan(1)
     const summary = events.at(-1)!
     expect(summary.event).toBe("summary")
     if (summary.event !== "summary") return

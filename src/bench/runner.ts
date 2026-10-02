@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import { saveDocument } from "../ir/document.ts"
-import type { InprocessTimingOptions } from "../measure/inprocess.ts"
 import {
   type MemorySnapshot,
   measurePeakMem,
@@ -13,61 +12,42 @@ import {
   getRegisteredTasks,
   type RegisteredTask,
   resetRegistry,
+  runGroupHooks,
   selectTasks,
-  taskId as taskIdOf,
   taskIsolate,
   taskPeakMem,
 } from "./registry.ts"
-import { measureTasks, taskWorkload } from "./run-tasks.ts"
+import {
+  type MeasureTasksOpts,
+  measureTasks,
+  taskWorkload,
+} from "./run-tasks.ts"
 
-export interface RunnerOpts extends InprocessTimingOptions {
-  /** Regex, matched against "group/name" task ids (see `filterTasks`). */
+export interface RunnerOpts extends MeasureTasksOpts {
+  /** Regex matched against "group/name" task ids. */
   filter?: string
-  /** Exact task-id allowlist, applied after `filter`. Used to hand a single
-   * suite-wide `bench()` call's already-resolved isolation plan to a
-   * per-work-item runner spawn instead of re-deriving it from `filter`. */
-  taskIds?: string[]
-  /** Suite-wide isolate default, consulted to compute each task's effective
-   * isolate (task/group overrides still win). */
+  /** Run exactly these workloads (after `filter`): a dedicated process for an
+   * isolated task the whole-file pass already planned. */
+  workloadIds?: string[]
+  /** Suite-wide isolate default (task/group `isolate` still wins). */
   isolate?: boolean
-  /** Suite-wide default for capturing an extra `phase: "cpu"` measurement
-   * per task (task/group `TaskOptions.cpu`/`GroupOptions.cpu` still win). */
-  cpu?: boolean
-  /** `cpu`'s sampling interval, µs (default: 100). */
-  cpuIntervalUs?: number
-  /** Suite-wide default for capturing an extra `phase: "memstats"`
-   * measurement per task (task/group `TaskOptions.alloc`/`GroupOptions.alloc`
-   * still win). */
-  alloc?: boolean
-  /** Suite-wide default for `--peak-mem` (task/group
-   * `TaskOptions.peakMem`/`GroupOptions.peakMem` still win). Only consulted
-   * to write each task's effective value into the plan: the measurement
-   * itself runs in its own fresh processes (see `peakMemFor`). */
+  /** Suite-wide `peakMem` default (task/group `peakMem` still wins); only
+   * written into the plan, since the measurement runs in fresh processes
+   * (see `peakMemFor`). */
   peakMem?: boolean
-  /** A peak-memory process: measure this one workload's first call with
-   * `measurePeakMem` (after its group's and its own `before` hooks) and
-   * write the `PeakMemResult` to the output path instead of a document.
-   * Nothing else runs here, so no other task's peak can hide this one's. */
+  /** A peak-memory process: measure this one workload's first call (after its
+   * group's and its own `before` hooks) and write the `PeakMemResult` to the
+   * output path instead of a document. Nothing else runs, so no other task's
+   * peak can hide this one's. */
   peakMemFor?: string
-  /** Stamped onto every workload this invocation produces, recording whether
-   * it ran in a subprocess dedicated to it alone. */
-  markIsolated?: boolean
-  /** When set (and `taskIds` is not), this is the suite's one whole-file
-   * pass: after importing the suite, write every filtered task's id and
-   * effective isolate to this path, then run only the non-isolated ones
-   * in this same process. Isolated tasks are left for a later dedicated
-   * subprocess (see `taskIds`), so this pass never imports the suite twice
-   * to learn what's isolated before running anything. */
+  /** The suite's whole-file pass (without `workloadIds`): write every filtered
+   * task's id and effective isolate to this path, then run only the
+   * non-isolated ones in this process. Isolated tasks are left to dedicated
+   * subprocesses, so the suite is never imported twice to learn the plan. */
   planPath?: string
-  /** Scripts imported, in order, before the suite file - in this same
-   * subprocess, so a global they install (jsdom's `document`/`window`, a
-   * `Bun.plugin()` file-loader) is visible to a later preload script and to
-   * the suite file itself. */
+  /** Scripts imported, in order, before the suite file, in this same process
+   * (so globals or `Bun.plugin()` loaders they install reach the suite). */
   preload?: string[]
-  /** Measure this machine's noise floor before the first task (default:
-   * true) and stamp it on the document as `environment`. Set false to skip
-   * the ~200ms reference measurement. */
-  noiseCheck?: boolean
 }
 
 async function main(): Promise<number> {
@@ -81,8 +61,8 @@ async function main(): Promise<number> {
 
   const opts: RunnerOpts = optsJson ? JSON.parse(optsJson) : {}
 
-  // What `measurePeakMem` compares the suite's own footprint against, taken
-  // once ostia itself (which the suite imports) is loaded.
+  // Baseline for `measurePeakMem`, taken once ostia (which the suite imports)
+  // is loaded.
   let launched: MemorySnapshot | undefined
   let sampler: RssSampler | undefined
   if (opts.peakMemFor) {
@@ -107,49 +87,49 @@ async function main(): Promise<number> {
 
   let tasks: RegisteredTask[]
   try {
-    tasks = selectTasks(registered, opts.filter, suiteFile)
+    tasks = selectTasks(
+      registered,
+      opts.filter,
+      suiteFile,
+      !opts.workloadIds && !opts.peakMemFor,
+    )
   } catch (err) {
     process.stderr.write(`bench runner: ${(err as Error).message}\n`)
     return 2
   }
-  if (opts.taskIds) {
-    const wanted = new Set(opts.taskIds)
-    tasks = tasks.filter((t) => wanted.has(taskIdOf(t)))
+  const workloadIdOf = (t: RegisteredTask) => taskWorkload(suiteFile, t).id
+  if (opts.workloadIds) {
+    const wanted = new Set(opts.workloadIds)
+    tasks = tasks.filter((t) => wanted.has(workloadIdOf(t)))
   }
 
   if (opts.peakMemFor) {
-    const t = tasks.find(
-      (t) => taskWorkload(suiteFile, t).id === opts.peakMemFor,
-    )
+    const t = tasks.find((t) => workloadIdOf(t) === opts.peakMemFor)
     if (!t) {
       process.stderr.write(
         `bench runner: no task with workload id ${opts.peakMemFor} in ${suiteFile}.\n`,
       )
       return 2
     }
-    await t.groupBefore?.()
+    await runGroupHooks(t, "before")
     await t.opts?.before?.()
     const result = await measurePeakMem(t.fn, launched, sampler)
     await t.opts?.after?.()
-    await t.groupAfter?.()
+    await runGroupHooks(t, "after")
     await Bun.write(outputPath, JSON.stringify(result))
     return 0
   }
 
   if (opts.planPath) {
     const plan = tasks.map((t) => ({
-      id: taskIdOf(t),
-      workloadId: taskWorkload(suiteFile, t).id,
+      workloadId: workloadIdOf(t),
       isolate: taskIsolate(t, opts.isolate ?? false),
       peakMem: !t.skipped && taskPeakMem(t, opts.peakMem ?? false),
     }))
     await Bun.write(opts.planPath, JSON.stringify({ tasks: plan }))
   }
 
-  // A `taskIds` call is a dedicated per-isolated-task subprocess: run exactly
-  // what it was handed. A `planPath` call is the suite's whole-file pass: run
-  // only the non-isolated tasks here: isolated ones get their own subprocess.
-  const toRun = opts.taskIds
+  const toRun = opts.workloadIds
     ? tasks
     : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false))
 

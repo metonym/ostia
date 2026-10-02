@@ -1,14 +1,13 @@
-import type { Measurement, Workload } from "../ir/types.ts"
+import type { Workload } from "../ir/types.ts"
+import type { TimingRun } from "./select.ts"
 
 export interface TimingRow {
-  run: Measurement & { timing: NonNullable<Measurement["timing"]> }
+  run: TimingRun
   workload: Workload | undefined
 }
 
-/** Group a task belongs to. Prefers the explicit `entry.group` the bench
- * runner records; falls back to splitting the "group/name" id on its last "/"
- * for documents written before that field existed. Workloads without a group
- * (or not from `task()` at all) return undefined. */
+/** The explicit `entry.group` the bench runner records, else the "group/name"
+ * id split on its last "/" (documents from before that field existed). */
 export function groupOf(workload: Workload | undefined): string | undefined {
   if (!workload?.entry) return undefined
   if (workload.entry.group !== undefined) return workload.entry.group
@@ -25,39 +24,36 @@ export function labelInGroup(label: string, group: string | undefined): string {
     : label
 }
 
-/** Reference median for each row's Relative value. Grouped tasks compare
- * against their own group: its `task(..., { baseline: true })` task if one is
- * marked, else its fastest task (which, for a single-task group, is itself).
- * Ungrouped rows fall back to the fastest median in the whole document. A
- * suite spanning nanoseconds to seconds never compares tasks across groups. */
-export function relativeReferences<R extends TimingRow>(
+/** Each row's median over its reference median: its group's
+ * `task(..., { baseline: true })` task, else the group's fastest. Ungrouped
+ * rows use the fastest in the document; tasks never compare across groups.
+ * Undefined with fewer than two rows, where "relative" means nothing. */
+export function relativeRatios<R extends TimingRow>(
   rows: R[],
-): Map<R, number> {
+): Map<R, number> | undefined {
+  if (rows.length < 2) return undefined
   const fastestMedian = Math.min(...rows.map((r) => r.run.timing.median))
   const siblingsByGroup = new Map<string, R[]>()
   for (const row of rows) {
     const key = groupOf(row.workload)
     if (key === undefined) continue
-    const arr = siblingsByGroup.get(key)
-    if (arr) arr.push(row)
+    const siblings = siblingsByGroup.get(key)
+    if (siblings) siblings.push(row)
     else siblingsByGroup.set(key, [row])
   }
 
-  const refs = new Map<R, number>()
+  const ratios = new Map<R, number>()
   for (const row of rows) {
-    const groupKey = groupOf(row.workload)
-    if (groupKey === undefined) {
-      refs.set(row, fastestMedian)
-      continue
-    }
-    const siblings = siblingsByGroup.get(groupKey) ?? [row]
-    const baselineRow = siblings.find((s) => s.workload?.baseline)
-    refs.set(
-      row,
-      baselineRow
+    const key = groupOf(row.workload)
+    let reference = fastestMedian
+    if (key !== undefined) {
+      const siblings = siblingsByGroup.get(key)!
+      const baselineRow = siblings.find((s) => s.workload?.baseline)
+      reference = baselineRow
         ? baselineRow.run.timing.median
-        : Math.min(...siblings.map((s) => s.run.timing.median)),
-    )
+        : Math.min(...siblings.map((s) => s.run.timing.median))
+    }
+    ratios.set(row, row.run.timing.median / reference)
   }
-  return refs
+  return ratios
 }

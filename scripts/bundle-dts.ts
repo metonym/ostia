@@ -103,7 +103,7 @@ function sourceToDtsPath(
 
 function rollupDts(entryDts: string, emitted: Map<string, string>): string {
   const reachable = new Set<string>()
-  const externalLines = new Map<string, string>()
+  const externalLines = new Set<string>()
 
   const visit = (file: string) => {
     if (reachable.has(file)) return
@@ -113,7 +113,7 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
       const spec = moduleSpecifierOf(stmt)
       if (spec) {
         if (!isRelative(spec)) {
-          externalLines.set(stmt.getText(sf), stmt.getText(sf))
+          externalLines.add(stmt.getText(sf))
           continue
         }
 
@@ -121,7 +121,7 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
         try {
           resolved = resolveDts(file, spec, emitted)
         } catch {
-          externalLines.set(stmt.getText(sf), stmt.getText(sf))
+          externalLines.add(stmt.getText(sf))
           continue
         }
         visit(resolved)
@@ -149,7 +149,7 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
     for (const stmt of sf.statements) {
       if (moduleSpecifierOf(stmt)) continue
       if (ts.isEmptyStatement(stmt)) continue
-      // `export {}` ambient marker. Illegal once concatenated.
+      // `export {}` is illegal once concatenated.
       if (
         ts.isExportDeclaration(stmt) &&
         !stmt.moduleSpecifier &&
@@ -185,9 +185,8 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
 
   collectPublicBindings(entryDts, emitted, declsByFileAndName, markPublic)
 
-  // References resolve in the scope of the file that makes them: two modules
-  // can each declare a private type with the same name, and a global
-  // name lookup would bind one module's reference to the other's type.
+  // References resolve in the referencing file's scope: modules can each
+  // declare a same-named private type.
   const queue = [...kept]
   while (queue.length) {
     const decl = queue.pop()
@@ -211,7 +210,7 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
 
   assertNoCollisions(allDecls.filter((d) => kept.has(d)))
 
-  const chunks: string[] = [...externalLines.values()]
+  const chunks: string[] = [...externalLines]
 
   for (const decl of allDecls) {
     if (!kept.has(decl)) continue
@@ -252,9 +251,7 @@ function collectPublicBindings(
       if (stmt.exportClause && ts.isNamedExports(stmt.exportClause)) {
         for (const el of stmt.exportClause.elements) {
           const publicName = el.name.text
-          const localName = el.propertyName
-            ? el.propertyName.text
-            : el.name.text
+          const localName = importedName(el)
           if (
             stmt.moduleSpecifier &&
             ts.isStringLiteral(stmt.moduleSpecifier)
@@ -329,6 +326,10 @@ function collectPublicBindings(
   }
 }
 
+function importedName(el: ts.ExportSpecifier | ts.ImportSpecifier): string {
+  return (el.propertyName ?? el.name).text
+}
+
 function resolveNameInFile(
   file: string,
   name: string,
@@ -352,7 +353,7 @@ function resolveNameInFile(
     ) {
       for (const el of stmt.exportClause.elements) {
         if (el.name.text !== name) continue
-        const localName = el.propertyName ? el.propertyName.text : el.name.text
+        const localName = importedName(el)
         if (stmt.moduleSpecifier && ts.isStringLiteral(stmt.moduleSpecifier)) {
           const spec = stmt.moduleSpecifier.text
           if (!isRelative(spec)) return undefined
@@ -395,9 +396,7 @@ function resolveNameInFile(
       if (named && ts.isNamedImports(named)) {
         for (const el of named.elements) {
           if (el.name.text !== name) continue
-          const remoteName = el.propertyName
-            ? el.propertyName.text
-            : el.name.text
+          const remoteName = importedName(el)
           return resolveNameInFile(
             resolveDts(file, spec, emitted),
             remoteName,

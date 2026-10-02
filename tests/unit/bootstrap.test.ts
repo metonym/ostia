@@ -81,4 +81,9 @@ describe("bootstrapMedianDiffCi", () => {
     })
     expect(result.data.subsampled).toBe(false)
   })
+
+  test("rejects an empty side instead of returning a NaN interval", () => {
+    expect(() => bootstrapMedianDiffCi([], [1, 2, 3])).toThrow(RangeError)
+    expect(() => bootstrapMedianDiffCi([1, 2, 3], [])).toThrow(RangeError)
+  })
 })

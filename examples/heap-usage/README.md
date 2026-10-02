@@ -19,7 +19,7 @@ bun fixtures/allocate.ts   32.5 ms    32.0 ms…34.7 ms    30.2 ms…46.2 ms
 Warnings:
   bun fixtures/allocate.ts: 5 outlier(s) detected (4 severe, 1 mild).
 
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
+Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 117.19KiB)
     1369  string
      423  code
      319  closure

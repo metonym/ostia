@@ -1,4 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test"
+import { existsSync } from "node:fs"
+import { OstiaUsageError } from "../../src/errors.ts"
 import { bench, compareDocuments } from "../../src/index.ts"
 
 const SUITE = `${import.meta.dir}/../fixtures/bench-suite.ts`
@@ -8,6 +10,42 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
   afterAll(async () => {
     await Bun.spawn(["rm", "-rf", OUT_DIR]).exited
   })
+
+  test("rejects a jobs that isn't a positive integer, before running anything", async () => {
+    for (const jobs of [Number.NaN, 0, -1, 1.5, Number.POSITIVE_INFINITY]) {
+      await expect(
+        bench({ suites: [SUITE], jobs, outDir: OUT_DIR }),
+      ).rejects.toThrow(/jobs must be an integer >= 1/)
+    }
+  })
+
+  test("a missing suite file is a usage error naming the path as given", async () => {
+    const err = await bench({
+      suites: [SUITE, "tests/fixtures/no-such-suite.ts"],
+      outDir: OUT_DIR,
+    }).catch((e) => e)
+    expect(err).toBeInstanceOf(OstiaUsageError)
+    expect(err.message).toBe("Suite not found: tests/fixtures/no-such-suite.ts")
+  })
+
+  test("concurrent runs sharing an outDir don't delete each other's scratch files", async () => {
+    const outDir = `${OUT_DIR}-concurrent`
+    const run = () =>
+      bench({
+        noiseCheck: false,
+        suites: [SUITE],
+        budgetMs: 30,
+        minSamples: 5,
+        outDir,
+      })
+    const [a, b] = await Promise.all([run(), run()])
+    expect(a.workloads).toHaveLength(3)
+    expect(b.workloads).toHaveLength(3)
+    expect(a.measurements).toHaveLength(3)
+    expect(b.measurements).toHaveLength(3)
+    expect(existsSync(outDir) ? await Bun.$`ls ${outDir}`.text() : "").toBe("")
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 30_000)
 
   test("registers group()/task() calls and measures each task independently", async () => {
     const doc = await bench({
@@ -494,6 +532,25 @@ describe("bench() - sweep() and structured params (item 8)", () => {
     expect(ids.size).toBe(4)
 
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-sweep`]).exited
+  }, 20_000)
+
+  test("isolate keeps sweep points that share a task name apart", async () => {
+    const doc = await bench({
+      suites: [`${import.meta.dir}/../fixtures/bench-suite-sweep.ts`],
+      budgetMs: 5,
+      minSamples: 3,
+      isolate: true,
+      noiseCheck: false,
+      outDir: `${OUT_DIR}-sweep-isolate`,
+    })
+
+    expect(new Set(doc.workloads.map((w) => w.id)).size).toBe(4)
+    expect(doc.workloads.every((w) => w.isolated)).toBe(true)
+    expect(doc.measurements.map((m) => m.workloadId).sort()).toEqual(
+      doc.workloads.map((w) => w.id).sort(),
+    )
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-sweep-isolate`]).exited
   }, 20_000)
 })
 

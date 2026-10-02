@@ -14,7 +14,8 @@ import type {
   ProfileDocument, Workload, Comparison, Warning, WarningCode, CompareResult, Thresholds,
   TaskOptions, GroupOptions, RunOptions, OstiaConfig, OstiaConfigInput, WorkloadConfig,
   TimeOptions, CommandSpec, PrepareHook, PrepareFn, PrepareRun, TimeSource, TimeUnit,
-  MinimalEvent,
+  BenchOptions, AbOptions, ProfileOptions, ProfileResult,
+  MinimalEvent, MinimalRenderOptions, MinimalProtocolContext, MermaidOptions, VizOptions,
 } from "ostia"
 ```
 
@@ -81,7 +82,8 @@ JIT tier counts (LLInt / Baseline / DFG / FTL).
 ```ts
 const { result, measurement, document } = await profile(() => hashLoop(8_000_000), {
   origin: "jsc",
-  intervalUs: 100,  // default 1000
+  cpuIntervalUs: 100,  // default 1000, as in time()/bench() and `--cpu-interval`
+  name: "hash loop",   // optional: the workload's label and id
 })
 measurement.jit?.tiers // { llint: 0, baseline: 9, dfg: 37, ftl: 2825 }
 const { files } = await renderers.collapsed.render(document, {})
@@ -90,6 +92,13 @@ const { files } = await renderers.collapsed.render(document, {})
 `document` holds the one workload and measurement. An already-aborted `signal` runs `fn`
 without the profiler and returns an `aborted` warning in place of CPU evidence; a signal
 can't interrupt `fn` once it's running.
+
+By default the workload id hashes the function's name and source text, not the values
+it closes over: `() => work(n)` profiled for two different `n` yields the same id twice,
+and editing the function changes its id. Pass `name` to identify the workload yourself:
+the id then hashes `name` alone and `name` is also the label, so differently-parameterised
+closures stay distinct under `createDocument`, comparisons and renderers, and the id
+survives edits to the function. `name` must be a non-empty string.
 
 ## Suites: `group()`, `task()`, `bench()`
 
@@ -128,8 +137,9 @@ const doc = await bench({
 ```
 
 `bench()` runs each suite file in a child process (and each isolated task in its own),
-exactly like `ostia bench` ([cli.md](cli.md#ostia-bench)). It rejects if a suite fails.
-It also takes a `signal`: aborting kills in-flight suite processes and resolves with the
+exactly like `ostia bench` ([cli.md](cli.md#ostia-bench)). It rejects if a suite fails, if a
+suite file doesn't exist, or if `jobs` isn't an integer >= 1. Each call keeps its scratch files
+in a directory of its own under `outDir`, so concurrent calls can share one. It also takes a `signal`: aborting kills in-flight suite processes and resolves with the
 suites and tasks that had finished.
 
 ### `TaskOptions`
@@ -146,6 +156,14 @@ suites and tasks that had finished.
 `GroupOptions` takes `description`, `isolate`, `gc`, `cpu`, `alloc`, `peakMem`, `before` and `after`;
 the flags are defaults for the group's tasks, and `before`/`after` run once around the
 group's first and last measured task.
+
+Groups nest. A task's group is the names of its enclosing groups joined with `/`, outermost
+first, so a task `t` in `group("a")` > `group("b")` has id `a/b/t` and `Workload.group` `a/b`
+(ids of tasks in a single group are unchanged). An inner group inherits what it doesn't set
+from the group around it: `description`, `isolate`, `gc`, `cpu`, `alloc` and `peakMem` (the
+inner value wins), and `.skip`/`.only`. Hooks don't merge, they nest: the outer group's `before`
+runs once before the first measured task anywhere inside it, nested groups included, then each
+inner group's own, and `after` runs innermost first.
 
 ```ts
 group(
@@ -177,7 +195,9 @@ task measures a few nanoseconds slower than the same synchronous body.
 document with `skipped: true`, prints as `- skipped`, and `compare` treats it as
 unchanged with a `skipped` warning. `task.only()`/`group.only()` restrict the suite file
 to the marked tasks (`--filter` still applies) and print `bench: N task(s) selected by
-.only` to stderr so a forgotten `.only` is visible.
+.only` to stderr, once per suite file, so a forgotten `.only` is visible. A `.skip` or `.only`
+group applies to the groups nested in it. Under `ab`, a `.only` in the candidate suite also
+leaves out the tasks that exist only at the base ref, as `--filter` does.
 
 ### `keep(value)`
 
@@ -311,8 +331,16 @@ const doc = createDocument(
 
 Each renderer is `{ name, render(doc, options) }` returning `{ text? }` and/or
 `{ files? }`. Names: `table`, `markdown`, `json`, `jsonl`, `minimal`, `collapsed`,
-`mermaid`, `speedscope`, `cpuprofile`. The visualization renderers take
-`{ measurementId? }`.
+`mermaid`, `speedscope`, `cpuprofile`. Each renderer's options are typed per format:
+`collapsed`, `speedscope` and `cpuprofile` take `VizOptions` (`{ measurementId? }`),
+`mermaid` takes `MermaidOptions` (`VizOptions` plus `topN?`), `minimal` takes
+`MinimalRenderOptions` (`{ protocol? }`, a `MinimalProtocolContext`, to emit the
+`unmatched` and `summary` events), and the rest take no options (pass `{}`).
+
+The `table` and `markdown` renderers agree on grouping (a task's `group`, else the part of
+its id before the last `/`), on percent deltas (`+3.2%`, `-1.5%`, and `0.0%` with no sign
+when a delta rounds to zero), on byte counts (1024-based `B`/`KiB`/`MiB`), and on naming a
+comparison or capture whose workload is missing from the document by its raw id.
 
 ```ts
 const { text } = await renderers.markdown.render(doc, {})

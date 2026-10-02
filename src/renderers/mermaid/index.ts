@@ -2,8 +2,9 @@ import type { ProfileDocument } from "../../ir/types.ts"
 import {
   buildDenseTree,
   computeDenseNodeTimes,
-  selectCpuRuns,
+  renderCpuFiles,
 } from "../cpu-tree.ts"
+import { formatUsAsMs, frameName } from "../format.ts"
 import type { Renderer, RenderResult, VizOptions } from "../types.ts"
 
 const DEFAULT_TOP_N = 15
@@ -12,15 +13,11 @@ export interface MermaidOptions extends VizOptions {
   topN?: number
 }
 
-function sanitizeId(nodeId: number): string {
-  return `n${nodeId}`
-}
-
 function label(name: string, selfUs: number, totalUs: number): string {
-  const safeName = (name || "(anonymous)").replace(/"/g, "'")
-  return `${safeName} (self ${(selfUs / 1000).toFixed(2)}ms, total ${(totalUs / 1000).toFixed(2)}ms)`
+  return `${name.replace(/"/g, "'")} (self ${formatUsAsMs(selfUs)}ms, total ${formatUsAsMs(totalUs)}ms)`
 }
 
+// Insertion into a sorted window: O(count * n) with n small.
 function topNBySelf(
   selfUs: Float64Array,
   count: number,
@@ -48,45 +45,33 @@ export const mermaidRenderer: Renderer<MermaidOptions> = {
     options: MermaidOptions = {},
   ): Promise<RenderResult> {
     const topN = options.topN ?? DEFAULT_TOP_N
-    const runs = selectCpuRuns(doc, options.measurementId)
 
-    const files = runs.map((run) => {
-      const cpu = run.cpu!
+    return renderCpuFiles(doc, options, "mermaid.md", ({ cpu }) => {
       const { nodes, frames } = cpu
       const tree = buildDenseTree(cpu)
       const { selfUs, totalUs } = computeDenseNodeTimes(cpu, tree)
       const { parentIx } = tree
       const rootIx = tree.roots[0] ?? -1
 
-      const ranked = topNBySelf(selfUs, tree.count, rootIx, topN)
-
+      // The top-N self-time nodes plus every ancestor, so each has a path to the root.
       const included = new Set<number>(rootIx !== -1 ? [rootIx] : [])
-      const path: number[] = []
-      for (const ix of ranked) {
-        path.length = 0
+      for (const ix of topNBySelf(selfUs, tree.count, rootIx, topN)) {
+        const path: number[] = []
         for (let cur = ix; cur !== -1; cur = parentIx[cur]!) path.push(cur)
         for (let k = path.length - 1; k >= 0; k--) included.add(path[k]!)
       }
 
+      const id = (ix: number) => `n${nodes[ix]!.id}`
       const lines = ["graph TD"]
       for (const ix of included) {
-        const id = nodes[ix]!.id
-        lines.push(
-          `  ${sanitizeId(id)}["${label(frames[nodes[ix]!.frameIx]!.name, selfUs[ix]!, totalUs[ix]!)}"]`,
-        )
+        const name = frameName(frames[nodes[ix]!.frameIx])
+        lines.push(`  ${id(ix)}["${label(name, selfUs[ix]!, totalUs[ix]!)}"]`)
       }
       for (const ix of included) {
         const p = parentIx[ix]!
-        if (p !== -1 && included.has(p)) {
-          lines.push(
-            `  ${sanitizeId(nodes[p]!.id)} --> ${sanitizeId(nodes[ix]!.id)}`,
-          )
-        }
+        if (p !== -1 && included.has(p)) lines.push(`  ${id(p)} --> ${id(ix)}`)
       }
-
-      return { path: `${run.id}.mermaid.md`, content: `${lines.join("\n")}\n` }
+      return `${lines.join("\n")}\n`
     })
-
-    return { files }
   },
 }

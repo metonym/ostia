@@ -1,11 +1,10 @@
-import { fp } from "../../ir/fp.ts"
 import type {
   CallNode,
   CpuEvidence,
-  Frame,
   FrameTotal,
   JitTierBreakdown,
 } from "../../ir/types.ts"
+import { addFrameTotal, createFrameTable, sortedTotals } from "../frames.ts"
 
 export interface RawJscFrame {
   sourceID: number
@@ -20,13 +19,12 @@ export interface RawJscFrame {
 
 interface RawJscTrace {
   timestamp: number
-  frames: RawJscFrame[] // leaf-first: index 0 is the innermost currently-executing frame
+  frames: RawJscFrame[] // leaf-first
 }
 
 export interface RawStackTraces {
   interval: number // seconds
   traces: RawJscTrace[]
-  sources?: unknown
 }
 
 const TIER_BUCKET = new Map<string, keyof JitTierBreakdown["tiers"]>([
@@ -35,7 +33,7 @@ const TIER_BUCKET = new Map<string, keyof JitTierBreakdown["tiers"]>([
   ["DFG", "dfg"],
   ["FTL", "ftl"],
 ])
-const UINT32_SENTINEL = 4294967295 // JSC's "no line/column" marker (observed on synthetic/native frames)
+const UINT32_SENTINEL = 4294967295 // JSC's "no line/column" marker on synthetic/native frames
 
 interface MutableNode {
   id: number
@@ -52,48 +50,30 @@ export function parseJscProfile(
 ): { cpu: CpuEvidence; jit: JitTierBreakdown } {
   const samplingIntervalUs = intervalUsOverride ?? raw.interval * 1e6
 
-  const frameIxByName = new Map<string, Map<string, number>>()
-  const frames: Frame[] = []
-  function internFrame(
-    name: string,
-    url: string | undefined,
-    line: number | undefined,
-    col: number | undefined,
-  ): number {
-    let byUrl = frameIxByName.get(name)
-    if (byUrl === undefined) {
-      byUrl = new Map()
-      frameIxByName.set(name, byUrl)
-    }
-    const urlKey = url ?? ""
-    let ix = byUrl.get(urlKey)
-    if (ix === undefined) {
-      ix = frames.length
-      byUrl.set(urlKey, ix)
-      frames.push({ key: fp("fr", name, urlKey), name, url, line, col })
-    }
-    return ix
-  }
+  const { frames, intern } = createFrameTable()
   function frameIxFromRaw(rf: RawJscFrame): number {
     const isSentinel = rf.line === UINT32_SENTINEL
-    // jsc lines/columns are 1-based; store 0-based to match the cpu-prof/inspector convention.
+    // jsc lines/columns are 1-based; stored 0-based like cpu-prof/inspector.
     const line = isSentinel ? undefined : rf.line - 1
     const col =
       isSentinel || rf.column === UINT32_SENTINEL ? undefined : rf.column - 1
-    return internFrame(rf.name, rf.sourceURL, line, col)
+    return intern(rf.name, rf.sourceURL, line, col)
   }
 
-  const rootFrameIx = internFrame("(root)", undefined, undefined, undefined)
-  let nextId = 1
-  const rootNode: MutableNode = {
-    id: 0,
-    frameIx: rootFrameIx,
-    children: new Map(),
-    selfUs: 0,
-    samples: 0,
-    totalUs: 0,
+  const allNodes: MutableNode[] = []
+  function newNode(frameIx: number): MutableNode {
+    const node: MutableNode = {
+      id: allNodes.length,
+      frameIx,
+      children: new Map(),
+      selfUs: 0,
+      samples: 0,
+      totalUs: 0,
+    }
+    allNodes.push(node)
+    return node
   }
-  const nodesById = new Map<number, MutableNode>([[0, rootNode]])
+  const rootNode = newNode(intern("(root)", undefined, undefined, undefined))
 
   const tiers = { llint: 0, baseline: 0, dfg: 0, ftl: 0 }
   const tierFrameSamples = new Map<string, Map<number, number>>()
@@ -108,16 +88,8 @@ export function parseJscProfile(
       const frameIx = frameIxFromRaw(traceFrames[f]!)
       let child = current.children.get(frameIx)
       if (!child) {
-        child = {
-          id: nextId++,
-          frameIx,
-          children: new Map(),
-          selfUs: 0,
-          samples: 0,
-          totalUs: 0,
-        }
+        child = newNode(frameIx)
         current.children.set(frameIx, child)
-        nodesById.set(child.id, child)
       }
       current = child
     }
@@ -145,26 +117,14 @@ export function parseJscProfile(
   }
   computeTotalUs(rootNode)
 
-  const totalsByFrameIx = new Map<number, FrameTotal>()
+  const totals = new Map<number, FrameTotal>()
   function accumulate(node: MutableNode): void {
-    const existing = totalsByFrameIx.get(node.frameIx)
-    if (existing) {
-      existing.selfUs += node.selfUs
-      existing.totalUs += node.totalUs
-      existing.samples += node.samples
-    } else {
-      totalsByFrameIx.set(node.frameIx, {
-        frameIx: node.frameIx,
-        selfUs: node.selfUs,
-        totalUs: node.totalUs,
-        samples: node.samples,
-      })
-    }
+    addFrameTotal(totals, node.frameIx, node.selfUs, node.totalUs, node.samples)
     for (const child of node.children.values()) accumulate(child)
   }
   accumulate(rootNode)
 
-  const nodes: CallNode[] = [...nodesById.values()].map((n) => ({
+  const nodes: CallNode[] = allNodes.map((n) => ({
     id: n.id,
     frameIx: n.frameIx,
     children: [...n.children.values()].map((c) => c.id),
@@ -175,7 +135,7 @@ export function parseJscProfile(
     samplingIntervalUs,
     frames,
     nodes,
-    totals: [...totalsByFrameIx.values()].sort((a, b) => b.selfUs - a.selfUs),
+    totals: sortedTotals(totals),
     samples: { nodeIds, timeDeltasUs },
   }
 

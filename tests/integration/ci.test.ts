@@ -253,7 +253,7 @@ describe("runCi - exit semantics and noise floor (task 04.4)", () => {
 
 describe("runCi - suites workloads gate at task granularity (item 15)", () => {
   // A relative glob pattern, not an absolute path: `wc.suites` goes through
-  // `expandSuiteGlobs` (same as `BenchConfig.suites`/the CLI), which resolves
+  // `scanGlobs` (same as `BenchConfig.suites`/the CLI), which resolves
   // patterns against `cwd`. An absolute path doesn't round-trip through that
   // resolution identically, which would make the baseline and candidate
   // workload ids (hashed over the resolved file path) mismatch.
@@ -325,5 +325,26 @@ describe("runCi - suites workloads gate at task granularity (item 15)", () => {
       await Bun.write(GATE_FIXTURE, originalSource)
       await Bun.spawn(["rm", "-rf", outDir]).exited
     }
+  }, 30_000)
+
+  test("a suites workload's timeoutMs bounds its suite processes", async () => {
+    const outDir = `${OUT_DIR}-suites-timeout`
+    const cfg = config({
+      outDir,
+      workloads: [{ label: "dogfood", suites: [GATE_FIXTURE], timeoutMs: 1 }],
+    })
+    const baseline = await bench({
+      suites: [GATE_FIXTURE],
+      noiseCheck: false,
+      budgetMs: 20,
+      outDir,
+    })
+    await saveDocument(baseline, baselinePath(cfg))
+
+    await expect(runCi({ config: cfg, full: false })).rejects.toThrow(
+      "timed out after 1ms",
+    )
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
   }, 30_000)
 })

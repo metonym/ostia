@@ -7,12 +7,12 @@ deterministic fixtures (`bench/lib/fixtures.ts`).
 | File | Covers |
 |---|---|
 | `stats.ts` | `computeTimingStats`, `timingWarnings` - the sort-heavy path behind every `time`/`ci` |
-| `ir.ts` | `fp`/`canonicalJSON`/`sortKeysDeep`, `makeTimingMeasurement`/`makeInstrumentedMeasurement`, `serializeDocument`, `makeArtifactRef` |
+| `ir.ts` | `fp`/`canonicalJSON`, `makeTimingMeasurement`/`makeInstrumentedMeasurement`, `serializeDocument`, `makeArtifactRef` |
 | `capture-parse.ts` | `parseCpuProfile`, `parseJscProfile`, `parseHeapSnapshot` - raw capture JSON to IR |
 | `cpu-tree.ts` | `buildParentMap`, `computeNodeTimes` - shared ranking behind the mermaid/collapsed renderers |
 | `compare.ts` | `compareDocuments`, `compareWorkload` - the diff engine behind `compare`/`ci` |
 | `render.ts` | every renderer format: table, json, jsonl, markdown, collapsed, mermaid, speedscope, cpuprofile pass-through |
-| `cache.ts` | `computeCacheKey`, `computeInputsDigest` - scans this repo's own `src/**/*.ts`, the same glob `ostia.config.json`'s cold-start workload declares |
+| `cache.ts` | `computeCacheKey`, `computeInputsDigest` - scans this repo's `examples/**/*.ts`, a file set that doesn't grow with `src/` |
 
 `bench/lib/fixtures.ts` is shared setup, not a suite - it's one directory level down so
 `bench/*.ts` globs (`bun run bench`) only pick up real suites, never it.

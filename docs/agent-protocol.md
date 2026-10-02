@@ -29,9 +29,12 @@ const regressed = events.some((e) => e.event === "run" && e.delta?.verdict === "
 
 ## Versioning
 
-Every line carries `protocolVersion: 1` (`MINIMAL_PROTOCOL_VERSION`). Within version 1,
+Every line carries `protocolVersion: 2` (`MINIMAL_PROTOCOL_VERSION`). Within version 2,
 keys are only added, never renamed or removed, so a consumer that reads the fields it
-knows keeps working. `run` lines also carry the document's `schemaVersion` (currently 2).
+knows keeps working. Version 2 renamed `paired.p25`/`paired.p75` (`ab` runs) to
+`ratioP25`/`ratioP75`, so they can't be mistaken for the ns percentiles `p75`/`p99`, and
+added `"error"` to the `summary` `verdict` values (it was `"fail"` for every non-zero exit
+code). `run` lines also carry the document's `schemaVersion` (currently 2).
 
 ## Events
 
@@ -44,12 +47,12 @@ digits.
 | Field | Present | Meaning |
 |---|---|---|
 | `workloadId` | always | Join key to `Workload.id`; stable across runs of the same workload. |
-| `task` | always | Display name: the `group/name` task id, the label, or the command line. |
+| `task` | always | Display name: the workload's label (the `group/name` task id for `bench` tasks), else its command line, else its task id. |
 | `group`, `description`, `groupDescription`, `params` | when set | From `group()`/`task()`/`sweep()`. |
 | `skipped` | skipped tasks | `true` for `task.skip()`; no stats fields follow. |
 | `threw` | `ab`, a task that threw | `{ side, message, repeat? }`: `side` is `"base"`, `"cand"` or `"both"`, `message` the error's first lines, and `repeat` (from 1) is set when it threw in a confirmation repeat. No stats or `paired` follow. |
 | `unit` | measured | `"ns"`. |
-| `samples` | measured | Number of timing samples. |
+| `samples` | measured, or `0` | Number of timing samples. `0`, with no other stats fields, when every trial timed out or missed the `--time-source` pattern; `warnings` says which. |
 | `batch` | always | Calls per timed trial for batched in-process tasks; 1 otherwise. |
 | `mean`, `median`, `stddev`, `min`, `max` | measured | Per-call statistics. |
 | `stddevPct` | measured | `stddev / mean` in percent. |
@@ -81,7 +84,7 @@ digits.
 | Field | Meaning |
 |---|---|
 | `baseMedian` | The base side's median per-call time, ns. |
-| `medianRatio`, `p25`, `p75` | Median and quartiles of the per-round time ratios. |
+| `medianRatio`, `ratioP25`, `ratioP75` | Median and quartiles of the per-round time ratios. |
 | `rounds` | Rounds measured. |
 | `verdict` | `"regressed"`, `"improved"` or `"unchanged"`, after confirmation. |
 | `flagged` | What the first process saw, when it crossed the threshold. |
@@ -95,7 +98,7 @@ digits.
 `compare`/`ci`/`ab` only. One per workload present in only one of the two documents.
 
 ```json
-{"event":"unmatched","protocolVersion":1,"workloadId":"wl_…","task":"old-task","side":"base"}
+{"event":"unmatched","protocolVersion":2,"workloadId":"wl_…","task":"old-task","side":"base"}
 ```
 
 ### `summary`
@@ -122,14 +125,14 @@ digits.
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |
 | `exportedTo` | The `--export-json` path, when given. |
-| `verdict` | `"pass"` when `exitCode` is 0, else `"fail"`. |
+| `verdict` | `"pass"` when `exitCode` is 0, `"fail"` when it is 1 (a regression), `"error"` otherwise: exit 2 (harness error) or 130 (cancelled), where no verdict was reached. |
 | `exitCode` | The process's exit code. |
 
 Example (`ostia ci --format minimal` after a regression):
 
 ```
-{"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
-{"event":"summary","protocolVersion":1,"command":"ci","matched":1,"regressed":1,"improved":0,"unchanged":0,"unmatched":0,"geomeanPct":44.098920968212305,"effectiveTimingPct":10,"verdict":"fail","exitCode":1,"cached":1,"executed":0,"failed":0,"missingBaseline":0,"baseline":{"name":"main","path":".ostia/baselines/main.json"},"noiseFloorPct":2.09286}
+{"event":"run","protocolVersion":2,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
+{"event":"summary","protocolVersion":2,"command":"ci","matched":1,"regressed":1,"improved":0,"unchanged":0,"unmatched":0,"geomeanPct":44.098920968212305,"effectiveTimingPct":10,"verdict":"fail","exitCode":1,"cached":1,"executed":0,"failed":0,"missingBaseline":0,"baseline":{"name":"main","path":".ostia/baselines/main.json"},"noiseFloorPct":2.09286}
 ```
 
 ## Exit codes
@@ -141,7 +144,7 @@ The same across commands:
 | `0` | Pass. |
 | `1` | At least one workload failed its comparison (`compare`, `ci`), or a confirmed regression, a task that threw on the candidate side only, or the geomean over its threshold (`ab`). `time` and `bench` never return 1. |
 | `2` | Harness error: the numbers couldn't be produced or compared. |
-| `130` | Cancelled with Ctrl-C (`time`, `bench`, `ab`). |
+| `130` | Cancelled with Ctrl-C (`time`, `bench`, `ab`, `ci`). |
 
 `--help` exits 0; a missing required argument prints the help and exits 2.
 
@@ -151,7 +154,7 @@ On exit 2, stderr gets a prose message. When stderr is not a TTY, or `--format` 
 `minimal`, `json` or `jsonl`, one more line follows it as the last line of stderr:
 
 ```json
-{"event":"error","protocolVersion":1,"code":"command-failed","message":"One or more commands failed to produce a clean measurement; see the report above for details."}
+{"event":"error","protocolVersion":2,"code":"command-failed","message":"One or more commands failed to produce a clean measurement; see the report above for details."}
 ```
 
 `message` is the first line of the prose message; `data` is included when there is
@@ -159,10 +162,10 @@ structured detail. stdout stays pure JSON for the machine formats.
 
 | `code` | Cause |
 |---|---|
-| `invalid-flag` | Unknown flag or subcommand, bad flag value, bad `--time-source` regex, wrong number of `--prepare` hooks, invalid baseline name, `ab` outside a git repository or with a `--base` that isn't a commit. |
-| `config-missing` | No `ostia.config.ts`/`ostia.config.json`, or no `workloads` (`ci`, `baseline`). |
-| `config-invalid` | The config file can't be loaded: invalid JSON, an `ostia.config.ts` that throws on import, or a renamed field (e.g. `runs`, now `samples`). |
-| `baseline-missing` | No baseline file, or the baseline doesn't cover the configured workloads (`onMissingBaseline`). |
+| `invalid-flag` | Unknown flag or subcommand, bad flag value, bad `--time-source` regex, wrong number of `--prepare` hooks, invalid baseline name, a surplus positional or a flag with nothing to act on (`--time-unit` without `--time-source`, `report --out-dir` with a non-visualization format), a `suites` glob in `ci` that matches no files, `ab` outside a git repository or with a `--base` that isn't a commit. |
+| `config-missing` | No `ostia.config.ts`/`ostia.config.json` (or the file named by `--config`), or no `workloads` (`ci`, `baseline`). |
+| `config-invalid` | The config file can't be loaded: invalid JSON, an `ostia.config.ts` that throws on import or has no default export, a renamed field (e.g. `runs`, now `samples`), or a value of the wrong type (the message names the key). |
+| `baseline-missing` | No baseline file (`ci`, `baseline show`), or the baseline doesn't cover the configured workloads (`onMissingBaseline`). |
 | `no-matches` | `compare` found no workload id in both documents; `ab` found no task on both sides. |
 | `spawn-failed` | A run threw: a command couldn't start, a `prepare` hook failed or timed out, a suite failed or timed out. |
 | `command-failed` | A command had a non-ignored non-zero exit (`time`, `ci`), or produced no samples for another reason; an `ab` setup command (`--base-setup`) failed. |

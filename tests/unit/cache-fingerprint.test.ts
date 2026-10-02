@@ -85,10 +85,55 @@ describe("computeInputsDigest", () => {
       await Bun.write(filePath, "export const value = 1")
       const digest = await computeInputsDigest([filePath], process.cwd())
       expect(digest).toBeDefined()
+      await Bun.write(filePath, "export const value = 2")
+      expect(await computeInputsDigest([filePath], process.cwd())).not.toBe(
+        digest,
+      )
     } finally {
       await Bun.$`rm -rf ${testDir}`
     }
   })
+})
+
+describe("computeInputsDigest - scope", () => {
+  let dir: string
+
+  beforeAll(async () => {
+    dir = await mkdtemp(join(tmpdir(), "cache-fingerprint-scope-test-"))
+    await Bun.write(join(dir, "src/a.ts"), "a")
+    await Bun.write(join(dir, ".github/workflows/ci.yml"), "ci: 1")
+    await Bun.write(join(dir, "node_modules/dep/index.ts"), "dep: 1")
+  })
+
+  afterAll(async () => {
+    await Bun.$`rm -rf ${dir}`
+  })
+
+  test("a dot-directory glob sees its files", async () => {
+    const before = await computeInputsDigest([".github/**"], dir)
+    await Bun.write(join(dir, ".github/workflows/ci.yml"), "ci: 2")
+    expect(await computeInputsDigest([".github/**"], dir)).not.toBe(before)
+  })
+
+  test("a recursive glob ignores node_modules", async () => {
+    const before = await computeInputsDigest(["**/*.ts"], dir)
+    await Bun.write(join(dir, "node_modules/dep/index.ts"), "dep: 2")
+    expect(await computeInputsDigest(["**/*.ts"], dir)).toBe(before)
+  })
+
+  test("hashes thousands of files without exhausting file descriptors", async () => {
+    const many = await mkdtemp(join(tmpdir(), "cache-fingerprint-many-test-"))
+    try {
+      await Promise.all(
+        Array.from({ length: 3000 }, (_, i) =>
+          Bun.write(join(many, `f${i}.txt`), String(i)),
+        ),
+      )
+      expect(await computeInputsDigest(["*.txt"], many)).toBeDefined()
+    } finally {
+      await Bun.$`rm -rf ${many}`
+    }
+  }, 30_000)
 })
 
 describe("computeCacheKey", () => {

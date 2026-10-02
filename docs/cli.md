@@ -11,8 +11,19 @@ ostia baseline save|list|show  manage baseline documents
 ```
 
 Every command takes `--help`. A flag's value can follow it (`--format minimal`) or be
-attached (`--format=minimal`); `--ignore-failure[=CODES]` only takes the attached form. Exit codes and the machine-readable error
+attached (`--format=minimal`); `--ignore-failure[=CODES]` only takes the attached form. A flag
+that needs a value and is given none is a usage error (exit 2). Exit codes and the machine-readable error
 line are described in [agent-protocol.md](agent-protocol.md).
+
+`bench`, `ab`, `compare`, `ci` and `baseline` read the config file ([config.md](config.md)):
+`ostia.config.ts`, else `ostia.config.json`, in the current directory. `--config PATH` loads
+that file instead (a missing file is `config-missing`); relative paths inside it still
+resolve against the current directory.
+
+Surplus input is an error, never ignored: an extra positional (a third `compare` path,
+an argument to `baseline list`) or a flag with nothing to act on (`time --time-unit`
+without `--time-source`, `--cpu-interval` without `--cpu`, `report --measurement` or
+`--out-dir` with a non-visualization format) exits 2 with `invalid-flag`.
 
 Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`: `table` (default), `json`,
 `jsonl`, `markdown`, `minimal`. `report` additionally accepts the CPU visualization
@@ -34,10 +45,10 @@ ostia time [flags] -- <argv...>
 | `--no-interleave` | Run each command's trials to completion before the next command starts. |
 | `--prepare CMD` | Run `CMD` before every trial, unmeasured. Once (all commands) or once per command. |
 | `--time-source REGEX` | Take each trial's time from capture group 1 of the command's output. |
-| `--time-unit UNIT` | Unit of the `--time-source` number: `ns`, `us`, `ms` (default), `s`. |
+| `--time-unit UNIT` | Unit of the `--time-source` number: `ns`, `us`, `ms` (default), `s`. Needs `--time-source`. |
 | `--cpu` | Capture one extra CPU-profile trial per command. |
 | `--heap` | Capture one extra heap-snapshot trial per command. |
-| `--cpu-interval US` | CPU sampling interval (default: 1000). |
+| `--cpu-interval US` | CPU sampling interval (default: 1000). Needs `--cpu`. |
 | `--timeout MS` | SIGKILL a trial or `--prepare` hook that runs longer than `MS`. No default. |
 | `--ignore-failure[=CODE,...]` | Treat these exit codes (bare: every code) as success. |
 | `--out-dir PATH` | Artifact directory (default: `node_modules/.cache/ostia`). |
@@ -83,7 +94,8 @@ ostia time --ignore-failure "./flaky-exit.sh"      # every exit code counts as s
 the measurement carries a `timeout` warning. If every trial of a command times out, the
 command has no timing stats, prints like a skipped workload, and the run exits 2 with
 error code `timeout`. `--timeout` also applies to `--prepare` hooks; a hook that times
-out aborts the run.
+out aborts the run. A timed-out trial has no exit code, so it is not a failing exit: a
+command with some timed-out trials and some samples still passes (with the warning).
 
 Ctrl-C cancels cleanly: in-flight children are killed, the document holds whatever
 finished (with an `aborted` warning), `--export-json` still writes it, and the exit code
@@ -142,7 +154,7 @@ CPU capture - bun fixtures/work.ts (instrumented, 1000µs interval, diagnostic w
 ```
 
 ```
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 0.12MB)
+Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 117.19KiB)
     1369  string
      423  code
      319  closure
@@ -177,6 +189,7 @@ ostia bench [flags] <suite.ts...>
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
 | `--timeout MS` | SIGKILL a suite (or isolated task) process after `MS`. No default. |
 | `--out-dir PATH` | Scratch directory (default: `node_modules/.cache/ostia`). |
+| `--config PATH` | Config file to read instead of discovery. |
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
@@ -190,8 +203,8 @@ files given on the command line replace the config's lists rather than appending
 Per-task and per-group options (`budgetMs`, `samples`, `minSamples`, `gc`, `isolate`,
 `cpu`, `alloc`, `peakMem`) override the suite-wide values; see [library.md](library.md).
 
-Exit codes: `0` ok, `2` a suite failed to import or run, a task threw, a subprocess timed
-out, or a bad flag; `130` Ctrl-C. A failing suite stops the run: queued suites are
+Exit codes: `0` ok, `2` a suite file doesn't exist (`invalid-flag`), a suite failed to
+import or run, a task threw, a subprocess timed out, or a bad flag; `130` Ctrl-C. A failing suite stops the run: queued suites are
 skipped and in-flight ones killed.
 
 ### Sampling
@@ -283,27 +296,28 @@ RSS rising. Linux hands freed memory back to the OS right away; macOS holds it f
 So on macOS, module-scope code that allocates as much as the task (validating each input by
 running it, say) can hide the task's peak. The reading is then low by up to that much, and
 the measurement carries a `peak-hidden` warning with the amount (`data.slackBytes`) when
-it's 16MB or more. Skip such work in these processes:
+it's 16MiB or more. Skip such work in these processes:
 
 ```ts
 if (!process.env.OSTIA_PEAK_MEM) checkOutputs() // runs every input once
 ```
 
-Ordinary setup (reading fixtures, building inputs) leaves a few MB of this slack, so read
+Ordinary setup (reading fixtures, building inputs) leaves a few MiB of this slack, so read
 small differences with that in mind; `--peak-mem` is for calls that allocate megabytes.
 
 ```
 Task                 Median     Spread             Range              Retained/op Peak mem   Relative
 -----------------------------------------------------------------------------------------------------
 mem:
-  garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MB    4291943.33× slower
+  garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MiB   4291943.33× slower
     ! slow-first-run
-  retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KB      48.00KB    2731.39× slower
+  retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KiB     48.00KiB   2731.39× slower
   noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
 ```
 
 The first task allocates and drops a 40MB array per call: `Retained/op` sees nothing,
-`Peak mem` sees all of it. The second keeps 8KB per call alive, which both see.
+`Peak mem` sees all of it. The second keeps 8KB per call alive, which both see. Byte
+counts print 1024-based (`B`, `KiB`, `MiB`) everywhere, heap snapshot summaries included.
 
 ### `--preload` and `--bun-flags`
 
@@ -369,6 +383,7 @@ ostia ab [flags] <suite.ts...>
 | `--out-dir PATH` | Scratch directory and base-tree cache (default: `node_modules/.cache/ostia`). |
 | `--keep-trees N` | Base trees to keep cached (default: 5). See "The base tree". |
 | `--clean` | Remove every cached base tree, then exit. |
+| `--config PATH` | Config file to read instead of discovery. |
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
@@ -524,8 +539,9 @@ is how a script or agent can tell a long run from a stuck one:
 Progress never goes to stdout, so `--format minimal` output stays clean.
 
 Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
-only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git repository or an unknown ref
-(`invalid-flag`), a setup command failed (`command-failed`), or a suite failed
+only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git
+repository, an unknown ref, or a suite file that doesn't exist or lies outside the
+repository (`invalid-flag`), a setup command failed (`command-failed`), or a suite failed
 (`spawn-failed`); `130` Ctrl-C.
 
 With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
@@ -542,11 +558,14 @@ ostia compare <candidate.json> --baseline <base.json>
 | Flag | Meaning |
 |---|---|
 | `--baseline PATH` | The base document, when only the candidate is positional. |
+| `--config PATH` | Config file to take `thresholds` from, instead of discovery. |
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
 
-Thresholds come from `ostia.config.ts`/`ostia.config.json` in the current directory when
+Exactly two document paths are taken (one with `--baseline`); a third is a usage error.
+
+Thresholds come from `--config PATH`, else `ostia.config.ts`/`ostia.config.json` in the current directory when
 one exists (the same `thresholds` `ostia ci` uses), otherwise from `DEFAULT_THRESHOLDS`.
 There are no threshold flags. A config that fails to load is an error (`config-invalid`),
 even for `compare`. The table and markdown formats print the source first:
@@ -577,6 +596,8 @@ When the documents differ in OS, architecture, Bun version, CPU model or core co
 every comparison carries an `environment-mismatch` warning; table and markdown print it
 once in the header.
 
+Workloads are compared, and listed, in the candidate document's order.
+
 Exit codes: `0` pass, `1` at least one workload failed (timing regression, or a CPU
 frame / heap type over its threshold), `2` zero workloads matched (`no-matches`) or a
 document failed to load (`document-load-failed`). How verdicts are decided:
@@ -591,8 +612,10 @@ ostia report <document.json> [flags]
 | Flag | Meaning |
 |---|---|
 | `--format FORMAT` | See below (default: `table`). |
-| `--measurement ID` | Visualization formats: render only this measurement (default: every CPU measurement). |
-| `--out-dir PATH` | Visualization formats: write files here instead of stdout. |
+| `--measurement ID` | Visualization formats only: render only this measurement (default: every CPU measurement). |
+| `--out-dir PATH` | Visualization formats only: write files here instead of stdout. |
+
+Giving `--measurement` or `--out-dir` with any other format is a usage error (exit 2).
 
 | Format | Output |
 |---|---|
@@ -646,7 +669,8 @@ ostia ci [flags]
 |---|---|
 | `--full` | Ignore the cache; rerun every workload. |
 | `--baseline NAME` | Baseline to compare against (default: config `baseline`, or `main`). |
-| `--save-baseline` | After a pass, write this run as the new baseline at the same path. |
+| `--save-baseline` | After a pass, write this run as the new baseline at the same path. Always measures fresh (see below). |
+| `--config PATH` | Config file to read instead of discovery. |
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
@@ -675,7 +699,8 @@ A `suites` workload runs its suite files through `bench()` with the config's `be
 section applied exactly as `ostia bench` applies it (`budgetMs`, `jobs` including
 `"auto"`, `isolate`, `preload`, `bunFlags`, `timeoutMs`, ...), except that the workload's
 own `suites` list is used. Every task is compared individually. Suite processes get a
-10-minute timeout unless `bench.timeoutMs` is set.
+10-minute timeout unless the workload sets `timeoutMs` or `bench.timeoutMs` is set (the
+workload's own wins).
 
 ### Caching
 
@@ -685,7 +710,8 @@ settings, the Bun and ostia versions, and the contents of the files matched by `
 - no `inputs` field: never cached, always reruns;
 - `inputs: []`: depends on nothing, cached until the command or settings change;
 - `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`: reused while the matched files'
-  contents are unchanged. Absolute paths work.
+  contents are unchanged. Absolute paths work. Globs match dotfiles, but wildcards skip
+  `node_modules` and `.git` unless the pattern names them.
 
 A function-form `prepare` hook makes a workload uncacheable. `suites` workloads always
 run. `--full` ignores the cache.
@@ -695,9 +721,15 @@ run. `--full` ignores the cache.
 Exit codes: `0` pass, `1` a workload regressed, `2` a harness error: no config or no
 workloads (`config-missing`), an unloadable config (`config-invalid`), no baseline file or
 a baseline mismatch (`baseline-missing`), an unreadable baseline file
-(`document-load-failed`), a suite failure (`spawn-failed`), or a command
+(`document-load-failed`), a suite failure (`spawn-failed`), a `suites` glob that matches no files or any other bad input
+(`invalid-flag`, as in `bench`), or a command
 workload with a non-ignored non-zero exit or no samples (`command-failed`, listed as
-`N failed` in the report). A harness failure wins over a regression.
+`N failed` in the report). A harness failure wins over a regression. `130` is Ctrl-C.
+
+Ctrl-C stops the run the way it stops `bench`: in-flight trials and suite processes are
+killed, no further workload starts, and the workloads that finished are exported
+(`--export-json`, and the report unless `--quiet`) with an `aborted` warning on the last one.
+Nothing is compared, no baseline is saved, and the interrupted run is never cached.
 
 A configured workload with no row in the baseline is handled by `onMissingBaseline`:
 unset, the run fails only when *every* configured workload is missing (a stale or wrong
@@ -716,11 +748,12 @@ ostia baseline list
 ostia baseline show <name> [report flags]
 ```
 
-`save` measures every configured workload through the same code path as `ci` (no
-comparison) and writes `<baselineDir>/<name>.json` (default name: the config's `baseline`
-field, or `main`). `list` prints each saved baseline's name, workload count, creation
-date, ostia version and git state. `show` renders one via `ostia report` and takes the
-same `--format`/`--measurement`/`--out-dir` flags.
+Every subcommand takes `--config PATH`. `save` measures every configured workload through the same code path as `ci` (no
+comparison), always fresh (it never reuses a cached `ci` run), and writes `<baselineDir>/<name>.json` (default name: the config's `baseline`
+field, or `main`). `list` takes no arguments and prints each saved baseline's name, workload count, creation
+date, ostia version and git state. `show` renders one like `ostia report` and takes the
+same `--format`/`--measurement`/`--out-dir` flags (with the same restriction to the
+visualization formats); a name with no file is `baseline-missing`, as in `ci`.
 
 A name must match `/^[A-Za-z0-9._-]+$/` and can't start with `-`, so a mistyped flag is an
 error rather than a filename.
@@ -742,7 +775,8 @@ branch you're testing compares that branch with itself.
 
 `ostia ci --save-baseline` folds the re-save into the gate: after a pass, the run just
 measured becomes the baseline. This suits a CI job that gates every merge to a trunk
-branch.
+branch. A baseline is always fresh measurements, so `--save-baseline` implies `--full`:
+every workload is measured again, whatever is cached.
 
 Any document works as a baseline, including one from `ostia time`:
 
@@ -753,3 +787,23 @@ ostia ci
 
 Workload ids don't include the working directory, so a baseline saved in one checkout
 matches runs from another; see [document-schema.md](document-schema.md#workload-ids).
+
+## Names and defaults across commands
+
+An option that means the same thing has the same name everywhere: the CLI flag is its
+kebab-case form (`timeoutMs` is `--timeout`, `outDir` is `--out-dir`, `cpuIntervalUs` is
+`--cpu-interval`), and the config key and library option are identical. The defaults differ
+on purpose where the commands measure different things:
+
+| Setting | `time` | `bench` / `ci` suites | `ab` |
+|---|---|---|---|
+| Sampling budget (`--budget`) | 3000ms | 500ms | none: `--rounds` (15) of ~10ms batches |
+| Minimum trials (`--min-samples`) | 10 | cost-aware, up to 20 | n/a |
+| `--cpu-interval` | 1000µs | 100µs | n/a |
+| `--timeout` | none (`ci`: 10 minutes) | none (`ci`: 10 minutes) | none |
+| Regression threshold | `ci`/`compare`: `thresholds.timingPct` 5%, plus a CI and p-value | same | `--threshold` 10% on the median ratio, plus `--confirm` repeats |
+| Noise floor | widens `compare`/`ci` thresholds | same | measured, doesn't widen (pairing cancels drift) |
+
+`ab`'s `--threshold` (`thresholdPct`) and the config's `thresholds.timingPct` are different
+gates, not two spellings of one: the first flags a per-task median ratio within one paired
+process, the second tests two separately measured documents.

@@ -2,14 +2,10 @@ import type { NoiseFloor } from "../ir/types.ts"
 import { computeTimingStats } from "../stats/index.ts"
 
 const DEFAULT_BUDGET_MS = 200
-// Kept in the microsecond range regardless of how fast a single hash is, so
-// the timer's own resolution doesn't dominate the reading (same reasoning
-// as measure/inprocess.ts's batching).
+// Keeps a trial in the microsecond range so timer resolution doesn't dominate.
 const HASHES_PER_TRIAL = 64
 
-// Fixed, deterministic, no-allocation reference workload: what varies trial
-// to trial is the machine's own noise (scheduling, thermal, turbo), not the
-// work itself.
+// Fixed, allocation-free workload: trial-to-trial variance is the machine's noise.
 const REFERENCE_BUFFER = (() => {
   const buf = new Uint8Array(4096)
   for (let i = 0; i < buf.length; i++) buf[i] = (i * 2654435761) & 0xff
@@ -25,10 +21,7 @@ function hashBuffer(buf: Uint8Array, seed: number): number {
   return h >>> 0
 }
 
-/** `mad / median` of `samples`, as a percent - how noisy those trial times
- * were, independent of what produced them. Split out from
- * `measureNoiseFloor` so it can be tested on fixed sample arrays without
- * depending on real timing. */
+/** `mad / median` of `samples`, as a percent. */
 export function computeNoiseFloor(samples: number[]): NoiseFloor {
   const stats = computeTimingStats(samples)
   return {
@@ -38,11 +31,8 @@ export function computeNoiseFloor(samples: number[]): NoiseFloor {
   }
 }
 
-/** Measures this machine's current noise floor: samples a fixed-cost,
- * deterministic, allocation-free hash loop for `budgetMs` and reports
- * `mad / median` of the trial times. Run once before the first
- * command/task in a document, not per workload - it characterizes the
- * machine, not what's being measured. */
+/** Samples the reference hash loop for `budgetMs`; characterizes the machine,
+ * not any workload, so run it once per document. */
 export function measureNoiseFloor(budgetMs = DEFAULT_BUDGET_MS): NoiseFloor {
   const budgetNs = budgetMs * 1e6
   const trials: number[] = []
@@ -50,15 +40,12 @@ export function measureNoiseFloor(budgetMs = DEFAULT_BUDGET_MS): NoiseFloor {
   let sink = 0
 
   const start = Bun.nanoseconds()
-  let elapsed = 0
-  while (elapsed < budgetNs) {
+  while (Bun.nanoseconds() - start < budgetNs) {
     const trialStart = Bun.nanoseconds()
     for (let i = 0; i < HASHES_PER_TRIAL; i++) {
       sink ^= hashBuffer(REFERENCE_BUFFER, i)
     }
-    const trialEnd = Bun.nanoseconds()
-    trials.push((trialEnd - trialStart) / HASHES_PER_TRIAL)
-    elapsed = Bun.nanoseconds() - start
+    trials.push((Bun.nanoseconds() - trialStart) / HASHES_PER_TRIAL)
   }
 
   return computeNoiseFloor(trials)

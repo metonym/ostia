@@ -158,7 +158,7 @@ describe("spawn - timeSource", () => {
       RangeError,
     )
     expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/g })).toThrow(
-      /timeSource pattern must not use the g or y flag/,
+      /timeSource pattern must not use the g, y or d flag/,
     )
     expect(() => assertReusableTimeSource({ pattern: /in (\d+)ms/y })).toThrow(
       RangeError,
@@ -172,6 +172,27 @@ describe("spawn - timeSource", () => {
     expect(() =>
       assertReusableTimeSource({ pattern: "in (\\d+)ms" }),
     ).not.toThrow()
+  })
+
+  test("a string pattern is compiled once per source, an invalid one fails fast", () => {
+    const source = { pattern: "in (\\d+)ms" }
+    const realRegExp = RegExp
+    let compiled = 0
+    globalThis.RegExp = new Proxy(realRegExp, {
+      construct(target, args) {
+        compiled++
+        return Reflect.construct(target, args)
+      },
+    })
+    try {
+      for (let i = 0; i < 5; i++) parseReportedTime(source, "built in 7ms", "")
+    } finally {
+      globalThis.RegExp = realRegExp
+    }
+    expect(compiled).toBe(1)
+    expect(() => assertReusableTimeSource({ pattern: "(" })).toThrow(
+      SyntaxError,
+    )
   })
 
   test("parseReportedTime: accepts scientific notation in the captured number", () => {
@@ -192,7 +213,7 @@ describe("spawn - timeSource", () => {
         warmup: 0,
         timeSource: { pattern: /in (\d+)ms/g },
       }),
-    ).rejects.toThrow(/timeSource pattern must not use the g or y flag/)
+    ).rejects.toThrow(/timeSource pattern must not use the g, y or d flag/)
   })
 
   test("a timeSource phase samples the reported number, keeps wallNs, and skips the spawn-overhead warning", async () => {

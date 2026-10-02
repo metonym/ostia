@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import {
   assertSamplingOptions,
   createTimingPhase,
+  isHarnessFailure,
   runTimingPhase,
 } from "../../src/measure/timing"
 
@@ -87,5 +88,53 @@ describe("measure/timing - assertSamplingOptions", () => {
     expect(() =>
       assertSamplingOptions("time", { samples: 3, budgetMs: 100 }),
     ).not.toThrow()
+  })
+
+  test("validates warmup (>= 0) and timeoutMs (> 0)", () => {
+    expect(() => assertSamplingOptions("time", { warmup: -1 })).toThrow(
+      "time: warmup must be >= 0, got -1",
+    )
+    expect(() => assertSamplingOptions("time", { warmup: NaN })).toThrow(
+      "time: warmup must be >= 0",
+    )
+    expect(() => assertSamplingOptions("time", { timeoutMs: 0 })).toThrow(
+      "time: timeoutMs must be > 0, got 0",
+    )
+    expect(() => assertSamplingOptions("time", { timeoutMs: NaN })).toThrow(
+      "time: timeoutMs must be > 0",
+    )
+    expect(() =>
+      assertSamplingOptions("time", { warmup: 0, timeoutMs: 1 }),
+    ).not.toThrow()
+  })
+
+  test("createTimingPhase applies it to a per-command timeoutMs", () => {
+    expect(() =>
+      createTimingPhase({ argv: ["bun", FIXTURE], timeoutMs: -5 }),
+    ).toThrow("timeoutMs must be > 0")
+  })
+})
+
+describe("measure/timing - isHarnessFailure", () => {
+  const trial = (exitCode?: number, timedOut?: true) => ({
+    i: 0,
+    wallNs: 1,
+    ...(exitCode !== undefined && { exitCode }),
+    ...(timedOut && { timedOut }),
+  })
+  const timing = {} as never
+
+  test("a non-ignored non-zero exit fails; an ignored one doesn't", () => {
+    expect(isHarnessFailure({ trials: [trial(1)], timing })).toBe(true)
+    expect(isHarnessFailure({ trials: [trial(1)], timing }, [1])).toBe(false)
+  })
+
+  test("a timed-out trial has no exit code: it fails the run only when no samples remain", () => {
+    expect(
+      isHarnessFailure({ trials: [trial(0), trial(undefined, true)], timing }),
+    ).toBe(false)
+    expect(
+      isHarnessFailure({ trials: [trial(undefined, true)], timing: undefined }),
+    ).toBe(true)
   })
 })

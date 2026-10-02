@@ -17,8 +17,14 @@ documents can't be loaded. New optional fields are added without a version bump.
 Documents written before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`; `loadDocument`
 recomputes them from the stored samples, so every loaded `TimingStats` has them.
 
+`ab` documents written by ostia 0.2.8-0.2.9 name the ratio quartiles of
+`PairedEvidence` (and its `repeats`) `p25`/`p75`; they are now `ratioP25`/`ratioP75`,
+distinct from `TimingStats.p25`/`p75`, which are ns. This did not bump `schemaVersion`:
+`loadDocument` reads the old names as the new ones.
+
 `OstiaDocumentError.code` is `"invalid-json"`, `"not-a-document"` (no numeric
-`schemaVersion`) or `"unsupported-schema"`.
+`schemaVersion`, or `workloads`/`measurements` that aren't arrays of well-formed
+objects) or `"unsupported-schema"`.
 
 ## Top level
 
@@ -65,10 +71,13 @@ Ids identify what was measured, not where or when:
 - Suite task: a hash of the suite file path relative to the working directory, the
   `group/name` task id, and `params` when present, so, as with commands, moving the
   checkout doesn't change the id.
-- `profile()` capture: a hash of the function's name and source.
+- `profile()` capture: a hash of the `name` option when given (it is also the label),
+  else of the function's name and source text, so closures that differ only in captured
+  values share an id unless named.
 
 `label`, `description`, `baseline`, `inputs`, `timeoutMs` and `ignoreExitCodes` never
-affect the id.
+affect the id. (`profile()`'s `name` is the exception only because it is the workload's
+identity; it is shown as the label too.)
 
 ## Measurements
 
@@ -100,13 +109,13 @@ For batched in-process tasks, `samples` are per-call times and `batch` is the nu
 calls per trial.
 
 `PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
-medianRatio, p25, p75, flagged?, repeats?, confirmed?, verdict, sameOutput, suiteChanged? }`.
-`baseSamples[i]` and `timing.samples[i]` are the two sides' per-call times in round `i`,
-and `ratios[i]` is candidate over base. `flagged` is what the first process saw;
-`repeats` are the fresh-process re-measurements of a flagged task (`{ medianRatio, p25,
-p75, flagged? }`), and `verdict` is `flagged` only when `confirmed`. `suiteChanged` is
-`true` when the suite file differs from the base's copy; with `sameOutput: false` too,
-`verdict` is `unchanged`. See
+medianRatio, ratioP25, ratioP75, flagged?, repeats?, confirmed?, verdict, sameOutput,
+suiteChanged? }`. `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
+times in round `i`, and `ratios[i]` is candidate over base. `flagged` is what the first
+process saw; `repeats` are the fresh-process re-measurements of a flagged task
+(`{ medianRatio, ratioP25, ratioP75, flagged? }`), and `verdict` is `flagged` only when
+`confirmed`. `suiteChanged` is `true` when the suite file differs from the base's copy;
+with `sameOutput: false` too, `verdict` is `unchanged`. See
 [cli.md](cli.md#ostia-ab).
 
 ## Comparisons
@@ -146,7 +155,7 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 | `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
 | `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
 | `suite-changed` | `ab` | The suite file's text differs from the base ref's copy, so each side may run a different benchmark. When the output differs too, the task is not comparable: verdict `unchanged`, left out of the geomean. |
-| `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) freed 16MB or more that the allocator still held, which the call could reuse without RSS rising, so `peakBytes` can be that much low. `data: { slackBytes, processes }`. |
+| `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) freed 16 MiB or more that the allocator still held, which the call could reuse without RSS rising, so `peakBytes` can be that much low. `data: { slackBytes, processes }`. |
 
 ## Files on disk
 

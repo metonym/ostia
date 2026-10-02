@@ -4,13 +4,16 @@ function cachePath(outDir: string, key: string): string {
   return `${outDir}/cache/${key}.json`
 }
 
+/** A missing or unreadable (e.g. truncated by an interrupted write) entry is a miss. */
 export async function readCachedRun(
   outDir: string,
   key: string,
 ): Promise<Measurement | undefined> {
-  const file = Bun.file(cachePath(outDir, key))
-  if (!(await file.exists())) return undefined
-  return (await file.json()) as Measurement
+  try {
+    return (await Bun.file(cachePath(outDir, key)).json()) as Measurement
+  } catch {
+    return undefined
+  }
 }
 
 export async function writeCachedRun(

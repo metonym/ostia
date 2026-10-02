@@ -33,8 +33,13 @@ export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
 
   const typeCount = typeNames.length
   const buckets: (TypeBucket | undefined)[] = new Array(typeCount)
-  const unknownBuckets = new Map<string, TypeBucket>()
+  const unknownBuckets = new Map<number, TypeBucket>()
   const seen: TypeBucket[] = []
+  const newBucket = (type: string): TypeBucket => {
+    const bucket = { type, count: 0, bytes: 0 }
+    seen.push(bucket)
+    return bucket
+  }
   let heapSizeBytes = 0
 
   const nodes = raw.nodes
@@ -45,45 +50,30 @@ export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
     heapSizeBytes += selfSize
     let bucket: TypeBucket | undefined
     if (typeIdx >= 0 && typeIdx < typeCount) {
-      bucket = buckets[typeIdx]
-      if (bucket === undefined) {
-        bucket = { type: typeNames[typeIdx]!, count: 0, bytes: 0 }
-        buckets[typeIdx] = bucket
-        seen.push(bucket)
-      }
+      bucket = buckets[typeIdx] ??= newBucket(typeNames[typeIdx]!)
     } else {
-      const typeName = `unknown(${typeIdx})`
-      bucket = unknownBuckets.get(typeName)
+      bucket = unknownBuckets.get(typeIdx)
       if (bucket === undefined) {
-        bucket = { type: typeName, count: 0, bytes: 0 }
-        unknownBuckets.set(typeName, bucket)
-        seen.push(bucket)
+        bucket = newBucket(`unknown(${typeIdx})`)
+        unknownBuckets.set(typeIdx, bucket)
       }
     }
     bucket.count++
     bucket.bytes += selfSize
   }
 
-  const sorted = seen.sort((a, b) => b.count - a.count)
-  const top = sorted.slice(0, TOP_N)
-  const rest = sorted.slice(TOP_N)
-
-  const typeCounts = top.map(({ type, count, bytes }) => ({
+  seen.sort((a, b) => b.count - a.count)
+  const typeCounts = seen.slice(0, TOP_N).map(({ type, count, bytes }) => ({
     type,
     count,
     retainedBytes: bytes,
   }))
+  const rest = seen.slice(TOP_N)
   if (rest.length > 0) {
-    let otherCount = 0
-    let otherBytes = 0
-    for (const b of rest) {
-      otherCount += b.count
-      otherBytes += b.bytes
-    }
     typeCounts.push({
       type: "other",
-      count: otherCount,
-      retainedBytes: otherBytes,
+      count: rest.reduce((n, b) => n + b.count, 0),
+      retainedBytes: rest.reduce((n, b) => n + b.bytes, 0),
     })
   }
 

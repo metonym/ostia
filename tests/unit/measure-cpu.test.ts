@@ -1,10 +1,10 @@
 import { describe, expect, test } from "bun:test"
+import { cpuSampleCount } from "../../src/ir/cpu"
 import {
   captureTaskCpuProfile,
   cpuWindowMs,
   jitColdWarning,
 } from "../../src/measure/cpu"
-import { cpuSampleCount } from "../../src/renderers/format"
 
 function hotInner(n: number): number {
   let acc = 0

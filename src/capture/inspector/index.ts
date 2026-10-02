@@ -1,9 +1,9 @@
 import type { CpuEvidence } from "../../ir/types.ts"
 import { parseCpuProfile, type RawCpuProfile } from "../cpu/parse.ts"
-
-export interface InspectorCaptureOptions {
-  intervalUs?: number
-}
+import {
+  DEFAULT_SAMPLING_INTERVAL_US,
+  type SamplingOptions,
+} from "../sampling.ts"
 
 export interface InspectorCaptureResult<T> {
   result: T
@@ -11,23 +11,22 @@ export interface InspectorCaptureResult<T> {
   diagnosticWallNs: number
 }
 
-const DEFAULT_INTERVAL_US = 1000
-
 export async function captureInspectorProfile<T>(
   fn: () => T | Promise<T>,
-  opts: InspectorCaptureOptions = {},
+  opts: SamplingOptions = {},
 ): Promise<InspectorCaptureResult<T>> {
-  const intervalUs = opts.intervalUs ?? DEFAULT_INTERVAL_US
-  // Loaded on first use: importing node:inspector costs ~4 ms of process
-  // startup, which every `ostia` invocation would otherwise pay.
+  const intervalUs = opts.intervalUs ?? DEFAULT_SAMPLING_INTERVAL_US
+  // Lazy: importing node:inspector costs ~4ms of startup for every invocation.
   const { Session } = await import("node:inspector/promises")
   const session = new Session()
   session.connect()
 
-  const start = Bun.nanoseconds()
   try {
     await session.post("Profiler.enable")
     await session.post("Profiler.setSamplingInterval", { interval: intervalUs })
+    // Diagnostic window: profiler start through stop, nothing else. Matches the
+    // jsc capture, which can only time `profile()` as a whole.
+    const start = Bun.nanoseconds()
     await session.post("Profiler.start")
 
     const result = await fn()

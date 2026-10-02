@@ -3,7 +3,10 @@ import {
   filterTasks,
   getRegisteredTasks,
   group,
+  groupEdges,
   resetRegistry,
+  runGroupHooks,
+  selectTasks,
   task,
   taskAlloc,
   taskCpu,
@@ -86,7 +89,7 @@ describe("bench/registry", () => {
     expect(tasks[2]!.groupDescription).toBeUndefined()
   })
 
-  test("nested groups restore the outer group's description", () => {
+  test("a nested group's name is its path, and the outer group is restored after it", () => {
     group(
       "outer",
       () => {
@@ -98,10 +101,42 @@ describe("bench/registry", () => {
       { description: "outer desc" },
     )
     const tasks = getRegisteredTasks()
-    expect(tasks[0]!.groupName).toBe("inner")
-    expect(tasks[0]!.groupDescription).toBeUndefined()
+    expect(tasks[0]!.groupName).toBe("outer/inner")
+    expect(taskId(tasks[0]!)).toBe("outer/inner/i")
     expect(tasks[1]!.groupName).toBe("outer")
     expect(tasks[1]!.groupDescription).toBe("outer desc")
+  })
+
+  test("a nested group inherits what it doesn't set and overrides what it does", () => {
+    group(
+      "outer",
+      () => {
+        group("inherits", () => task("a", () => 1))
+        group("overrides", () => task("b", () => 1), {
+          description: "inner desc",
+          gc: false,
+        })
+      },
+      { description: "outer desc", isolate: true, gc: true },
+    )
+    const [a, b] = getRegisteredTasks()
+    expect(a!.groupDescription).toBe("outer desc")
+    expect(a!.groupIsolate).toBe(true)
+    expect(a!.groupGc).toBe(true)
+    expect(b!.groupDescription).toBe("inner desc")
+    expect(b!.groupIsolate).toBe(true)
+    expect(b!.groupGc).toBe(false)
+  })
+
+  test("group.skip/group.only reach nested groups", () => {
+    group.skip("s", () => group("inner", () => task("a", () => 1)))
+    group.only("o", () => group("inner", () => task("b", () => 1)))
+    group("plain", () => group.skip("inner", () => task("c", () => 1)))
+    const [a, b, c] = getRegisteredTasks()
+    expect(a!.skipped).toBe(true)
+    expect(b!.only).toBe(true)
+    expect(c!.skipped).toBe(true)
+    expect(c!.only).toBeUndefined()
   })
 
   test("registered task function can be invoked and returns expected value", () => {
@@ -398,29 +433,93 @@ describe("bench/registry - before/after hooks", () => {
     expect(t!.opts?.after).toBe(after)
   })
 
-  test("group before/after are recorded on every task in the group", () => {
-    const before = () => 1
-    const after = () => 2
+  test("group hooks fire once around the group's first and last measured task", async () => {
+    const calls: string[] = []
     group(
       "g",
       () => {
         task("a", () => 1)
         task("b", () => 1)
+        task.skip("c", () => 1)
       },
-      { before, after },
+      {
+        before: () => void calls.push("before"),
+        after: () => void calls.push("after"),
+      },
     )
     const tasks = getRegisteredTasks()
-    expect(tasks[0]!.groupBefore).toBe(before)
-    expect(tasks[0]!.groupAfter).toBe(after)
-    expect(tasks[1]!.groupBefore).toBe(before)
-    expect(tasks[1]!.groupAfter).toBe(after)
+    const edges = groupEdges(tasks)
+    for (let i = 0; i < tasks.length; i++) {
+      const { enter, leave } = edges(i)
+      await runGroupHooks(tasks[i]!, "before", enter)
+      calls.push(tasks[i]!.name)
+      await runGroupHooks(tasks[i]!, "after", leave)
+    }
+    expect(calls).toEqual(["before", "a", "b", "after", "c"])
   })
 
-  test("a task outside any group has no groupBefore/groupAfter", () => {
+  test("an outer group's hooks wrap its nested groups once; inner hooks nest inside", async () => {
+    const calls: string[] = []
+    const hooks = (name: string) => ({
+      before: () => void calls.push(`${name}:before`),
+      after: () => void calls.push(`${name}:after`),
+    })
+    group(
+      "outer",
+      () => {
+        task("o1", () => 1)
+        group("x", () => task("x1", () => 1), hooks("x"))
+        group("y", () => task("y1", () => 1), hooks("y"))
+      },
+      hooks("outer"),
+    )
+    const tasks = getRegisteredTasks()
+    const edges = groupEdges(tasks)
+    for (let i = 0; i < tasks.length; i++) {
+      const { enter, leave } = edges(i)
+      await runGroupHooks(tasks[i]!, "before", enter)
+      calls.push(tasks[i]!.name)
+      await runGroupHooks(tasks[i]!, "after", leave)
+    }
+    expect(calls).toEqual([
+      "outer:before",
+      "o1",
+      "x:before",
+      "x1",
+      "x:after",
+      "y:before",
+      "y1",
+      "y:after",
+      "outer:after",
+    ])
+  })
+
+  test("runGroupHooks without paths runs every group's hook, outermost first for before", async () => {
+    const calls: string[] = []
+    group(
+      "a",
+      () =>
+        group("b", () => task("t", () => 1), {
+          before: () => void calls.push("b:before"),
+          after: () => void calls.push("b:after"),
+        }),
+      {
+        before: () => void calls.push("a:before"),
+        after: () => void calls.push("a:after"),
+      },
+    )
+    const [t] = getRegisteredTasks()
+    await runGroupHooks(t!, "before")
+    await runGroupHooks(t!, "after")
+    expect(calls).toEqual(["a:before", "b:before", "b:after", "a:after"])
+  })
+
+  test("a task outside any group has no group hooks", async () => {
     task("solo", () => 1)
     const [t] = getRegisteredTasks()
-    expect(t!.groupBefore).toBeUndefined()
-    expect(t!.groupAfter).toBeUndefined()
+    expect(t!.groupChain).toBeUndefined()
+    await runGroupHooks(t!, "before")
+    expect(groupEdges([t!])(0)).toEqual({ enter: [], leave: [] })
   })
 })
 
@@ -480,5 +579,55 @@ describe("bench/registry - task.skip / task.only / group.skip / group.only", () 
     const tasks = getRegisteredTasks()
     expect(tasks[0]!.skipped).toBe(true)
     expect(tasks[1]!.skipped).toBeUndefined()
+  })
+})
+
+describe("bench/registry - selectTasks", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  function captureStderr(run: () => void): string {
+    const write = process.stderr.write
+    let out = ""
+    process.stderr.write = ((chunk: string) => {
+      out += chunk
+      return true
+    }) as typeof process.stderr.write
+    try {
+      run()
+    } finally {
+      process.stderr.write = write
+    }
+    return out
+  }
+
+  test(".only narrows to the marked tasks and announces it", () => {
+    task("a", () => 1)
+    task.only("b", () => 1)
+    let selected: string[] = []
+    const out = captureStderr(() => {
+      selected = selectTasks(getRegisteredTasks(), undefined, "f.ts").map(
+        (t) => t.name,
+      )
+    })
+    expect(selected).toEqual(["b"])
+    expect(out).toBe("bench: 1 task(s) selected by .only\n")
+  })
+
+  test("announce = false selects the same tasks without the notice", () => {
+    task("a", () => 1)
+    task.only("b", () => 1)
+    let selected: string[] = []
+    const out = captureStderr(() => {
+      selected = selectTasks(
+        getRegisteredTasks(),
+        undefined,
+        "f.ts",
+        false,
+      ).map((t) => t.name)
+    })
+    expect(selected).toEqual(["b"])
+    expect(out).toBe("")
   })
 })

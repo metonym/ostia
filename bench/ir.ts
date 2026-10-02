@@ -1,13 +1,13 @@
 import { group, task } from "../src/index.ts"
 import {
+  createDocument,
   makeArtifactRef,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
   serializeDocument,
 } from "../src/ir/document.ts"
-import { canonicalJSON, fp, sortKeysDeep } from "../src/ir/fp.ts"
+import { canonicalJSON, fp } from "../src/ir/fp.ts"
 import { computeTimingStats } from "../src/stats/index.ts"
 import {
   cpuEvidenceFromTree,
@@ -27,7 +27,6 @@ group("ir", () => {
 
   task("fp() id generation", () => fp("run", parts))
   task("canonicalJSON (nested object)", () => canonicalJSON(nested))
-  task("sortKeysDeep (nested object)", () => sortKeysDeep(nested))
 })
 
 group("document", () => {
@@ -69,7 +68,7 @@ group("document", () => {
     timing,
     warnings: [],
   })
-  const doc = newDocument([workload], [timingRun])
+  const doc = createDocument([workload], [timingRun])
 
   task("serializeDocument (1e3-trial doc)", () => serializeDocument(doc))
 

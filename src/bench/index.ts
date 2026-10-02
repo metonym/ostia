@@ -2,9 +2,8 @@ import { type BenchConfig, DEFAULT_OUT_DIR } from "../config/index.ts"
 import { scanGlobs } from "../glob.ts"
 import {
   configFingerprint,
-  loadDocument,
+  createDocument,
   makeInstrumentedMeasurement,
-  newDocument,
 } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type {
@@ -13,98 +12,77 @@ import type {
   Warning,
   Workload,
 } from "../ir/types.ts"
-import {
-  captureEnvironment,
-  noisyMachineWarning,
-} from "../measure/environment.ts"
 import type { PeakMemResult } from "../measure/peak.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
 import { formatBytes } from "../renderers/format.ts"
-import { killSwitch } from "../spawn/index.ts"
-import { percentile } from "../stats/index.ts"
 import type { RunnerOpts } from "./runner.ts"
+import {
+  absolutePath,
+  assertSuiteExists,
+  captureRunEnvironment,
+  loadIfExists,
+  median,
+  removeDir,
+  runRunnerProcess,
+  stampRunWarnings,
+  uniqueTmpDir,
+} from "./support.ts"
 
 export interface BenchOptions {
   suites: string[]
   /** Wall-clock sampling budget per task, ms (default 500). */
   budgetMs?: number
-  /** Exact trial count per task. When set, the budget is ignored - the
-   * in-process equivalent of `time()`'s `samples`. */
+  /** Exact trial count per task; the budget is ignored when set. */
   samples?: number
   minSamples?: number
   gc?: boolean
   /** Capture one extra `phase: "cpu"` measurement per task (the task looped
-   * under the JSC sampling profiler for long enough to collect ~2,000
-   * samples, JIT tiers included), never mixed into the timing numbers.
-   * `TaskOptions.cpu` / `GroupOptions.cpu` override this per task or group. */
+   * under the JSC sampling profiler for ~2,000 samples, JIT tiers included),
+   * never mixed into the timing numbers. Task/group `cpu` overrides this. */
   cpu?: boolean
   /** `cpu`'s sampling interval, µs (default: 100). A coarser interval
    * lengthens the capture to keep the sample count, up to 10s per task. */
   cpuIntervalUs?: number
   /** Capture one extra `phase: "memstats"` measurement per task: retained
    * heap growth per call, from a batch with `Bun.gc(true)` on both sides.
-   * What the calls keep alive, not what they allocate - garbage is collected
-   * before the second reading. `TaskOptions.alloc` / `GroupOptions.alloc`
-   * override this per task or group. */
+   * What the calls keep alive, not what they allocate. Task/group `alloc`
+   * overrides this. */
   alloc?: boolean
   /** Capture one extra `phase: "memstats"` measurement per task: how far the
-   * task's first call raises RSS, garbage included - the reading
-   * `alloc` can't give. Median of 3 fresh processes, each run with
-   * `OSTIA_PEAK_MEM=1` in its environment (see `measurePeakMem`).
-   * `TaskOptions.peakMem` / `GroupOptions.peakMem` override this per task or
-   * group. */
+   * task's first call raises RSS, garbage included. Median of 3 fresh
+   * processes, each run with `OSTIA_PEAK_MEM=1` in its environment (see
+   * `measurePeakMem`). Task/group `peakMem` overrides this. */
   peakMem?: boolean
   filter?: string
-  /** Suite files to run at once, each still in its own child process (default:
-   * 1). Files are independent by design, so this is a wall-clock win for
-   * multi-file suites, but concurrent CPU-bound processes contend for cores,
-   * caches, memory bandwidth and turbo headroom: timings taken under `jobs > 1`
-   * are noisier and not like-for-like with a baseline measured at 1. When
-   * `isolate` puts some tasks in their own subprocess, `jobs` pools across
-   * those per-task processes the same way - so the same noise/wall-clock
-   * tradeoff now scales with task count, not just file count. */
+  /** Suite files (or isolated tasks) to run at once, each in its own child
+   * process (default: 1). Concurrent CPU-bound processes contend for cores,
+   * caches and turbo headroom, so timings under `jobs > 1` are noisier and
+   * not like-for-like with a baseline measured at 1. */
   jobs?: number
   outDir?: string
   cwd?: string
   /** Give every task its own subprocess instead of sharing its suite file's,
-   * isolating each task's JIT tier state, inline caches and heap shape from
-   * every other task the way suite files are already isolated from each
-   * other. `TaskOptions.isolate` / `GroupOptions.isolate` override this per
-   * task or group for mixed suites (e.g. a few outlier-prone tasks isolated,
-   * many cheap ones sharing a process). Multiplies process-spawn overhead by
-   * task count instead of file count. */
+   * isolating JIT tier state, inline caches and heap shape between tasks.
+   * Task/group `isolate` overrides this. Multiplies spawn overhead by task
+   * count instead of file count. */
   isolate?: boolean
-  /** Scripts run, in order, before each suite file loads - in the same
-   * subprocess, so they can install globals (jsdom's `document`/`window`) or
-   * register a `Bun.plugin()` file-loader (e.g. for `.svelte`/`.vue`) ahead
-   * of the suite's own top-level code. Consumer-authored; ostia ships no
-   * preload scripts itself. */
+  /** Scripts run, in order, before each suite file loads, in the same
+   * subprocess: install globals (jsdom) or a `Bun.plugin()` loader ahead of
+   * the suite's top-level code. */
   preload?: string[]
-  /** Extra flags passed through to the `bun` invocation that runs each suite
-   * file (e.g. `["--conditions", "browser"]`), inserted before the runner
-   * script path so `bun` itself parses them rather than the runner. Useful
-   * for suites that import packages whose `exports` map branches on a
-   * resolution condition Bun doesn't set by default (e.g. Svelte/Vue's
-   * `browser` vs `default` builds). */
+  /** Extra flags for the `bun` invocation that runs each suite file (e.g.
+   * `["--conditions", "browser"]`), placed before the runner script path. */
   bunFlags?: string[]
   /** Measure this machine's noise floor once, before any suite runs
-   * (default: true), and stamp it on the document as
-   * `environment`. Set false to skip the ~200ms reference measurement. */
+   * (default: true), and stamp it on the document as `environment`. */
   noiseCheck?: boolean
-  /** Kills a suite file's subprocess (or, under `isolate`, one task's
-   * dedicated subprocess) with SIGKILL if it hasn't finished after this many
-   * ms. No default: an unset `timeoutMs` never times out. Applies to the
-   * whole subprocess, not per task - the same granularity `isolate` already
-   * runs at. */
+  /** SIGKILLs a suite file's subprocess (or, under `isolate`, one task's) that
+   * hasn't finished after this many ms. No default. */
   timeoutMs?: number
-  /** Aborting cancels the run: in-flight suite/isolated-task subprocesses
-   * are killed with SIGKILL, no new ones are started, and `bench()` resolves
-   * (never rejects) with whatever suites/tasks had already finished when the
-   * signal fired, plus an `aborted` warning on the document's last
-   * measurement. A suite subprocess killed mid-run contributes nothing (it
-   * only writes its result once, at the end), so a suite that was in flight
-   * when the signal fired is dropped entirely rather than partially
-   * represented. */
+  /** Aborting kills in-flight subprocesses, starts no new ones, and resolves
+   * (never rejects) with whatever suites/tasks had finished, plus an
+   * `aborted` warning on the last measurement. A suite killed mid-run is
+   * dropped entirely: it only writes its result once, at the end. */
   signal?: AbortSignal
 }
 
@@ -113,15 +91,6 @@ const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname
 /** Logical CPUs available to this process, for `--jobs auto`. */
 export function availableJobs(): number {
   return Math.max(1, navigator.hardwareConcurrency || 1)
-}
-
-/** Expands suite file globs (e.g. from `ostia.config.json`'s `bench.suites`)
- * against `cwd`, deduped and sorted for a deterministic run order. */
-export async function expandSuiteGlobs(
-  patterns: string[],
-  cwd: string,
-): Promise<string[]> {
-  return scanGlobs(patterns, cwd)
 }
 
 /** The subset of `ostia bench`'s CLI flags that have a config-file
@@ -146,18 +115,10 @@ export interface BenchCliOverrides {
   timeoutMs?: number
 }
 
-function resolveConfigJobs(
-  value: number | "auto" | undefined,
-): number | undefined {
-  if (value === undefined) return undefined
-  return value === "auto" ? availableJobs() : value
-}
-
-/** Merges CLI flags with `ostia.config.json`'s `bench` section: an explicit
- * CLI value always wins per field, falling back to the config value, then to
- * `bench()`'s own built-in defaults (left undefined here). `suites`,
- * `preload` and `bunFlags` are whole-list overrides rather than merged - CLI
- * args replace the config's list rather than appending to it. */
+/** Merges CLI flags with `ostia.config.json`'s `bench` section: a CLI value
+ * wins per field, then the config's, then `bench()`'s own defaults (left
+ * undefined). `suites`, `preload` and `bunFlags` are replaced wholesale, not
+ * merged. */
 export async function resolveBenchOptions(
   cli: BenchCliOverrides,
   config: BenchConfig | undefined,
@@ -167,7 +128,7 @@ export async function resolveBenchOptions(
     cli.suites.length > 0
       ? cli.suites
       : config?.suites
-        ? await expandSuiteGlobs(config.suites, cwd)
+        ? await scanGlobs(config.suites, cwd)
         : []
 
   return {
@@ -175,7 +136,8 @@ export async function resolveBenchOptions(
     budgetMs: cli.budgetMs ?? config?.budgetMs,
     samples: cli.samples ?? config?.samples,
     minSamples: cli.minSamples ?? config?.minSamples,
-    jobs: cli.jobs ?? resolveConfigJobs(config?.jobs),
+    jobs:
+      cli.jobs ?? (config?.jobs === "auto" ? availableJobs() : config?.jobs),
     gc: cli.gc ?? config?.gc ?? false,
     cpu: cli.cpu ?? config?.cpu ?? false,
     cpuIntervalUs: cli.cpuIntervalUs ?? config?.cpuIntervalUs,
@@ -193,7 +155,6 @@ export async function resolveBenchOptions(
 }
 
 interface PlannedTask {
-  id: string
   workloadId: string
   isolate: boolean
   peakMem: boolean
@@ -205,23 +166,65 @@ const PEAK_MEM_PROCESSES = 3
 // (8MB for caligula's) and too common to warn about.
 const PEAK_SLACK_NOISE_BYTES = 16 * 1024 * 1024
 
-/** One subprocess spawn dedicated to a single isolated task. */
-interface WorkItem {
+function peakMeasurement(
+  workload: Workload,
+  readings: PeakMemResult[] | undefined,
+): Measurement[] {
+  if (!readings?.length) return []
+  const peak = median(readings.map((r) => r.peakBytes))
+  const slack = Math.max(...readings.map((r) => r.slackBytes))
+  const understated = slack >= PEAK_SLACK_NOISE_BYTES && slack > peak / 4
+  const warnings: Warning[] = understated
+    ? [
+        {
+          code: "peak-hidden",
+          message: `Before the call, earlier work in the process had freed up to ${formatBytes(slack)} the allocator still held (module-scope setup or before hooks that allocate), which the call could reuse without RSS rising: this reading can be low by up to that much. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
+          data: { slackBytes: slack, processes: readings.length },
+        },
+      ]
+    : []
+  return [
+    makeInstrumentedMeasurement({
+      workload,
+      phase: "memstats",
+      configFingerprint: configFingerprint({ peakMem: true }),
+      diagnosticWallNs: median(readings.map((r) => r.wallNs)),
+      memory: { origin: "resourceUsage", kind: "peak", peakBytes: peak },
+      warnings,
+      artifacts: [],
+    }),
+  ]
+}
+
+interface RunnerJob {
   suiteIndex: number
-  taskIds: string[]
+  outPath: string
+  runnerOpts: RunnerOpts
 }
 
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   assertSamplingOptions("bench", opts)
+  const jobs = opts.jobs ?? 1
+  if (!Number.isInteger(jobs) || jobs < 1) {
+    throw new RangeError(`bench: jobs must be an integer >= 1, got ${jobs}`)
+  }
 
   const cwd = opts.cwd ?? process.cwd()
-  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
   // Against `cwd`, where the runner subprocesses write, not this process's
   // cwd, where it reads their results back.
-  const tmpDir = `${outDir.startsWith("/") ? outDir : `${cwd}/${outDir}`}/bench-tmp`
-  const jobs = Math.max(1, Math.floor(opts.jobs ?? 1))
+  const tmpDir = uniqueTmpDir(
+    absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR),
+    "bench",
+  )
+  const suites = opts.suites.map((file) => absolutePath(cwd, file))
+  for (const [i, suite] of suites.entries()) {
+    assertSuiteExists(opts.suites[i]!, suite)
+  }
+  const preload = (opts.preload ?? []).map((file) => absolutePath(cwd, file))
+  const bunFlags = opts.bunFlags ?? []
+  const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck)
 
-  const taskOpts = {
+  const measureOpts = {
     budgetMs: opts.budgetMs,
     samples: opts.samples,
     minSamples: opts.minSamples,
@@ -230,35 +233,22 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     cpuIntervalUs: opts.cpuIntervalUs,
     alloc: opts.alloc,
     peakMem: opts.peakMem,
-    // Measured once here in the parent instead: every runner subprocess
-    // repeating the ~200ms reference measurement only to have all but the
-    // first result discarded cost seconds on an isolated or multi-file run.
+    // Measured once here: every runner repeating the ~200ms reference
+    // measurement only to have all but the first discarded cost seconds.
     noiseCheck: false,
   }
-  const environment =
-    opts.noiseCheck === false ? undefined : captureEnvironment()
-  const noiseWarning = environment
-    ? noisyMachineWarning(environment)
-    : undefined
 
-  // Plain string join, not path.resolve: the suite path is hashed into every
-  // workload id, so normalizing "./x" would orphan existing baselines.
-  const absolute = (file: string) =>
-    file.startsWith("/") ? file : `${cwd}/${file}`
-  const resolvedSuites = opts.suites.map(absolute)
-  const resolvedPreloads = (opts.preload ?? []).map(absolute)
-  const bunFlags = opts.bunFlags ?? []
+  const outPath = (tag: string, suiteIndex: number, ...rest: unknown[]) =>
+    `${tmpDir}/${fp(tag, suites[suiteIndex], ...rest)}.json`
 
-  // A pool of `jobs` workers pulling from a shared cursor of spawn targets.
-  // The first failure stops the pool: remaining queued targets are skipped
-  // and in-flight children are killed, so a broken target fails the run fast
-  // instead of after every other target has spent its budget.
-  const spawnPooled = async (
-    argvList: string[][],
-    describe: (index: number) => string,
+  // `jobs` workers pull from a shared cursor. The first failure stops the
+  // pool: queued jobs are skipped and in-flight children killed, so a broken
+  // suite fails the run fast.
+  const runPool = async (
+    list: RunnerJob[],
     env?: Record<string, string>,
   ): Promise<void> => {
-    const inFlight = new Set<ReturnType<typeof Bun.spawn>>()
+    const inFlight = new Set<Bun.Subprocess>()
     let next = 0
     let failure: Error | undefined
 
@@ -266,36 +256,30 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       while (
         failure === undefined &&
         !opts.signal?.aborted &&
-        next < argvList.length
+        next < list.length
       ) {
-        const index = next++
+        const job = list[next++]!
         try {
-          const kill = killSwitch(opts.timeoutMs, opts.signal)
-          const proc = Bun.spawn(argvList[index]!, {
-            cwd,
-            ...(env && { env: { ...process.env, ...env } }),
-            stdout: "inherit",
-            stderr: "inherit",
-            stdin: "ignore",
-            ...kill.spawn,
-          })
-          inFlight.add(proc)
-          const exitCode = await proc.exited
-          inFlight.delete(proc)
-          // Killed by the caller's cancellation, not a timeout or a real
-          // failure: the run is already stopping, so this isn't a new error
-          // to surface - just stop pulling more work.
-          if (opts.signal?.aborted) return
-          if (kill.timedOut()) {
-            throw new Error(
-              `Bench suite timed out after ${opts.timeoutMs}ms: ${describe(index)}`,
-            )
-          }
-          if (exitCode !== 0) {
-            throw new Error(
-              `Bench suite failed: ${describe(index)} (runner exited ${exitCode})`,
-            )
-          }
+          const ran = await runRunnerProcess(
+            [
+              "bun",
+              ...bunFlags,
+              RUNNER_PATH,
+              suites[job.suiteIndex]!,
+              job.outPath,
+              JSON.stringify(job.runnerOpts),
+            ],
+            {
+              label: "Bench suite",
+              name: opts.suites[job.suiteIndex]!,
+              cwd,
+              env,
+              timeoutMs: opts.timeoutMs,
+              signal: opts.signal,
+              inFlight,
+            },
+          )
+          if (!ran) return
         } catch (err) {
           failure ??= err instanceof Error ? err : new Error(String(err))
           for (const proc of inFlight) proc.kill()
@@ -304,243 +288,158 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     }
 
     await Promise.all(
-      Array.from({ length: Math.min(jobs, argvList.length) }, worker),
+      Array.from({ length: Math.min(jobs, list.length) }, worker),
     )
     if (failure) throw failure
   }
 
   try {
-    // Phase 1: for each suite file, import it exactly once. That single pass
-    // discovers the registered tasks and each one's effective isolate
-    // (task/group override, else the suite-wide default), writes that plan
-    // out, and - in the same process, off the same import - runs every
-    // non-isolated task right there. Isolated tasks are skipped here and
-    // left to phase 2's dedicated subprocesses, so a suite file's
-    // module-scope setup never runs twice just to learn what's isolated
-    // before running anything.
-    const planPaths = resolvedSuites.map(
-      (suite) => `${tmpDir}/${fp("bench-plan", suite)}.json`,
+    // Phase 1: import each suite once. The same process records the plan
+    // (each task's effective isolate/peakMem) and runs the non-isolated
+    // tasks, so module-scope setup never runs twice just to learn the plan.
+    const primaries = suites.map((_, i) => ({
+      planPath: outPath("bench-plan", i),
+      outPath: outPath("bench-primary", i),
+    }))
+    await runPool(
+      primaries.map((p, i) => ({
+        suiteIndex: i,
+        outPath: p.outPath,
+        runnerOpts: {
+          ...measureOpts,
+          filter: opts.filter,
+          isolate: opts.isolate,
+          preload,
+          planPath: p.planPath,
+        },
+      })),
     )
-    const primaryPaths = resolvedSuites.map(
-      (suite) => `${tmpDir}/${fp("bench-primary", suite)}.json`,
-    )
-    const primaryArgv = resolvedSuites.map((suite, i) => [
-      "bun",
-      ...bunFlags,
-      RUNNER_PATH,
-      suite,
-      primaryPaths[i]!,
-      JSON.stringify({
-        ...taskOpts,
-        filter: opts.filter,
-        isolate: opts.isolate,
-        preload: resolvedPreloads,
-        planPath: planPaths[i],
-      } satisfies RunnerOpts),
-    ])
-    await spawnPooled(primaryArgv, (i) => opts.suites[i]!)
 
-    // A suite's subprocess writes its plan/primary files once, at the very
-    // end of its run: if cancellation killed it mid-run, neither file
-    // exists, and that suite contributes nothing to the document rather
-    // than a partial/corrupt read.
+    // A suite killed mid-run wrote neither file and contributes nothing.
     const plans: PlannedTask[][] = await Promise.all(
-      planPaths.map(async (p) => {
-        if (!(await Bun.file(p).exists())) return []
-        const { tasks } = (await Bun.file(p).json()) as {
-          tasks: PlannedTask[]
-        }
-        return tasks
+      primaries.map(async (p) =>
+        (await Bun.file(p.planPath).exists())
+          ? ((await Bun.file(p.planPath).json()) as { tasks: PlannedTask[] })
+              .tasks
+          : [],
+      ),
+    )
+    const primaryDocs = await Promise.all(
+      primaries.map((p) => loadIfExists(p.outPath)),
+    )
+
+    // Phase 2: each isolated task in its own subprocess.
+    const isolated = plans.flatMap((tasks, suiteIndex) =>
+      tasks
+        .filter((task) => task.isolate)
+        .map((task) => ({ task, suiteIndex })),
+    )
+    const isolatedPaths = isolated.map((item, i) =>
+      outPath("bench-item", item.suiteIndex, i),
+    )
+    await runPool(
+      isolated.map((item, i) => ({
+        suiteIndex: item.suiteIndex,
+        outPath: isolatedPaths[i]!,
+        runnerOpts: {
+          ...measureOpts,
+          workloadIds: [item.task.workloadId],
+          preload,
+          markIsolated: true,
+        },
+      })),
+    )
+    const isolatedDocs = new Map<PlannedTask, ProfileDocument>()
+    await Promise.all(
+      isolated.map(async (item, i) => {
+        const doc = await loadIfExists(isolatedPaths[i]!)
+        if (doc) isolatedDocs.set(item.task, doc)
       }),
-    )
-    const primaryDocs: (ProfileDocument | undefined)[] = await Promise.all(
-      primaryPaths.map(async (p) =>
-        (await Bun.file(p).exists()) ? loadDocument(p) : undefined,
-      ),
-    )
-
-    // Phase 2: each isolated task gets its own dedicated subprocess, pooled
-    // the same way phase 1 was.
-    const items: WorkItem[] = []
-    for (let s = 0; s < plans.length; s++) {
-      for (const t of plans[s]!) {
-        if (t.isolate) items.push({ suiteIndex: s, taskIds: [t.id] })
-      }
-    }
-
-    const itemPaths = items.map(
-      (item, i) =>
-        `${tmpDir}/${fp("bench-item", resolvedSuites[item.suiteIndex]!, i)}.json`,
-    )
-    const itemArgv = items.map((item, i) => [
-      "bun",
-      ...bunFlags,
-      RUNNER_PATH,
-      resolvedSuites[item.suiteIndex]!,
-      itemPaths[i]!,
-      JSON.stringify({
-        ...taskOpts,
-        taskIds: item.taskIds,
-        preload: resolvedPreloads,
-        markIsolated: true,
-      } satisfies RunnerOpts),
-    ])
-    await spawnPooled(itemArgv, (i) => opts.suites[items[i]!.suiteIndex]!)
-
-    const itemDocs: (ProfileDocument | undefined)[] = await Promise.all(
-      itemPaths.map(async (p) =>
-        (await Bun.file(p).exists()) ? loadDocument(p) : undefined,
-      ),
     )
 
     // Phase 3: each `peakMem` task's first call, alone in a fresh process,
     // PEAK_MEM_PROCESSES times.
-    const peakItems: { suiteIndex: number; workloadId: string }[] = []
-    for (let s = 0; s < plans.length; s++) {
-      for (const t of plans[s]!) {
-        if (!t.peakMem) continue
-        for (let r = 0; r < PEAK_MEM_PROCESSES; r++) {
-          peakItems.push({ suiteIndex: s, workloadId: t.workloadId })
-        }
-      }
-    }
-    const peakPaths = peakItems.map(
-      (item, i) =>
-        `${tmpDir}/${fp("bench-peak", resolvedSuites[item.suiteIndex]!, i)}.json`,
+    const peakRuns = plans.flatMap((tasks, suiteIndex) =>
+      tasks
+        .filter((task) => task.peakMem)
+        .flatMap((task) =>
+          Array.from({ length: PEAK_MEM_PROCESSES }, () => ({
+            workloadId: task.workloadId,
+            suiteIndex,
+          })),
+        ),
     )
-    await spawnPooled(
-      peakItems.map((item, i) => [
-        "bun",
-        ...bunFlags,
-        RUNNER_PATH,
-        resolvedSuites[item.suiteIndex]!,
-        peakPaths[i]!,
-        JSON.stringify({
+    const peakPaths = peakRuns.map((run, i) =>
+      outPath("bench-peak", run.suiteIndex, i),
+    )
+    await runPool(
+      peakRuns.map((run, i) => ({
+        suiteIndex: run.suiteIndex,
+        outPath: peakPaths[i]!,
+        runnerOpts: {
           filter: opts.filter,
-          preload: resolvedPreloads,
-          peakMemFor: item.workloadId,
-        } satisfies RunnerOpts),
-      ]),
-      (i) => opts.suites[peakItems[i]!.suiteIndex]!,
-      // Lets a suite skip heavy module-scope work (validating every input by
-      // running it, say) that would peak before the measured call does.
+          preload,
+          peakMemFor: run.workloadId,
+        },
+      })),
+      // Lets a suite skip heavy module-scope work that would peak before the
+      // measured call does.
       { OSTIA_PEAK_MEM: "1" },
     )
     const peakReadings = new Map<string, PeakMemResult[]>()
-    for (let i = 0; i < peakItems.length; i++) {
+    for (let i = 0; i < peakRuns.length; i++) {
       const file = Bun.file(peakPaths[i]!)
       if (!(await file.exists())) continue
-      const id = peakItems[i]!.workloadId
+      const id = peakRuns[i]!.workloadId
       const readings = peakReadings.get(id) ?? []
       readings.push((await file.json()) as PeakMemResult)
       peakReadings.set(id, readings)
     }
-    const peakMeasurement = (workload: Workload): Measurement[] => {
-      const readings = peakReadings.get(workload.id)
-      if (!readings?.length) return []
-      const median = (values: number[]) =>
-        percentile(Float64Array.from(values).sort(), 0.5)
-      const peak = median(readings.map((r) => r.peakBytes))
-      const slack = Math.max(...readings.map((r) => r.slackBytes))
-      const understated = slack >= PEAK_SLACK_NOISE_BYTES && slack > peak / 4
-      const warnings: Warning[] = understated
-        ? [
-            {
-              code: "peak-hidden",
-              message: `Before the call, earlier work in the process had freed up to ${formatBytes(slack)} the allocator still held (module-scope setup or before hooks that allocate), which the call could reuse without RSS rising: this reading can be low by up to that much. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
-              data: { slackBytes: slack, processes: readings.length },
-            },
-          ]
-        : []
-      return [
-        makeInstrumentedMeasurement({
-          workload,
-          phase: "memstats",
-          configFingerprint: configFingerprint({ peakMem: true }),
-          diagnosticWallNs: median(readings.map((r) => r.wallNs)),
-          memory: {
-            origin: "resourceUsage",
-            kind: "peak",
-            peakBytes: peak,
-          },
-          warnings,
-          artifacts: [],
-        }),
-      ]
-    }
 
-    // Reassemble each suite's contribution in the plan's order (registration
-    // order, filtered) regardless of which item a task landed in, then
-    // concatenate suites in command-line order - the same ordering guarantee
-    // bench() has always made, now independent of isolate/spawn granularity.
-    // Measurements are looked up by workloadId, not position: a task.skip()'d
-    // task still gets a workload but no measurement, so the two arrays a
-    // runner produces aren't always the same length.
+    // Plan order (registration order, filtered) within a suite, suites in
+    // command-line order. Measurements are matched by workload id, not
+    // position: a task.skip()'d task has a workload but no measurement.
     const workloads: Workload[] = []
     const measurements: Measurement[] = []
-    for (let s = 0; s < plans.length; s++) {
-      // Cancelled before this suite's subprocess finished: nothing was
-      // written for it, so it's absent from the document entirely rather
-      // than represented with zero workloads.
+    plans.forEach((tasks, s) => {
+      // A cancelled suite wrote nothing and is absent, not empty.
       const sharedDoc = primaryDocs[s]
-      if (!sharedDoc) continue
-      const sharedMeasurementsByWorkloadId = new Map<string, Measurement[]>()
-      for (const m of sharedDoc.measurements) {
-        const list = sharedMeasurementsByWorkloadId.get(m.workloadId) ?? []
-        list.push(m)
-        sharedMeasurementsByWorkloadId.set(m.workloadId, list)
-      }
+      if (!sharedDoc) return
+      const sharedByWorkload = Map.groupBy(
+        sharedDoc.measurements,
+        (m) => m.workloadId,
+      )
       let sharedPtr = 0
-      const isolatedDocById = new Map<string, ProfileDocument>()
-      items.forEach((it, i) => {
-        const doc = itemDocs[i]
-        if (it.suiteIndex === s && doc) {
-          isolatedDocById.set(it.taskIds[0]!, doc)
-        }
-      })
-
-      for (const t of plans[s]!) {
-        if (t.isolate) {
-          // Cancelled before this isolated task's dedicated subprocess
-          // finished: drop just this task rather than the whole suite.
-          const doc = isolatedDocById.get(t.id)
+      for (const task of tasks) {
+        let workload: Workload
+        let own: Measurement[]
+        if (task.isolate) {
+          // Cancelled before its subprocess finished: drop just this task.
+          const doc = isolatedDocs.get(task)
           if (!doc) continue
-          const workload = doc.workloads[0]!
-          workloads.push(workload)
-          for (const m of doc.measurements) {
-            if (m.workloadId === workload.id) measurements.push(m)
-          }
-          measurements.push(...peakMeasurement(workload))
+          workload = doc.workloads[0]!
+          own = doc.measurements.filter((m) => m.workloadId === workload.id)
         } else {
-          const workload = sharedDoc.workloads[sharedPtr]!
-          workloads.push(workload)
-          sharedPtr++
-          for (const m of sharedMeasurementsByWorkloadId.get(workload.id) ??
-            []) {
-            measurements.push(m)
-          }
-          measurements.push(...peakMeasurement(workload))
+          workload = sharedDoc.workloads[sharedPtr++]!
+          own = sharedByWorkload.get(workload.id) ?? []
         }
+        workloads.push(workload)
+        measurements.push(
+          ...own,
+          ...peakMeasurement(workload, peakReadings.get(workload.id)),
+        )
       }
-    }
+    })
 
-    if (noiseWarning && measurements.length > 0) {
-      measurements[0]!.warnings = [...measurements[0]!.warnings, noiseWarning]
-    }
-    if (opts.signal?.aborted && measurements.length > 0) {
-      const last = measurements[measurements.length - 1]!
-      last.warnings = [
-        ...last.warnings,
-        {
-          code: "aborted",
-          message:
-            "Run was cancelled before it finished; this document holds whatever suites/tasks had already completed.",
-        },
-      ]
-    }
-
-    return newDocument(workloads, measurements, environment)
+    stampRunWarnings(
+      measurements,
+      noiseWarning,
+      opts.signal?.aborted
+        ? "Run was cancelled before it finished; this document holds whatever suites/tasks had already completed."
+        : undefined,
+    )
+    return createDocument(workloads, measurements, environment)
   } finally {
-    await Bun.spawn(["rm", "-rf", tmpDir]).exited
+    await removeDir(tmpDir)
   }
 }

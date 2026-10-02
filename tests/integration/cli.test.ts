@@ -1,9 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
 import { profile, time } from "../../src/index.ts"
 import {
+  createDocument,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
   saveDocument,
 } from "../../src/ir/document.ts"
 import { computeTimingStats } from "../../src/stats/index.ts"
@@ -39,7 +39,7 @@ describe("ostia report --format", () => {
       for (let i = 0; i < 500_000; i++) acc = (acc + i) % 1000000007
       return acc
     }
-    const { document } = await profile(hotLoop, { intervalUs: 100 })
+    const { document } = await profile(hotLoop, { cpuIntervalUs: 100 })
     await saveDocument(document, DOC_PATH)
   }, 10_000)
 
@@ -150,8 +150,6 @@ describe("ostia unknown flags and single-positional validation", () => {
       await Bun.write(
         join(cwd, "ostia.config.json"),
         JSON.stringify({
-          // `inputs: []` caches the run, so the promote step compares the
-          // baseline against itself instead of against fresh, noisy trials.
           workloads: [
             { label: "spawn", command: ["bun", "-e", "1"], inputs: [] },
           ],
@@ -162,7 +160,7 @@ describe("ostia unknown flags and single-positional validation", () => {
         { cwd },
       )
       expect(exitCode).toBe(2)
-      expect(stderr).toContain("Invalid baseline name")
+      expect(stderr).toContain(`Unknown flag "--verbose"`)
       const exists = await Bun.file(
         join(cwd, ".ostia/baselines/--verbose.json"),
       ).exists()
@@ -310,6 +308,25 @@ describe("ostia bench - task.skip/.only (item 10)", () => {
 
     await Bun.spawn(["rm", "-f", docPath]).exited
   }, 20_000)
+
+  test("the .only notice prints once per suite file even when tasks run in their own processes", async () => {
+    const { stderr, exitCode } = await runCli([
+      "bench",
+      `${import.meta.dir}/../fixtures/bench-suite-only.ts`,
+      "--isolate",
+      "--peak-mem",
+      "--budget",
+      "5",
+      "--min-samples",
+      "3",
+      "--no-noise-check",
+      "--quiet",
+      "--out-dir",
+      OUT_DIR,
+    ])
+    expect(exitCode).toBe(0)
+    expect(stderr.match(/selected by \.only/g)).toHaveLength(1)
+  }, 30_000)
 })
 
 describe("ostia baseline save | list | show (item 16)", () => {
@@ -326,8 +343,8 @@ describe("ostia baseline save | list | show (item 16)", () => {
           baseline: "main",
           samples: 3,
           warmup: 0,
-          // `inputs: []` caches the run, so the promote step compares the
-          // baseline against itself instead of against fresh, noisy trials.
+          // `--save-baseline` always measures fresh, so keep noise from failing the gate.
+          thresholds: { timingPct: 10_000 },
           workloads: [
             { label: "spawn", command: ["bun", "-e", "1"], inputs: [] },
           ],
@@ -376,7 +393,7 @@ describe("ostia error envelope on stderr (task 05.4)", () => {
     const lines = stderr.trim().split("\n")
     const errorLine = JSON.parse(lines[lines.length - 1]!)
     expect(errorLine.event).toBe("error")
-    expect(errorLine.protocolVersion).toBe(1)
+    expect(errorLine.protocolVersion).toBe(2)
     expect(errorLine.code).toBe("document-load-failed")
     expect(typeof errorLine.message).toBe("string")
   }, 10_000)
@@ -640,7 +657,7 @@ describe("ostia compare - config thresholds (task 04.3)", () => {
         (_, i) => 10_300_000 + (i % 5) * 1_000,
       )
       const workload = makeSubprocessWorkload(["bun", "-e", "1"])
-      const baseDoc = newDocument(
+      const baseDoc = createDocument(
         [workload],
         [
           makeTimingMeasurement({
@@ -652,7 +669,7 @@ describe("ostia compare - config thresholds (task 04.3)", () => {
           }),
         ],
       )
-      const candDoc = newDocument(
+      const candDoc = createDocument(
         [workload],
         [
           makeTimingMeasurement({

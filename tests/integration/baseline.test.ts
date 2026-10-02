@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { listBaselines, saveBaseline } from "../../src/baseline/index.ts"
+import { measureConfigWorkloads } from "../../src/ci/index.ts"
 import { DEFAULT_CONFIG, type OstiaConfig } from "../../src/config/index.ts"
 import { loadDocument } from "../../src/ir/document.ts"
 
@@ -35,6 +36,23 @@ describe("saveBaseline", () => {
 
     await Bun.spawn(["rm", "-rf", outDir]).exited
   }, 20_000)
+
+  test("always measures fresh, never reusing a cached ci run", async () => {
+    const outDir = `${OUT_DIR}-save-fresh`
+    const cfg = config({
+      outDir,
+      workloads: [{ label: "work", command: ["bun", FIXTURE], inputs: [] }],
+    })
+
+    await measureConfigWorkloads(cfg, false)
+    const cached = (await measureConfigWorkloads(cfg, false)).results[0]!
+    expect(cached.status).toBe("cached")
+
+    const doc = await loadDocument(await saveBaseline(cfg))
+    expect(doc.measurements[0]!.trials).not.toEqual(cached.run.trials)
+
+    await Bun.spawn(["rm", "-rf", outDir]).exited
+  }, 30_000)
 
   test("an explicit name writes to <baselineDir>/<name>.json instead of the config default", async () => {
     const outDir = `${OUT_DIR}-save-named`
@@ -98,7 +116,7 @@ describe("listBaselines", () => {
 
     await saveBaseline(cfg)
     const [info] = await listBaselines(cfg)
-    // This repo is a git checkout, so saveBaseline's newDocument() call
+    // This repo is a git checkout, so saveBaseline's createDocument() call
     // picks up real sha/branch/dirty via captureGitMetadata().
     expect(info!.git).toBeDefined()
     expect(typeof info!.git!.sha).toBe("string")

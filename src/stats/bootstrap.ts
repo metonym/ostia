@@ -1,8 +1,6 @@
 import { percentile } from "./index.ts"
 
-/** mulberry32: a small, fast, seeded PRNG. Deterministic across platforms
- * (32-bit integer arithmetic only), good enough for resampling; not
- * cryptographic. */
+/** Seeded PRNG, deterministic across platforms (32-bit integer math only). */
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0
   return () => {
@@ -24,24 +22,15 @@ export interface BootstrapOptions {
 export interface BootstrapResult {
   /** 95% CI on the difference of medians, percent of the baseline median. */
   ci95: [number, number]
-  /** Seed used for the PRNG, so the result is reproducible. */
   seed: number
   data: {
-    /** Whether either side was randomly subsampled to `MAX_SAMPLES_PER_SIDE`
-     * before bootstrapping, so a 10k-sample task doesn't take seconds. */
+    /** Either side was randomly cut to `MAX_SAMPLES_PER_SIDE` samples. */
     subsampled: boolean
     iterations: number
   }
 }
 
-function median(sorted: Float64Array): number {
-  const n = sorted.length
-  const mid = n >> 1
-  return n % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!
-}
-
-/** Random subsample without replacement (partial Fisher-Yates), capped at
- * `max`. Returns `samples` itself, unchanged, when already at or under `max`. */
+/** Partial Fisher-Yates; returns `samples` itself when already within `max`. */
 function subsample(
   samples: number[],
   rng: () => number,
@@ -58,14 +47,10 @@ function subsample(
   return pool.slice(0, max)
 }
 
-/** One side of the bootstrap: the sorted sample plus a reusable histogram of
- * how many times each sorted index was drawn in the current round. */
 class Side {
   readonly sorted: Float64Array
-  /** Sorted position of each original sample, so a draw of original index
-   * `i` (what a literal `samples[floor(rng() * n)]` resample would pick)
-   * lands on the same value: results for a given seed match a naive
-   * resample bit for bit. */
+  /** Sorted position of each original sample, so results for a given seed
+   * match a naive `samples[floor(rng() * n)]` resample bit for bit. */
   readonly rankOf: Uint32Array
   readonly counts: Uint32Array
   readonly n: number
@@ -84,17 +69,13 @@ class Side {
     this.counts = new Uint32Array(n)
   }
 
-  /** Median of a with-replacement resample. Drawing index `k` of the sorted
-   * array is the same as drawing `sorted[k]`, so the resample's median is the
-   * value at the median of the drawn indices - found with one O(n) walk over
-   * an index histogram instead of sorting `n` values per round. Consumes
-   * exactly `n` rng values, one per draw, like a literal resample would. */
+  /** Median of a with-replacement resample, found with one O(n) walk over an
+   * index histogram instead of sorting `n` values per round. */
   resampleMedian(rng: () => number): number {
     const { n, counts, sorted, rankOf } = this
     counts.fill(0)
     for (let i = 0; i < n; i++) counts[rankOf[Math.floor(rng() * n)]!]!++
-    // 1-based order statistics of the drawn indices: for odd n the middle
-    // one; for even n the mean of the two middle ones.
+    // 1-based middle order statistic(s) of the draws.
     const loRank = (n + 1) >> 1
     const hiRank = n % 2 === 0 ? loRank + 1 : loRank
     let seen = 0
@@ -110,10 +91,7 @@ class Side {
   }
 }
 
-/** Default seed: a hash of both sample arrays, so the same two documents
- * always get the same CI (and so the same verdict) - a clock-based seed let a
- * borderline comparison flip between runs of `ostia compare` on identical
- * input. */
+/** Hash of both arrays, so identical input always gets the same CI and verdict. */
 function seedFromSamples(base: number[], cand: number[]): number {
   const all = new Float64Array(base.length + cand.length + 1)
   all.set(base)
@@ -122,18 +100,17 @@ function seedFromSamples(base: number[], cand: number[]): number {
   return Bun.hash.crc32(all)
 }
 
-/** Bootstrap 95% CI on the difference of medians between `base` and `cand`,
- * reported in percent of `base`'s (observed, unresampled) median. Each of
- * `iterations` rounds resamples both sides with replacement and takes the
- * difference of the two resample medians. Caps work at
- * `MAX_SAMPLES_PER_SIDE` samples per side (randomly subsampled) so a
- * many-thousand-sample task doesn't turn a compare into a multi-second
- * operation. */
+/** Bootstrap 95% CI on the difference of medians, in percent of `base`'s
+ * observed median. Each side is capped at `MAX_SAMPLES_PER_SIDE` samples so a
+ * many-thousand-sample task doesn't take seconds. Throws when a side is empty. */
 export function bootstrapMedianDiffCi(
   base: number[],
   cand: number[],
   opts: BootstrapOptions = {},
 ): BootstrapResult {
+  if (base.length === 0 || cand.length === 0) {
+    throw new RangeError("bootstrapMedianDiffCi: both sides need samples")
+  }
   const seed = opts.seed ?? seedFromSamples(base, cand)
   const rng = mulberry32(seed)
   const iterations = opts.iterations ?? DEFAULT_ITERATIONS
@@ -142,18 +119,19 @@ export function bootstrapMedianDiffCi(
     base.length > MAX_SAMPLES_PER_SIDE || cand.length > MAX_SAMPLES_PER_SIDE
   const baseSide = new Side(subsample(base, rng, MAX_SAMPLES_PER_SIDE))
   const candSide = new Side(subsample(cand, rng, MAX_SAMPLES_PER_SIDE))
-  const baseMedian = median(baseSide.sorted)
+  const baseMedian = percentile(baseSide.sorted, 0.5)
 
   const deltas = new Float64Array(iterations)
   for (let i = 0; i < iterations; i++) {
     const b = baseSide.resampleMedian(rng)
     const c = candSide.resampleMedian(rng)
+    const diff = c - b
     deltas[i] =
       baseMedian === 0
-        ? c - b === 0
+        ? diff === 0
           ? 0
-          : Infinity
-        : ((c - b) / baseMedian) * 100
+          : diff * Infinity
+        : (diff / baseMedian) * 100
   }
   deltas.sort()
 

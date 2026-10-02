@@ -1,32 +1,32 @@
 import { DEFAULT_THRESHOLDS, type Thresholds } from "../compare/index.ts"
+import { errorMessage } from "../errors.ts"
 import type { PrepareHook, TimeSource } from "../spawn/index.ts"
+import { ConfigError, validateConfig } from "./validate.ts"
+
+export { ConfigError }
 
 /** Exactly one of `command` (a subprocess to time) / `suites` (in-process
- * `group()`/`task()` suite file globs, run via `bench()`) must be given. A
- * `suites` entry gates every task in those files individually - one
- * candidate-vs-baseline comparison per task, matched by workload id the same
- * way `command` workloads already are. */
+ * `group()`/`task()` suite file globs, run via `bench()`, each task gated
+ * individually) must be given. */
 export interface WorkloadConfig {
   label?: string
   command?: string[]
   suites?: string[]
-  /** `command` only. Globs of the files this command's timing depends on:
-   * `ostia ci` reuses a cached run while their contents are unchanged.
-   * Omitted, the workload always reruns; `[]` declares it depends on
-   * nothing and caches until the command or config changes. */
+  /** `command` only. Globs of the files the timing depends on: `ostia ci`
+   * reuses a cached run while their contents are unchanged. Omitted, the
+   * workload always reruns; `[]` caches until the command or config changes. */
   inputs?: string[]
   /** `command` only. Runs before every trial (warmup included), unmeasured:
-   * a command string / argv array in both `.ts` and JSON config, or a
-   * function in `ostia.config.ts`. A function-form hook makes the workload
-   * uncacheable for `ostia ci` (its effect can't be fingerprinted), so it
-   * always executes. */
+   * a command string / argv array, or in `ostia.config.ts` a function. A
+   * function makes the workload uncacheable for `ostia ci`. */
   prepare?: PrepareHook
   /** `command` only. Take timing from a number in the command's own output
    * instead of its wall clock; see `TimeSource`. */
   timeSource?: TimeSource
-  /** `command` only. Kills a trial (or prepare hook) that hasn't finished
-   * after this many ms. Overrides `ostia ci`'s 10-minute default per
-   * workload. */
+  /** `command`: kills a trial (or prepare hook) after this many ms.
+   * `suites`: kills a suite file's (or isolated task's) process after this
+   * many ms, overriding `bench.timeoutMs`. Overrides `ostia ci`'s 10-minute
+   * default. */
   timeoutMs?: number
   /** `command` only. Exit codes to treat as success; see
    * `TimeOptions.ignoreExitCodes`. */
@@ -34,10 +34,9 @@ export interface WorkloadConfig {
 }
 
 export interface BenchConfig {
-  /** Suite file globs, resolved with Bun.Glob against the config's directory
-   * (e.g. "bench/**\/*.bench.ts"). Ignored when suite files are also given
-   * on the command line - CLI args replace this list rather than merging
-   * with it. */
+  /** Suite file globs, resolved against the config's directory (e.g.
+   * "bench/**\/*.bench.ts"). Suite files given on the command line replace
+   * this list. */
   suites?: string[]
   preload?: string[]
   /** Extra flags for the `bun` process that runs each suite file; see
@@ -55,18 +54,17 @@ export interface BenchConfig {
   filter?: string
   isolate?: boolean
   outDir?: string
-  /** Kills a suite file's (or isolated task's) subprocess if it hasn't
-   * finished after this many ms. Overrides `ostia ci`'s 10-minute default. */
+  /** Kills a suite file's (or isolated task's) subprocess after this many
+   * ms; overrides `ostia ci`'s 10-minute default. */
   timeoutMs?: number
 }
 
 export interface OstiaConfig {
-  /** `command` workloads: exact trial count, same as `time()`'s `samples`.
-   * Unset, the `budgetMs`/`minSamples` loop decides. */
+  /** `command` workloads: exact trial count; see `time()`. */
   samples?: number
-  /** `command` workloads: wall-clock sampling budget, ms; see `time()`. */
+  /** `command` workloads: sampling budget in ms; see `time()`. */
   budgetMs?: number
-  /** `command` workloads: hard floor on trials; see `time()`. */
+  /** `command` workloads: floor on trials; see `time()`. */
   minSamples?: number
   warmup: number
   outDir: string
@@ -75,38 +73,26 @@ export interface OstiaConfig {
   thresholds: Thresholds
   workloads: WorkloadConfig[]
   bench?: BenchConfig
-  /** `ostia ci`'s policy when a configured workload has no matching row in
-   * the baseline (by workload id): `"fail"` exits 2 naming the baseline
-   * file, `"warn"` lists it in the report without affecting the exit code.
-   * Unset (the default): `"fail"` when *every* configured workload is
-   * missing, `"warn"` otherwise - a totally stale/wrong baseline is a hard
-   * error, a handful of new workloads next to an otherwise-matching
-   * baseline is not. */
+  /** `ostia ci`'s policy for a workload with no matching baseline row (by
+   * workload id): `"fail"` exits 2 naming the baseline file, `"warn"` lists
+   * it in the report. Unset: `"fail"` when every workload is missing (a
+   * stale or wrong baseline), `"warn"` otherwise. */
   onMissingBaseline?: "warn" | "fail"
-  /** Measures this machine's noise floor once per `ostia ci` invocation
-   * (default true) and stamps it on the candidate document as
-   * `environment`, the same reference measurement `time()`/`bench()` run -
-   * so `compare`'s noise-floor threshold widening applies to `ci` too, not
-   * only to ad hoc `time`/`bench` runs. `--no-noise-check` overrides this
-   * to false per invocation. */
+  /** Measure the machine's noise floor once per `ostia ci` run (default
+   * true) and stamp it on the candidate document, so `compare` widens its
+   * thresholds accordingly. `--no-noise-check` overrides this per run. */
   noiseCheck?: boolean
 }
 
-// `Partial<OstiaConfig>` alone doesn't help here: Partial is shallow, so a
-// user-supplied `thresholds` would still need every Thresholds field even
-// though resolveConfig merges it against DEFAULT_THRESHOLDS field-by-field.
+// Partial is shallow, so `thresholds` needs its own Partial to merge field-by-field.
 export type OstiaConfigInput = Omit<Partial<OstiaConfig>, "thresholds"> & {
   thresholds?: Partial<Thresholds>
 }
 
-// Scratch/artifact output: node_modules is already gitignored everywhere,
-// so consumers get that for free (matches node_modules/.cache/<tool> as
-// used by Babel, ESLint, Jest, etc).
+// node_modules/.cache is gitignored everywhere already.
 export const DEFAULT_OUT_DIR = "node_modules/.cache/ostia"
 
-// Baselines are the one output that must survive node_modules churn (bun
-// install, CI job boundaries, branch switches) - they stay at the repo
-// root by default, independent of outDir.
+// Baselines must survive node_modules churn, so they live outside outDir.
 const DEFAULT_BASELINE_DIR = ".ostia/baselines"
 
 export const DEFAULT_CONFIG: OstiaConfig = {
@@ -118,82 +104,94 @@ export const DEFAULT_CONFIG: OstiaConfig = {
   workloads: [],
 }
 
-/** A config file that exists but can't be used: unparseable, or using a
- * field that no longer exists. The CLI reports it as `config-invalid`. */
-export class ConfigError extends Error {}
-
-// Fields that were renamed, so an old config fails loudly instead of having
-// the setting silently ignored.
+// Renamed fields fail loudly instead of being silently ignored.
 const RENAMED_FIELDS: Record<string, string> = { runs: "samples" }
 
-function resolveConfig(raw: OstiaConfigInput, path: string): OstiaConfig {
+/** In discovery order: `.ts` wins over JSON. */
+export const CONFIG_FILES = ["ostia.config.ts", "ostia.config.json"]
+
+const warnConfig = (message: string) => console.warn(`ostia: ${message}`)
+
+/** An explicit `undefined` (`warmup: undefined`) means "unset", not "overwrite the default". */
+function withoutUndefined<T extends object>(obj: T): T {
+  return Object.fromEntries(
+    Object.entries(obj).filter(([, v]) => v !== undefined),
+  ) as T
+}
+
+function resolveConfig(raw: unknown, path: string): OstiaConfig {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    throw new ConfigError(`${path}: expected an object.`)
+  }
   for (const [old, current] of Object.entries(RENAMED_FIELDS)) {
     if (old in raw) {
       throw new ConfigError(`${path}: "${old}" was renamed to "${current}".`)
     }
   }
+  validateConfig(raw as Record<string, unknown>, path, warnConfig)
+  const input = withoutUndefined(raw as OstiaConfigInput)
   return {
     ...DEFAULT_CONFIG,
-    ...raw,
-    thresholds: { ...DEFAULT_THRESHOLDS, ...(raw.thresholds ?? {}) },
+    ...input,
+    thresholds: {
+      ...DEFAULT_THRESHOLDS,
+      ...(input.thresholds && withoutUndefined(input.thresholds)),
+    },
   }
 }
 
-async function loadJsonConfig(path: string): Promise<OstiaConfig | undefined> {
-  const file = Bun.file(path)
-  if (!(await file.exists())) return undefined
-  let raw: OstiaConfigInput
-  try {
-    raw = (await file.json()) as OstiaConfigInput
-  } catch (err) {
-    throw new ConfigError(
-      `${path}: ${err instanceof Error ? err.message : String(err)}`,
-    )
-  }
-  return resolveConfig(raw, path)
-}
-
-async function loadTsConfig(path: string): Promise<OstiaConfig | undefined> {
+async function readConfigFile(path: string): Promise<unknown> {
   const absPath = path.startsWith("/") ? path : `${process.cwd()}/${path}`
-  if (!(await Bun.file(absPath).exists())) return undefined
-  let mod: { default?: OstiaConfigInput }
+  const file = Bun.file(absPath)
+  if (!(await file.exists())) return undefined
   try {
-    mod = await import(absPath)
+    if (!path.endsWith(".ts")) return await file.json()
+    const exported = (await import(absPath)).default
+    if (exported === undefined) {
+      throw new Error(
+        `no default export; use "export default defineConfig({ ... })"`,
+      )
+    }
+    return exported
   } catch (err) {
-    throw new ConfigError(
-      `${path}: ${err instanceof Error ? err.message : String(err)}`,
-    )
+    throw new ConfigError(`${path}: ${errorMessage(err)}`)
   }
-  return resolveConfig(mod.default ?? {}, path)
 }
 
-/** With no `path`, looks for `ostia.config.ts` (Bun imports TypeScript
- * natively - the default export is the config, typically built with
- * `defineConfig`), then `ostia.config.json`, in the current directory. An
- * explicit `path` loads exactly that file instead, as `.ts` or JSON going by
- * its extension. */
+async function existingConfigFiles(): Promise<string[]> {
+  const found: string[] = []
+  for (const file of CONFIG_FILES) {
+    if (await Bun.file(file).exists()) found.push(file)
+  }
+  return found
+}
+
+/** Loads `path` (`.ts` or JSON by extension), or with no `path` the file
+ * `configFilePath()` finds. `undefined` when there is no such file. Throws
+ * `ConfigError` for a file that exists but is unusable, naming the bad key. */
 export async function loadConfig(
   path?: string,
 ): Promise<OstiaConfig | undefined> {
-  if (path !== undefined) {
-    return path.endsWith(".ts") ? loadTsConfig(path) : loadJsonConfig(path)
+  let file = path
+  if (file === undefined) {
+    const found = await existingConfigFiles()
+    if (found.length > 1) {
+      warnConfig(
+        `${found.join(" and ")} both exist; using ${found[0]} and ignoring the rest.`,
+      )
+    }
+    file = found[0]
   }
-  return (
-    (await loadTsConfig("ostia.config.ts")) ??
-    loadJsonConfig("ostia.config.json")
-  )
+  if (file === undefined) return undefined
+  const raw = await readConfigFile(file)
+  return raw === undefined ? undefined : resolveConfig(raw, file)
 }
 
 export function baselinePath(config: OstiaConfig, name?: string): string {
   return `${config.baselineDir}/${name ?? config.baseline}.json`
 }
 
-/** Which file `loadConfig()`'s no-arg discovery would read: `ostia.config.ts`
- * if present, else `ostia.config.json` if present, else undefined - for
- * messaging (e.g. naming the actual file a "no workloads configured" error
- * is about), not for loading. */
+/** The config file discovery would load from the current directory, `.ts` before JSON. */
 export async function configFilePath(): Promise<string | undefined> {
-  if (await Bun.file("ostia.config.ts").exists()) return "ostia.config.ts"
-  if (await Bun.file("ostia.config.json").exists()) return "ostia.config.json"
-  return undefined
+  return (await existingConfigFiles())[0]
 }

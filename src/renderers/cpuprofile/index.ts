@@ -8,14 +8,14 @@ export const cpuprofileRenderer: Renderer<VizOptions> = {
     doc: ProfileDocument,
     options: VizOptions = {},
   ): Promise<RenderResult> {
-    const runs = selectCpuRuns(doc, options.measurementId)
-    const files: { path?: string; content: string }[] = []
+    const files: NonNullable<RenderResult["files"]> = []
     const skipped: string[] = []
 
-    for (const run of runs) {
-      if (run.cpu?.origin !== "cpu-prof" && run.cpu?.origin !== "inspector") {
+    for (const run of selectCpuRuns(doc, options.measurementId)) {
+      const { origin } = run.cpu
+      if (origin !== "cpu-prof" && origin !== "inspector") {
         skipped.push(
-          `${run.id} (origin ${run.cpu?.origin ?? "unknown"} has no .cpuprofile artifact to pass through)`,
+          `${run.id} (origin ${origin} has no .cpuprofile artifact to pass through)`,
         )
         continue
       }

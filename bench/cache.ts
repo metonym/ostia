@@ -17,7 +17,7 @@ group("cache", () => {
     }),
   )
 
-  task("computeInputsDigest (src/**/*.ts, real files on disk)", () =>
-    computeInputsDigest(["src/**/*.ts"]),
+  task("computeInputsDigest (examples/**/*.ts, real files on disk)", () =>
+    computeInputsDigest(["examples/**/*.ts"]),
   )
 })

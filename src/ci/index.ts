@@ -1,39 +1,47 @@
-import { bench, expandSuiteGlobs, resolveBenchOptions } from "../bench/index.ts"
+import { bench, resolveBenchOptions } from "../bench/index.ts"
+import { captureRunEnvironment } from "../bench/support.ts"
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts"
 import { readCachedRun, writeCachedRun } from "../cache/store.ts"
 import { createComparer, summarizeComparisons } from "../compare/index.ts"
-import { baselinePath, type OstiaConfig } from "../config/index.ts"
+import {
+  baselinePath,
+  type OstiaConfig,
+  type WorkloadConfig,
+} from "../config/index.ts"
+import { OstiaUsageError } from "../errors.ts"
+import { scanGlobs } from "../glob.ts"
 import {
   configFingerprint,
+  createDocument,
   loadDocument,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
 } from "../ir/document.ts"
 import type {
   Comparison,
   Environment,
   Measurement,
   ProfileDocument,
+  Warning,
   Workload,
 } from "../ir/types.ts"
-import {
-  captureEnvironment,
-  noisyMachineWarning,
-} from "../measure/environment.ts"
 import { isHarnessFailure, runTimingPhase } from "../measure/timing.ts"
-import { workloadLabel } from "../renderers/format.ts"
+import { formatSignedPct, workloadLabel } from "../renderers/format.ts"
+import { abortedWarning } from "../time.ts"
 import { TOOL_VERSION } from "../version.ts"
 
 export interface CiOptions {
   config: OstiaConfig
   full: boolean
   baselineName?: string
+  /** Abort kills in-flight trials and suite processes and stops scheduling
+   * workloads. `runCi` then resolves with `aborted: true`: the document holds
+   * what completed, nothing is compared, and no run is written to the cache. */
+  signal?: AbortSignal
 }
 
-/** `ostia ci` (and `ostia baseline save`, which shares this code path) time
- * out a hung workload rather than block a CI job indefinitely; a per-workload
- * `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` overrides this. */
+/** Hung workloads time out rather than block a CI job; `WorkloadConfig.timeoutMs`
+ * / `BenchConfig.timeoutMs` override this. */
 const DEFAULT_CI_TIMEOUT_MS = 600_000
 
 type WorkloadStatus = "cached" | "executed"
@@ -42,10 +50,8 @@ interface MeasuredWorkload {
   workload: Workload
   status: WorkloadStatus
   run: Measurement
-  /** `command` workloads only: see `isHarnessFailure` - the same rule
-   * `ostia time` exits 2 on. Not a regression, so `ci` reports and gates on
-   * it separately from a timing verdict. Always `false` for `suites`
-   * workloads: there's no subprocess exit code at this granularity. */
+  /** `command` workloads only (see `isHarnessFailure`): not a regression, so
+   * gated separately from a timing verdict. Always `false` for `suites`. */
   harnessFailed: boolean
 }
 
@@ -60,19 +66,18 @@ export interface CiSummary {
   passed: number
   regressed: number
   missingBaseline: number
-  /** Count of `results` with `harnessFailed: true`. Always gates the exit
-   * code to 2, regardless of `regressed`. */
+  /** Count of `results` with `harnessFailed: true`; always gates the exit to 2. */
   failed: number
   results: CiWorkloadResult[]
-  /** Workload present on only one side of the baseline/candidate pair - a
-   * baseline row with no configured workload behind it anymore, or a
-   * configured workload with no matching baseline row (the same condition
-   * `missingBaseline` counts, exposed here as full `Workload`s instead of a
-   * count so a renderer can name them). */
+  /** Workloads on only one side: `candOnly` is what `missingBaseline` counts,
+   * as full `Workload`s so a renderer can name them. */
   unmatched: { baseOnly: Workload[]; candOnly: Workload[] }
 }
 
-export class BaselineNotFoundError extends Error {
+/** Base of the two baseline errors, so the CLI reports either as `baseline-missing`. */
+export class BaselineError extends OstiaUsageError {}
+
+export class BaselineNotFoundError extends BaselineError {
   constructor(public readonly path: string) {
     super(
       `No baseline document at ${path}. Create one with: ostia baseline save ${path
@@ -83,11 +88,9 @@ export class BaselineNotFoundError extends Error {
   }
 }
 
-/** Thrown by `runCi` when `onMissingBaseline` (explicit or the "fail when
- * every workload is missing" default) decides a mismatch between the
- * configured workloads and the baseline file's rows is a hard error rather
- * than something to list and continue past. */
-export class MissingBaselineError extends Error {
+/** Thrown by `runCi` when the `onMissingBaseline` policy makes unmatched
+ * workloads a hard error. */
+export class MissingBaselineError extends BaselineError {
   constructor(
     public readonly path: string,
     public readonly missing: number,
@@ -99,225 +102,231 @@ export class MissingBaselineError extends Error {
   }
 }
 
-/** Resolves `config.onMissingBaseline` (or a CLI override) to an effective
- * policy: an explicit `"warn"`/`"fail"` always wins; left unset, `"fail"`
- * only when *every* configured workload is missing from the baseline (a
- * stale/wrong baseline file), `"warn"` when just some are (e.g. a workload
- * added since the baseline was last saved). */
-function effectiveMissingBaselinePolicy(
-  configured: "warn" | "fail" | undefined,
-  missingBaseline: number,
-  total: number,
-): "warn" | "fail" {
-  if (configured) return configured
-  return missingBaseline === total ? "fail" : "warn"
-}
-
 export interface MeasureConfigWorkloadsResult {
   results: MeasuredWorkload[]
-  /** Machine conditions from one ~200ms reference measurement taken before
-   * any configured workload runs (default true; `config.noiseCheck: false`
-   * skips it) - the same measurement `time()`/`bench()` take, so `compare`'s
-   * noise-floor threshold widening applies to `ci`-produced documents too. */
+  /** One reference measurement taken before any workload runs, unless
+   * `config.noiseCheck` is false. */
   environment?: Environment
+  /** The signal fired: `results` holds only what completed. */
+  aborted: boolean
 }
 
-/** Runs every configured workload for real (or from cache, for `command`
- * workloads whose fingerprint/inputs are unchanged), with no comparison
- * against any baseline. Shared by `runCi` and `ostia baseline save`, so a
- * saved baseline always reflects the same measurement code path `ci` gates
- * against. */
+async function measureSuiteWorkloads(
+  config: OstiaConfig,
+  wc: WorkloadConfig,
+  noiseWarning: Warning | undefined,
+  signal: AbortSignal | undefined,
+): Promise<MeasuredWorkload[]> {
+  // Always executes: a suite file's task ids (so its cache keys) are unknown
+  // without importing it.
+  const suiteFiles = await scanGlobs(wc.suites!, process.cwd())
+  if (suiteFiles.length === 0) {
+    // Gating zero tasks would pass silently.
+    throw new OstiaUsageError(
+      `Workload suites ${JSON.stringify(wc.suites)} matched no files.`,
+    )
+  }
+  // Same CLI-over-config resolution as `ostia bench`; only the defaults differ.
+  const benchOpts = await resolveBenchOptions(
+    { suites: suiteFiles, preload: [], bunFlags: [], noiseCheck: false },
+    config.bench,
+  )
+  const doc = await bench({
+    ...benchOpts,
+    outDir: benchOpts.outDir ?? config.outDir,
+    // The workload's own limit, then `bench.timeoutMs`, as for a command.
+    timeoutMs: wc.timeoutMs ?? benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
+    signal,
+  })
+  const results: MeasuredWorkload[] = []
+  for (const workload of doc.workloads) {
+    const run = doc.measurements.find(
+      (m) => m.workloadId === workload.id && m.phase === "timing",
+    )
+    // A task.skip()'d task has no timing measurement: nothing to gate.
+    if (!run) continue
+    if (noiseWarning) run.warnings.push(noiseWarning)
+    results.push({ workload, status: "executed", run, harnessFailed: false })
+  }
+  return results
+}
+
+async function measureCommandWorkload(
+  config: OstiaConfig,
+  wc: WorkloadConfig,
+  full: boolean,
+  noiseWarning: Warning | undefined,
+  signal: AbortSignal | undefined,
+): Promise<MeasuredWorkload> {
+  const workload = makeSubprocessWorkload(wc.command!, wc.label, {
+    prepare: wc.prepare,
+    timeSource: wc.timeSource,
+  })
+  const cfgFp = configFingerprint({
+    samples: config.samples ?? null,
+    budgetMs: config.budgetMs ?? null,
+    minSamples: config.minSamples ?? null,
+    warmup: config.warmup,
+  })
+  // Only declared `inputs` say what a cached run depends on (`inputs: []`
+  // means "nothing"). A function-form prepare can read anything, so it never
+  // comes from cache either.
+  const cacheable = wc.inputs !== undefined && typeof wc.prepare !== "function"
+  const cacheKey = computeCacheKey({
+    workloadId: workload.id,
+    phase: "timing",
+    configFingerprint: cfgFp,
+    bunVersion: Bun.version,
+    toolVersion: TOOL_VERSION,
+    instrumented: false,
+    inputsDigest: await computeInputsDigest(wc.inputs ?? []),
+  })
+
+  const cachedRun =
+    full || !cacheable
+      ? undefined
+      : await readCachedRun(config.outDir, cacheKey)
+  let run: Measurement
+  if (cachedRun) {
+    run = cachedRun
+  } else {
+    const phaseResult = await runTimingPhase({
+      argv: wc.command!,
+      samples: config.samples,
+      budgetMs: config.budgetMs,
+      minSamples: config.minSamples,
+      warmup: config.warmup,
+      prepare: wc.prepare,
+      timeSource: wc.timeSource,
+      timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
+      ignoreExitCodes: wc.ignoreExitCodes,
+      signal,
+    })
+    run = makeTimingMeasurement({
+      workload,
+      configFingerprint: cfgFp,
+      trials: phaseResult.trials,
+      timing: phaseResult.timing,
+      warnings: noiseWarning
+        ? [...phaseResult.warnings, noiseWarning]
+        : phaseResult.warnings,
+    })
+    // A cancelled run holds partial trials, which must never be served later.
+    if (cacheable && !signal?.aborted) {
+      await writeCachedRun(config.outDir, cacheKey, run)
+    }
+  }
+
+  return {
+    workload,
+    status: cachedRun ? "cached" : "executed",
+    run,
+    harnessFailed: isHarnessFailure(run, wc.ignoreExitCodes),
+  }
+}
+
+/** Runs every configured workload (or reads it from cache) with no baseline
+ * comparison. Shared by `runCi` and `ostia baseline save`, so a saved
+ * baseline comes from the same code path `ci` gates against. */
 export async function measureConfigWorkloads(
   config: OstiaConfig,
   full: boolean,
+  signal?: AbortSignal,
 ): Promise<MeasureConfigWorkloadsResult> {
-  const environment =
-    config.noiseCheck === false ? undefined : captureEnvironment()
-  // Same `noisy-machine` stamp `time()`/`bench()` put on their measurements:
-  // attached to every measurement taken now, never to a cached one (that
-  // was measured under whatever load its own run saw).
-  const noiseWarning = environment
-    ? noisyMachineWarning(environment)
-    : undefined
+  // Stamped on every measurement taken now, never on a cached one.
+  const { environment, noiseWarning } = captureRunEnvironment(config.noiseCheck)
   const results: MeasuredWorkload[] = []
-
   for (const wc of config.workloads) {
+    if (signal?.aborted) break
     if (wc.suites) {
-      // In-process suites gate at task granularity: every task in the
-      // matched files gets compared individually, the same way a `command`
-      // workload does. There's no cheap way to know a suite file's task ids
-      // (and so its per-task cache keys) without importing it, so unlike
-      // `command` workloads, a `suites` entry always executes - caching
-      // here is future work, not a regression from what `command` already does.
-      const suiteFiles = await expandSuiteGlobs(wc.suites, process.cwd())
-      // The same CLI-over-config resolution `ostia bench` uses, so a
-      // `bench` section means the same thing under `ci` (`jobs: "auto"`,
-      // `bunFlags`, ...) - only the defaults ci needs differ.
-      const benchOpts = await resolveBenchOptions(
-        { suites: suiteFiles, preload: [], bunFlags: [], noiseCheck: false },
-        config.bench,
+      results.push(
+        ...(await measureSuiteWorkloads(config, wc, noiseWarning, signal)),
       )
-      const doc = await bench({
-        ...benchOpts,
-        outDir: benchOpts.outDir ?? config.outDir,
-        timeoutMs: benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
-      })
-      for (const workload of doc.workloads) {
-        const run = doc.measurements.find(
-          (m) => m.workloadId === workload.id && m.phase === "timing",
-        )
-        // A task.skip()'d task has a workload but no timing measurement:
-        // nothing to gate, so it contributes nothing here.
-        if (!run) continue
-        if (noiseWarning) run.warnings.push(noiseWarning)
-        results.push({
-          workload,
-          status: "executed",
-          run,
-          harnessFailed: false,
-        })
-      }
-      continue
-    }
-
-    const workload = makeSubprocessWorkload(wc.command!, wc.label, {
-      prepare: wc.prepare,
-      timeSource: wc.timeSource,
-    })
-    const inputsDigest = await computeInputsDigest(wc.inputs ?? [])
-    const cfgFp = configFingerprint({
-      samples: config.samples ?? null,
-      budgetMs: config.budgetMs ?? null,
-      minSamples: config.minSamples ?? null,
-      warmup: config.warmup,
-    })
-    // Only declared `inputs` say what a cached run depends on: with none
-    // declared, any change could affect the command, so it always reruns
-    // (`inputs: []` is the explicit "depends on nothing"). A function-form
-    // prepare hook can do anything (its source text is in the workload id,
-    // but not what it reads), so it never comes from cache either.
-    const cacheable =
-      wc.inputs !== undefined && typeof wc.prepare !== "function"
-    const cacheKey = computeCacheKey({
-      workloadId: workload.id,
-      phase: "timing",
-      configFingerprint: cfgFp,
-      bunVersion: Bun.version,
-      toolVersion: TOOL_VERSION,
-      instrumented: false,
-      inputsDigest,
-    })
-
-    const cachedRun =
-      full || !cacheable
-        ? undefined
-        : await readCachedRun(config.outDir, cacheKey)
-    let run: Measurement
-    let status: WorkloadStatus
-
-    if (cachedRun) {
-      run = cachedRun
-      status = "cached"
     } else {
-      const phaseResult = await runTimingPhase({
-        argv: wc.command!,
-        samples: config.samples,
-        budgetMs: config.budgetMs,
-        minSamples: config.minSamples,
-        warmup: config.warmup,
-        prepare: wc.prepare,
-        timeSource: wc.timeSource,
-        timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
-        ignoreExitCodes: wc.ignoreExitCodes,
-      })
-      run = makeTimingMeasurement({
-        workload,
-        configFingerprint: cfgFp,
-        trials: phaseResult.trials,
-        timing: phaseResult.timing,
-        warnings: noiseWarning
-          ? [...phaseResult.warnings, noiseWarning]
-          : phaseResult.warnings,
-      })
-      if (cacheable) await writeCachedRun(config.outDir, cacheKey, run)
-      status = "executed"
+      results.push(
+        await measureCommandWorkload(config, wc, full, noiseWarning, signal),
+      )
     }
-
-    results.push({
-      workload,
-      status,
-      run,
-      harnessFailed: isHarnessFailure(run, wc.ignoreExitCodes),
-    })
   }
-
-  return { results, environment }
+  const aborted = signal?.aborted ?? false
+  const last = results.at(-1)?.run
+  if (aborted && last && !last.warnings.some((w) => w.code === "aborted")) {
+    last.warnings = [...last.warnings, abortedWarning()]
+  }
+  return { results, environment, aborted }
 }
 
 export async function runCi(opts: CiOptions): Promise<{
   document: ProfileDocument
   summary: CiSummary
-  /** The baseline document `document` was compared against - exposed so a
-   * caller can report its `git` alongside the candidate's without a second
-   * `loadDocument` of the same path. */
+  /** The baseline `document` was compared against, so a caller can report its
+   * `git` without loading it again. */
   baseline: ProfileDocument
+  /** Cancelled by `signal`: `document` is partial and has no comparisons. */
+  aborted: boolean
 }> {
   const { config } = opts
   const path = baselinePath(config, opts.baselineName)
-  const baselineFile = Bun.file(path)
-  if (!(await baselineFile.exists())) {
+  if (!(await Bun.file(path).exists())) {
     throw new BaselineNotFoundError(path)
   }
   const baseline = await loadDocument(path)
 
-  const { results: measured, environment } = await measureConfigWorkloads(
-    config,
-    opts.full,
-  )
+  const {
+    results: measured,
+    environment,
+    aborted,
+  } = await measureConfigWorkloads(config, opts.full, opts.signal)
   const results: CiWorkloadResult[] = measured.map((m) => ({ ...m }))
   const executed = results.filter((r) => r.status === "executed").length
-  const cached = results.length - executed
-  const failed = results.filter((r) => r.harnessFailed).length
-
-  const candidateDoc = newDocument(
+  const candidateDoc = createDocument(
     results.map((r) => r.workload),
     results.map((r) => r.run),
     environment,
   )
 
-  let passed = 0
-  let regressed = 0
-  let missingBaseline = 0
+  if (aborted) {
+    return {
+      document: candidateDoc,
+      summary: {
+        total: results.length,
+        cached: results.length - executed,
+        executed,
+        passed: 0,
+        regressed: 0,
+        missingBaseline: 0,
+        failed: 0,
+        results,
+        unmatched: { baseOnly: [], candOnly: [] },
+      },
+      baseline,
+      aborted,
+    }
+  }
 
   const comparer = createComparer(baseline, candidateDoc, config.thresholds)
+  const comparisons: Comparison[] = []
   for (const result of results) {
     const comparison = comparer.compare(result.workload.id)
-    if (!comparison) {
-      missingBaseline++
-      continue
-    }
-    result.comparison = comparison
-    if (comparison.verdict === "pass") passed++
-    else regressed++
-  }
-
-  if (missingBaseline > 0) {
-    const policy = effectiveMissingBaselinePolicy(
-      config.onMissingBaseline,
-      missingBaseline,
-      results.length,
-    )
-    if (policy === "fail") {
-      throw new MissingBaselineError(path, missingBaseline, results.length)
+    if (comparison) {
+      result.comparison = comparison
+      comparisons.push(comparison)
     }
   }
+  const missingBaseline = results.length - comparisons.length
+  const passed = comparisons.filter((c) => c.verdict === "pass").length
 
-  const comparisons = results
-    .map((r) => r.comparison)
-    .filter((c): c is Comparison => c !== undefined)
-  candidateDoc.comparisons = comparisons
+  // Unset: fail only when every workload is missing (a stale baseline file),
+  // warn when just some are (a workload added since the baseline was saved).
+  const policy =
+    config.onMissingBaseline ??
+    (missingBaseline === results.length ? "fail" : "warn")
+  if (missingBaseline > 0 && policy === "fail") {
+    throw new MissingBaselineError(path, missingBaseline, results.length)
+  }
 
   const unmatched = comparer.unmatched()
+  candidateDoc.comparisons = comparisons
   candidateDoc.unmatched = {
     baseOnly: unmatched.baseOnly.map((w) => w.id),
     candOnly: unmatched.candOnly.map((w) => w.id),
@@ -331,28 +340,31 @@ export async function runCi(opts: CiOptions): Promise<{
     document: candidateDoc,
     summary: {
       total: results.length,
-      cached,
+      cached: results.length - executed,
       executed,
       passed,
-      regressed,
+      regressed: comparisons.length - passed,
       missingBaseline,
-      failed,
+      failed: results.filter((r) => r.harnessFailed).length,
       results,
       unmatched,
     },
     baseline,
+    aborted: false,
   }
 }
 
 export function renderCiReport(summary: CiSummary): string {
-  const lines: string[] = []
-  lines.push(`${summary.total} workloads`)
-  lines.push(`${summary.cached} cached`)
-  lines.push(`${summary.executed} executed`)
-  if (summary.missingBaseline > 0)
+  const lines = [
+    `${summary.total} workloads`,
+    `${summary.cached} cached`,
+    `${summary.executed} executed`,
+  ]
+  if (summary.missingBaseline > 0) {
     lines.push(
       `${summary.missingBaseline} skipped (no matching baseline workload)`,
     )
+  }
   if (summary.failed > 0) {
     const failedLabels = summary.results
       .filter((r) => r.harnessFailed)
@@ -368,17 +380,14 @@ export function renderCiReport(summary: CiSummary): string {
       const t = r.comparison!.timing
       const label = workloadLabel(r.workload)
       return t
-        ? `${t.medianDeltaPct > 0 ? "+" : ""}${t.medianDeltaPct.toFixed(1)}% median on ${label}`
+        ? `${formatSignedPct(t.medianDeltaPct)} median on ${label}`
         : label
     })
 
   lines.push(
     `${summary.passed} passed  ${summary.regressed} regressed${regressionDetails.length > 0 ? ` (${regressionDetails.join(", ")})` : ""}`,
-  )
-  lines.push("")
-  lines.push(
+    "",
     `Profile CI: ${summary.regressed > 0 || summary.failed > 0 ? "✗" : "✓"}`,
   )
-
   return `${lines.join("\n")}\n`
 }

@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { createDocument, profile, renderers, time } from "../../src/index.ts"
+import { fp } from "../../src/ir/fp.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`
 const OUT_DIR = `${import.meta.dir}/../../.ostia-test-capture`
@@ -45,6 +46,8 @@ describe("capture - real subprocess CPU/heap trials", () => {
     expect(artifact.kind).toBe("cpuprofile")
     expect(artifact.bytes).toBeGreaterThan(0)
     expect(await Bun.file(artifact.path).exists()).toBe(true)
+    // Owned by the measurement's real id, not a hand-built string.
+    expect(artifact.id).toBe(fp("art", cpuRun.id, "cpuprofile", artifact.path))
   }, 20_000)
 
   test("--heap produces a HeapEvidence summary with a snapshot artifact on disk", async () => {
@@ -109,7 +112,7 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
     }
 
     const { result, measurement } = await profile(hotLoop, {
-      intervalUs: 100,
+      cpuIntervalUs: 100,
     })
 
     expect(typeof result).toBe("number")
@@ -117,6 +120,7 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
     expect(measurement.instrumented).toBe(true)
     expect(measurement.cpu).toBeDefined()
     expect(measurement.cpu!.origin).toBe("inspector")
+    expect(measurement.cpu!.samplingIntervalUs).toBe(100)
     expect(measurement.cpu!.frames.length).toBeGreaterThan(0)
   }, 10_000)
 
@@ -127,6 +131,25 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
     const a = await profile(stableFn)
     const b = await profile(stableFn)
     expect(a.measurement.workloadId).toBe(b.measurement.workloadId)
+  }, 10_000)
+
+  test("`name` is the label and the id's only input, so same-source closures with different names get distinct ids", async () => {
+    const make = (n: number) => () => n
+    const a = await profile(make(1), { name: "one" })
+    const b = await profile(make(2), { name: "two" })
+    const again = await profile(make(1), { name: "one" })
+    expect(a.document.workloads[0]!.label).toBe("one")
+    expect(a.measurement.workloadId).not.toBe(b.measurement.workloadId)
+    expect(a.measurement.workloadId).toBe(again.measurement.workloadId)
+    // Without a name the closures share one id (the source is all that's hashed).
+    const unnamed1 = await profile(make(1))
+    const unnamed2 = await profile(make(2))
+    expect(unnamed1.measurement.workloadId).toBe(
+      unnamed2.measurement.workloadId,
+    )
+    expect(unnamed1.measurement.workloadId).not.toBe(a.measurement.workloadId)
+    expect(unnamed1.document.workloads[0]!.label).toBeUndefined()
+    await expect(profile(make(1), { name: "" })).rejects.toThrow(TypeError)
   }, 10_000)
 
   test("document is a full ProfileDocument with the one workload and measurement", async () => {
@@ -145,7 +168,7 @@ describe("profile() - in-process windowed capture via node:inspector", () => {
       for (let i = 0; i < 2_000_000; i++) acc = (acc + i) % 1000000007
       return acc
     }
-    const { document } = await profile(hotLoop, { intervalUs: 100 })
+    const { document } = await profile(hotLoop, { cpuIntervalUs: 100 })
     const { files } = await renderers.collapsed.render(document, {})
     expect(files).toBeDefined()
     expect(files!.length).toBeGreaterThan(0)

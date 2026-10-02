@@ -1,11 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { compareDocuments, compareWorkload } from "../../src/compare/index.ts"
 import {
+  createDocument,
   makeEntryWorkload,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
 } from "../../src/ir/document.ts"
 import type { Trial } from "../../src/ir/types.ts"
 import { renderers } from "../../src/renderers/index.ts"
@@ -43,7 +43,7 @@ function fixedDoc() {
     warnings: [],
   })
 
-  const doc = newDocument([wa, wb], [runA, runB])
+  const doc = createDocument([wa, wb], [runA, runB])
   return doc
 }
 
@@ -113,7 +113,10 @@ describe("renderers - golden output on fixed fake data", () => {
       warnings: [],
     })
 
-    const doc = newDocument([wSlow, wFast, wTiny], [runSlow, runFast, runTiny])
+    const doc = createDocument(
+      [wSlow, wFast, wTiny],
+      [runSlow, runFast, runTiny],
+    )
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     const slowLine = lines.find((l) => l.includes("css/optimizeCssWithReport"))
@@ -164,7 +167,7 @@ describe("renderers - golden output on fixed fake data", () => {
       warnings: [],
     })
 
-    const doc = newDocument([wOld, wNew], [runOld, runNew])
+    const doc = createDocument([wOld, wNew], [runOld, runNew])
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     const oldLine = lines.find((l) => l.includes("impl/old"))
@@ -190,7 +193,7 @@ describe("renderers - golden output on fixed fake data", () => {
     )
     const samplesA = [20_000, 20_200, 19_800, 20_100, 19_900]
     const samplesB = [10_000, 10_200, 9_800, 10_100, 9_900]
-    const doc = newDocument(
+    const doc = createDocument(
       [wA, wB],
       [
         makeTimingMeasurement({
@@ -259,7 +262,7 @@ describe("renderers - golden output on fixed fake data", () => {
     // "0.000 ± 0.000    0.000...0.000" when everything was formatted as ms.
     const samples = [3, 4, 3, 5, 3]
     const w = makeEntryWorkload("suite.ts", "add", { label: "add" })
-    const doc = newDocument(
+    const doc = createDocument(
       [w],
       [
         makeTimingMeasurement({
@@ -285,7 +288,7 @@ describe("renderers - golden output on fixed fake data", () => {
     })
     const wFlat = makeSubprocessWorkload(["bun", "x.ts"], "bun x.ts")
     const samples = [1_000_000, 1_100_000, 900_000]
-    const doc = newDocument(
+    const doc = createDocument(
       [wGrouped, wFlat],
       [
         makeTimingMeasurement({
@@ -339,7 +342,7 @@ describe("renderers - golden output on fixed fake data", () => {
       skipped: true,
     })
     const samples = [1_000_000, 1_100_000, 900_000]
-    const doc = newDocument(
+    const doc = createDocument(
       [wMeasured, wSkipped],
       [
         makeTimingMeasurement({
@@ -459,7 +462,7 @@ describe("table renderer - Retained/op column (item 12)", () => {
 
     const withAlloc = await renderers.table.render(doc, {})
     expect(withAlloc.text).toContain("Retained/op")
-    expect(withAlloc.text).toContain("2.00KB")
+    expect(withAlloc.text).toContain("2.00KiB")
     expect(withAlloc.text).not.toContain("Peak mem")
   })
 })
@@ -499,14 +502,14 @@ describe("--alloc / --peak-mem evidence in every document renderer", () => {
     const { text } = await renderers.table.render(doc, {})
     expect(text).toContain("Retained/op")
     expect(text).toContain("Peak mem")
-    expect(text).toContain("3.00MB")
+    expect(text).toContain("3.00MiB")
   })
 
   test("markdown adds Retained/op and Peak mem columns", async () => {
     const { doc } = docWithMemory()
     const { text } = await renderers.markdown.render(doc, {})
     expect(text).toContain("| Retained/op | Peak mem |")
-    expect(text).toContain("| 2.00KB | 3.00MB |")
+    expect(text).toContain("| 2.00KiB | 3.00MiB |")
   })
 
   test("a peak-hidden warning shows on the task's row in every renderer", async () => {
@@ -669,7 +672,7 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       groupDescription: "parser throughput",
     })
     const samples = [1_000, 1_100, 900]
-    const doc = newDocument(
+    const doc = createDocument(
       [w],
       [
         makeTimingMeasurement({
@@ -755,7 +758,7 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       params: { size: 800, impl: "current" },
     })
     const samples = [1_000, 1_100, 900]
-    const doc = newDocument(
+    const doc = createDocument(
       [w],
       [
         makeTimingMeasurement({
@@ -782,7 +785,7 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       skipped: true,
     })
     const samples = [1_000_000, 1_100_000, 900_000]
-    const doc = newDocument(
+    const doc = createDocument(
       [wMeasured, wSkipped],
       [
         makeTimingMeasurement({
@@ -837,7 +840,7 @@ describe("minimal renderer - protocol v1 run/unmatched/summary events (task 05.3
       ].sort(),
     )
     expect(line.event).toBe("run")
-    expect(line.protocolVersion).toBe(1)
+    expect(line.protocolVersion).toBe(2)
     expect(line.schemaVersion).toBe(2)
     expect(line.workloadId).toBe(doc.measurements[0]!.workloadId)
     expect(line.batch).toBe(1)
@@ -900,8 +903,8 @@ describe("table and minimal renderers - Comparison.warnings (task 04.5)", () => 
       timing: computeTimingStats(candSamples),
       warnings: [],
     })
-    const base = newDocument([workload], [baseRun])
-    const cand = newDocument([workload], [candRun])
+    const base = createDocument([workload], [baseRun])
+    const cand = createDocument([workload], [candRun])
     const cmp = compareWorkload(base, cand, workload.id)!
     cand.comparisons = [cmp]
     return cand
@@ -951,7 +954,7 @@ describe("markdown renderer - params: pivot table or key=value suffix", () => {
         warnings: [],
       }),
     )
-    return newDocument(workloads, measurements)
+    return createDocument(workloads, measurements)
   }
 
   test("a group where every task shares the same two param keys renders as a pivot table", async () => {
@@ -978,7 +981,7 @@ describe("markdown renderer - params: pivot table or key=value suffix", () => {
       params: { size: 100 },
     })
     const samples = [1_000, 1_100, 900]
-    const doc = newDocument(
+    const doc = createDocument(
       [w],
       [
         makeTimingMeasurement({
@@ -1002,7 +1005,7 @@ describe("markdown renderer - table safety and parity (task 05.5)", () => {
       "weird | label <tag>",
     )
     const samples = [1_000_000, 1_100_000, 900_000]
-    const doc = newDocument(
+    const doc = createDocument(
       [workload],
       [
         makeTimingMeasurement({
@@ -1051,7 +1054,7 @@ describe("markdown renderer - table safety and parity (task 05.5)", () => {
     const candSamples = [
       10_010_000, 10_090_000, 10_040_000, 9_960_000, 10_030_000,
     ]
-    const base = newDocument(
+    const base = createDocument(
       [workload],
       [
         makeTimingMeasurement({
@@ -1063,7 +1066,7 @@ describe("markdown renderer - table safety and parity (task 05.5)", () => {
         }),
       ],
     )
-    const cand = newDocument(
+    const cand = createDocument(
       [workload],
       [
         makeTimingMeasurement({
@@ -1097,13 +1100,119 @@ describe("markdown renderer - table safety and parity (task 05.5)", () => {
   })
 })
 
+// A command whose trials all timed out (or never matched `--time-source`)
+// yields a timing measurement with no `timing`; its warnings are the only clue.
+function docWithSamplelessRun() {
+  const ok = makeSubprocessWorkload(["bun", "ok.ts"], "bun ok.ts")
+  const dead = makeSubprocessWorkload(["bun", "dead.ts"], "bun dead.ts")
+  const samples = [1_000_000, 1_100_000, 900_000]
+  return createDocument(
+    [ok, dead],
+    [
+      makeTimingMeasurement({
+        workload: ok,
+        configFingerprint: "cfg",
+        trials: samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+        timing: computeTimingStats(samples),
+        warnings: [],
+      }),
+      makeTimingMeasurement({
+        workload: dead,
+        configFingerprint: "cfg",
+        trials: [{ i: 0, wallNs: 5_000_000, timedOut: true }],
+        warnings: [
+          {
+            code: "timeout",
+            message: "1 of 1 trial(s) timed out after 5000ms.",
+            data: { timeoutMs: 5000, trials: 1 },
+          },
+        ],
+      }),
+    ],
+  )
+}
+
+describe("renderers - a measurement with no timing samples", () => {
+  test("table renders a '- no samples' row and its warnings", async () => {
+    const result = await renderers.table.render(docWithSamplelessRun(), {})
+    const lines = result.text!.split("\n")
+    expect(lines.find((l) => l.includes("bun dead.ts"))).toContain(
+      "- no samples",
+    )
+    expect(result.text).toContain("! timeout")
+    expect(result.text).toContain("1 of 1 trial(s) timed out after 5000ms.")
+  })
+
+  test("table doesn't fall back to '(no timing runs)' when every run is sample-less", async () => {
+    const doc = docWithSamplelessRun()
+    doc.workloads = [doc.workloads[1]!]
+    doc.measurements = [doc.measurements[1]!]
+    const result = await renderers.table.render(doc, {})
+    expect(result.text).not.toContain("(no timing runs)")
+    expect(result.text).toContain("- no samples")
+    expect(result.text).toContain("! timeout")
+  })
+
+  test("markdown renders a '- no samples' row and its warnings", async () => {
+    const result = await renderers.markdown.render(docWithSamplelessRun(), {})
+    expect(result.text).toContain(
+      "| bun dead.ts | - no samples | - | - | - | - |",
+    )
+    expect(result.text).toContain("1 of 1 trial(s) timed out after 5000ms.")
+  })
+
+  test("minimal emits a run line with samples: 0 and the warnings, no stats", async () => {
+    const lines = (await renderers.minimal.render(docWithSamplelessRun(), {}))
+      .text!.trim()
+      .split("\n")
+      .map((l) => JSON.parse(l))
+    const dead = lines.find((l) => l.task === "bun dead.ts")
+    expect(dead).toBeDefined()
+    expect(dead.event).toBe("run")
+    expect(dead.samples).toBe(0)
+    expect(dead.skipped).toBeUndefined()
+    expect(dead.median).toBeUndefined()
+    expect(dead.warnings.map((w: { code: string }) => w.code)).toEqual([
+      "timeout",
+    ])
+    const ok = lines.find((l) => l.task === "bun ok.ts")
+    expect(ok.samples).toBe(3)
+    // The sample-less run doesn't take part in the relative column.
+    expect(ok.relative).toBeUndefined()
+  })
+})
+
+describe("minimal renderer - task label", () => {
+  test("prefers the workload's label over its entry task id, like the other renderers", async () => {
+    const w = makeEntryWorkload("suite.ts", "g/work", {
+      label: "friendly name",
+      group: "g",
+    })
+    const samples = [1_000_000, 1_100_000, 900_000]
+    const doc = createDocument(
+      [w],
+      [
+        makeTimingMeasurement({
+          workload: w,
+          configFingerprint: "cfg",
+          trials: samples.map((wallNs, i) => ({ i, wallNs, exitCode: 0 })),
+          timing: computeTimingStats(samples),
+          warnings: [],
+        }),
+      ],
+    )
+    const line = JSON.parse((await renderers.minimal.render(doc, {})).text!)
+    expect(line.task).toBe("friendly name")
+  })
+})
+
 describe("markdown renderer - task.skip() (item 10)", () => {
   test("a skipped workload renders as a '- skipped' row in the Timing table", async () => {
     const w = makeEntryWorkload("suite.ts", "solo", {
       label: "solo",
       skipped: true,
     })
-    const doc = newDocument([w], [])
+    const doc = createDocument([w], [])
     const result = await renderers.markdown.render(doc, {})
     expect(result.text).toContain("## Timing")
     expect(result.text).toContain("| solo | - skipped | - | - | - | - |")

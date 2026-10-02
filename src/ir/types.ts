@@ -1,37 +1,28 @@
-// Profile IR schema v2. Base units: ns (time), bytes (memory), µs (sampling interval).
+// Profile IR schema v2. Units: ns (time), bytes (memory), µs (sampling interval).
 
 export interface ProfileDocument {
   schemaVersion: 2
   toolVersion: string
   bunVersion: string
   platform: { os: string; arch: string }
-  createdAt: string // ISO; metadata only, never used in IDs
+  /** ISO timestamp; metadata only, never part of an id. */
+  createdAt: string
   workloads: Workload[]
   measurements: Measurement[]
   comparisons?: Comparison[]
-  /** Aggregate across `comparisons`, from `compareDocuments`/`ostia compare`/
-   * `ostia ci`. Additive, no schema bump. Absent wherever `comparisons` is. */
+  /** Aggregate across `comparisons`; present wherever `comparisons` is. */
   comparisonSummary?: ComparisonSummary
-  /** Workload ids present on only one side of a `compareDocuments` call -
-   * candidates matched by id gone missing from the baseline, or vice versa.
-   * Additive, no schema bump; absent wherever `comparisons` is. Ids only
-   * (not full `Workload`s) to keep the document small; `ostia compare`'s
-   * printed report resolves labels from the two source documents directly. */
+  /** Workload ids on only one side of the comparison; present wherever
+   * `comparisons` is. */
   unmatched?: { baseOnly: string[]; candOnly: string[] }
-  /** Machine conditions when this document was measured. Additive, no
-   * schema bump. Absent when `noiseCheck: false` (or `--no-noise-check`)
-   * skipped the reference measurement. */
+  /** Machine conditions at measurement time; absent when the noise check was
+   * skipped. */
   environment?: Environment
-  /** Run-level result of a paired A/B run (`ostia ab` / `ab()`): what the
-   * candidate was paired against and the gate's verdict. Additive, no schema
-   * bump. Present only on documents from `ab()`, whose measurements are
+  /** Run-level result of `ostia ab` / `ab()`, whose measurements are
    * `phase: "paired"`. */
   ab?: AbSummary
-  /** Repo state when this document was measured, from `git rev-parse` /
-   * `git status --porcelain` in the process's cwd. Additive, no schema
-   * bump. Absent outside a git repo (or when `git` itself isn't
-   * available). Metadata only: never part of any fingerprint or id, so a
-   * commit or a dirty working tree never orphans a cached run or baseline. */
+  /** Repo state of the process's cwd; absent outside a git repo. Never part of
+   * an id or fingerprint, so a commit or dirty tree doesn't orphan a baseline. */
   git?: GitMetadata
 }
 
@@ -42,9 +33,8 @@ export interface GitMetadata {
 }
 
 export interface NoiseFloor {
-  /** `mad / median` of the reference workload's trial times, as a percent -
-   * how noisy this machine is right now, independent of what's being
-   * measured. */
+  /** `mad / median` of a reference workload, percent: how noisy the machine is
+   * right now, independent of what's measured. */
   floorPct: number
   referenceMedianNs: number
   samples: number
@@ -59,65 +49,43 @@ export interface Environment {
 }
 
 export interface Workload {
-  /** Identifies what is measured, not where or when it ran: for a
-   * `subprocess` workload, a hash of the command argv, `prepare`
-   * (command form or function source), and `timeSource` spec -
-   * deliberately excluding `process.cwd()`, so a baseline saved from one
-   * checkout (a CI runner, a different worktree) still matches a candidate
-   * measured from another. For an `inprocess` workload, a hash of the
-   * function source (or, for a registry entry, the file/task name plus
-   * `params`). `label`, `description`, and `baseline` are annotations and
-   * never affect it. */
+  /** Identifies what is measured, not where or when. Subprocess: a hash of
+   * argv, `prepare` and `timeSource`, excluding `process.cwd()`. In-process: a
+   * hash of the function source, or for a registry entry the file, task name
+   * and `params`. Annotations (`label`, `description`, `baseline`) never
+   * affect it. */
   id: string
   kind: "subprocess" | "inprocess"
   label?: string
   command?: string[]
-  /** Command form of the `prepare` hook that ran before every trial of this
-   * command (`ostia time --prepare`, `time({ prepare })`, config `prepare`).
-   * Part of the workload id: the same command with and without a prepare
-   * step measures different things. A function-form hook isn't
-   * serializable and is omitted here (its source text is still hashed into
-   * the id). */
+  /** Command-form `prepare` hook run before every trial; part of the id. A
+   * function-form hook isn't serializable and is omitted (its source is still
+   * hashed into the id). */
   prepare?: string[]
-  /** Where this command's timing samples came from when not the subprocess
-   * wall clock: a regex over the command's own output and the unit of the
-   * number it captures. Part of the workload id, so the same command timed
-   * by wall clock and by its own report are two workloads. */
+  /** Takes samples from a number in the command's own output instead of the
+   * wall clock; part of the id. */
   timeSource?: {
     pattern: string
     group?: number
     unit?: "ns" | "us" | "ms" | "s"
   }
-  /** `task` is the "group/name" id the bench registry assigns; `group` is the
-   * enclosing `group()` name when there is one. Renderers prefer `group` over
-   * splitting `task` on "/", so task names may contain slashes. */
+  /** `task` is the registry's "group/name" id; `group` is the enclosing
+   * `group()` name. Renderers prefer `group` over splitting `task` on "/". */
   entry?: { file: string; task: string; group?: string }
-  /** Marks this task as the in-run Relative reference for its group (see
-   * `task(name, fn, { baseline: true })`). At most one per group is
-   * meaningful; renderers use the first they encounter. */
+  /** The Relative reference for its group; renderers use the first one found. */
   baseline?: boolean
-  /** What this task measures and why, from `task(name, fn, { description })`.
-   * Travels with the data so a reader of the document has intent, not just
-   * numbers. */
+  /** What this task measures and why, from `task(..., { description })`. */
   description?: string
-  /** The enclosing group's `group(name, fn, { description })`. Repeated on every
-   * workload in the group so each record is self-contained. */
+  /** The enclosing group's description, repeated on every workload in it. */
   groupDescription?: string
-  /** Whether this task ran in a subprocess dedicated to it alone (`isolate`
-   * on the task, its group, or the suite), vs. sharing its suite file's
-   * subprocess with other tasks. */
+  /** Ran in a subprocess of its own rather than sharing its suite file's. */
   isolated?: boolean
-  /** Structured parameters this task point represents (e.g. `{ size: 800,
-   * impl: "fast" }`), from `task(name, fn, { params })` or a `sweep()` point.
-   * Lets renderers pivot and `compare` match on them instead of only on the
-   * task name. Part of the workload id when present, so two points that
-   * share a task name (a `sweep()`'s whole point) don't collide. */
+  /** From `task(..., { params })` or a `sweep()` point. Part of the id, so
+   * points sharing a task name don't collide. */
   params?: Record<string, string | number | boolean>
-  /** From `task.skip()` or a `group.skip()` this task was inside. The runner
-   * never measures it, so this workload has no matching `Measurement`; a
-   * renderer prints it as a "- skipped" row instead of omitting it, and
-   * `compare` treats it as `unchanged` (with a `skipped` warning) rather
-   * than silently passing or failing to match it. */
+  /** From `task.skip()` / `group.skip()`: never measured, so no `Measurement`.
+   * Renderers print a "- skipped" row; `compare` treats it as `unchanged` with
+   * a `skipped` warning. */
   skipped?: boolean
 }
 
@@ -136,38 +104,29 @@ export interface Measurement {
   heap?: HeapEvidence
   memory?: MemoryEvidence
   jit?: JitTierBreakdown
-  /** `phase: "paired"` only: the base side and the per-round ratios. The
-   * measurement's `timing` is the candidate side. */
+  /** `phase: "paired"` only; `timing` is then the candidate side. */
   paired?: PairedEvidence
   warnings: Warning[]
   artifacts: ArtifactRef[]
-  /** True when this timing measurement's trials were run round-robin against
-   * the other commands in the same `time()` call (`--interleave`, default on
-   * for 2+ commands) rather than run to completion before the next command
-   * started, so drift over the run's wall-clock span (thermal throttling, a
-   * noisy neighbor process) lands on every command equally instead of
-   * favoring whichever ran first or last. */
+  /** Trials ran round-robin with the other commands of the same `time()` call,
+   * so drift over the run hits every command equally. */
   interleaved?: boolean
 }
 
 export interface Trial {
   i: number
   wallNs: number
-  /** The command's self-reported time (ns) when the workload has a
-   * `timeSource`; `timing.samples` are these, not `wallNs`, in that case.
-   * `wallNs` stays alongside so a document keeps both. */
+  /** The command's self-reported time (ns) under a `timeSource`; these, not
+   * `wallNs`, are then the `timing.samples`. */
   reportedNs?: number
   exitCode?: number
   userNs?: number
   systemNs?: number
   maxRssBytes?: number
-  /** Set when the trial was killed by `timeoutMs` before it exited on its
-   * own. `exitCode` is absent in that case: the kill signal, not the
-   * command, decided how the process ended. Contributes no sample. */
+  /** Killed by `timeoutMs`; `exitCode` is absent. Contributes no sample. */
   timedOut?: true
-  /** Set when the workload has a `timeSource` and this trial's output didn't
-   * match its pattern. `reportedNs` is absent in that case (never a
-   * fallback to `wallNs`). Contributes no sample. */
+  /** Output didn't match the `timeSource` pattern; `reportedNs` is absent
+   * (never a `wallNs` fallback). Contributes no sample. */
   timeSourceNoMatch?: true
 }
 
@@ -186,15 +145,11 @@ export interface TimingStats {
   p75: number
   /** 99th percentile, ns. */
   p99: number
-  /** Median absolute deviation, ns: the median of `|sample - median|` across
-   * all samples. A robust spread measure that (unlike stddev) isn't skewed
-   * by the long right tail typical of wall-clock timings. */
+  /** Median absolute deviation, ns: a spread measure that, unlike stddev, the
+   * long right tail of wall-clock timings doesn't skew. */
   mad: number
-  /** In-process trials batched into one timed block (see
-   * `measure/inprocess.ts`'s `sizeBatch`), set only when batching occurred.
-   * Absent for every subprocess timing measurement, and for an in-process
-   * one whose single call already cleared the batching threshold - a
-   * renderer treats an absent value the same as `1`. */
+  /** Calls batched into one timed block; absent (read as 1) unless batching
+   * occurred, and always absent for subprocess timing. */
   batch?: number
 }
 
@@ -237,25 +192,16 @@ export interface HeapEvidence {
 
 export interface MemoryEvidence {
   origin: "resourceUsage" | "heapStats"
-  /** What a `phase: "memstats"` measurement measured: `"retained"` for
-   * `--alloc` (`bytesPerOp`), `"peak"` for `--peak-mem` (`peakBytes`).
-   * Absent on subprocess timing's `maxRssBytes`, and on `memstats`
-   * measurements written before this field existed, which are always
-   * `"retained"`. */
+  /** `memstats` only: `"retained"` (`--alloc`, `bytesPerOp`) or `"peak"`
+   * (`--peak-mem`, `peakBytes`). Absent means `"retained"` on older documents. */
   kind?: "retained" | "peak"
   /** Largest `Trial.maxRssBytes` across a timing measurement's trials. */
   maxRssBytes?: number
-  /** Retained heap growth per call, from `ostia bench --alloc`: heap size
-   * delta (`bun:jsc`'s `heapStats().heapSize`, falling back to
-   * `process.memoryUsage().heapUsed`) around one batch bracketed by
-   * `Bun.gc(true)` on both sides, divided by the batch size. Garbage the
-   * calls create and drop is collected before the second reading, so this
-   * is what the calls keep alive (a leak check), not what they allocate. */
+  /** `--alloc`: heap growth per call across one batch bracketed by full GCs,
+   * so what the calls keep alive (a leak check), not what they allocate. */
   bytesPerOp?: number
-  /** How far one call raised the process's RSS above where it started,
-   * garbage included, from `ostia bench --peak-mem`: median over 3 fresh
-   * processes, each making the task's first call after its `before` hooks
-   * and a full GC. A `peak-hidden` warning says when it may read low. */
+  /** `--peak-mem`: how far one call raised RSS, garbage included; median over
+   * 3 fresh processes. A `peak-hidden` warning says when it may read low. */
   peakBytes?: number
 }
 
@@ -265,12 +211,10 @@ export interface JitTierBreakdown {
   topFramesByTier?: { tier: string; frameKey: string; samples: number }[]
 }
 
-/** Evidence of a `phase: "paired"` measurement: base and candidate run in
- * alternating batches in one process (`measure/paired.ts`), so drift over the
- * run hits both sides of a round alike and cancels in the ratio. */
+/** Evidence of a `phase: "paired"` measurement: base and candidate alternate
+ * in batches in one process, so drift cancels in the ratio. */
 export interface PairedEvidence {
-  /** Rounds run: one base batch and one candidate batch each, alternating
-   * which goes first. */
+  /** One base batch and one candidate batch per round, alternating order. */
   rounds: number
   /** Calls per side per round. */
   batch: number
@@ -282,26 +226,24 @@ export interface PairedEvidence {
   ratios: number[]
   medianRatio: number
   /** 25th/75th percentile of `ratios`. */
-  p25: number
-  p75: number
-  /** Set when this process's rounds crossed the threshold: median ratio
-   * past `1 ± threshold` and on the same side of 1 in at least three
-   * quarters of rounds. */
+  ratioP25: number
+  ratioP75: number
+  /** Median ratio past `1 ± threshold` and on the same side of 1 in at least
+   * three quarters of rounds. */
   flagged?: "regressed" | "improved"
   /** Each fresh-process re-measurement of a flagged workload. */
   repeats?: {
     medianRatio: number
-    p25: number
-    p75: number
+    ratioP25: number
+    ratioP75: number
     flagged?: "regressed" | "improved"
   }[]
   /** Set when `flagged` is: whether every repeat flagged the same way. */
   confirmed?: boolean
   /** `flagged` when confirmed, else `"unchanged"`. */
   verdict: "regressed" | "improved" | "unchanged"
-  /** Whether the first call's return value was deep-equal on both sides
-   * (`Bun.deepEquals`, prototypes ignored). Informational: expected to be
-   * `false` for a change in behavior, never a failure. */
+  /** First call's return values were deep-equal on both sides; informational,
+   * never a failure. */
   sameOutput: boolean
 }
 
@@ -322,19 +264,16 @@ export interface AbSummary {
   unconfirmed: number
   /** Workloads whose first call returned different values on each side. */
   outputDiffers: number
-  /** Geometric mean of each workload's median ratio, as a signed percent
-   * (negative: candidate faster on average). A flagged workload contributes
-   * the median over its main run and repeats. `null` when nothing was
-   * paired. */
+  /** Geometric mean of the workloads' median ratios, signed percent (negative:
+   * candidate faster); a flagged workload contributes its median over its main
+   * run and repeats. `null` when nothing was paired. */
   geomeanPct: number | null
   /** `"fail"` when any workload regressed (confirmed) or `geomeanPct`
    * exceeds `geomeanThresholdPct`. */
   verdict: "pass" | "fail"
 }
 
-/** Every `Warning.code` a renderer or consumer may see. Kept as a runtime
- * array (not just a type) so a test can assert every member is actually
- * emitted somewhere in `src/` - no code can go dead silently again. */
+/** Every `Warning.code`. A runtime array so a test can assert each is emitted. */
 export const WARNING_CODES = [
   "slow-first-run",
   "outliers-detected",
@@ -377,19 +316,16 @@ export interface Comparison {
   timing?: {
     medianDeltaPct: number
     meanDeltaPct: number
-    /** 95% bootstrap confidence interval on the difference of medians,
-     * percent of the baseline median. Absent when either side had fewer
-     * than 5 samples (see the `thin-comparison` warning). */
+    /** 95% bootstrap CI on the difference of medians, percent of the baseline
+     * median. Absent below 5 samples a side (`thin-comparison`). */
     ci95?: [number, number]
-    /** Two-sided Mann-Whitney U p-value, tie-corrected normal approximation.
-     * Same absence condition as `ci95`. */
+    /** Two-sided Mann-Whitney U p-value; absent whenever `ci95` is. */
     pValue?: number
-    /** Seed for the bootstrap's PRNG, so `ci95` is reproducible. */
+    /** Bootstrap PRNG seed, so `ci95` is reproducible. */
     seed?: number
     verdict: "improved" | "regressed" | "unchanged"
   }
-  /** Attached when timing fell back to the point-estimate rule (thin
-   * samples) or otherwise carries a caveat about this comparison. */
+  /** Caveats about this comparison, e.g. a thin-sample point-estimate verdict. */
   warnings?: Warning[]
   frames?: {
     frameKey: string
@@ -413,9 +349,7 @@ export interface Comparison {
     minFrameSelfUs: number
     alpha: number
     bootstrapIterations: number
-    /** `max(timingPct, base.environment.noise.floorPct,
-     * cand.environment.noise.floorPct)` - the threshold timing was actually
-     * tested against, once machine noise widens it past `timingPct`. */
+    /** `max(timingPct, both documents' noise floors)`: what timing was tested against. */
     effectiveTimingPct: number
   }
   verdict: "pass" | "fail"
@@ -423,18 +357,16 @@ export interface Comparison {
 
 /** Aggregate view over a `compareDocuments` call's `Comparison[]`. */
 export interface ComparisonSummary {
-  /** `comparisons.length`: workloads present (and comparable) on both sides. */
+  /** `comparisons.length`. */
   matched: number
   regressed: number
   improved: number
   unchanged: number
-  /** Geometric mean of `cand/base` median ratios over matched timing
-   * comparisons, as a signed percent (negative: candidate faster on
-   * average). `null` when no comparison had a finite timing ratio. */
+  /** Geometric mean of `cand/base` median ratios, signed percent (negative:
+   * candidate faster). `null` when no comparison had a finite ratio. */
   geomeanPct: number | null
-  /** Same value as `Comparison.thresholds.effectiveTimingPct` - one number
-   * for the whole document pair, since it depends only on `thresholds` and
-   * the two documents' `environment.noise.floorPct`, never per-workload. */
+  /** `Comparison.thresholds.effectiveTimingPct`, which is the same for the
+   * whole document pair. */
   effectiveTimingPct: number
   /** `"fail"` when any comparison's verdict is `"fail"`. */
   verdict: "pass" | "fail"

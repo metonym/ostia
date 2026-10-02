@@ -5,11 +5,11 @@ import {
   DEFAULT_THRESHOLDS,
 } from "../../src/compare/index.ts"
 import {
+  createDocument,
   makeEntryWorkload,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
 } from "../../src/ir/document.ts"
 import type { CpuEvidence, Trial } from "../../src/ir/types.ts"
 import { computeTimingStats } from "../../src/stats/index.ts"
@@ -31,7 +31,7 @@ function timingDoc(workloadCommand: string[], samples: number[]) {
     timing: computeTimingStats(samples),
     warnings: [],
   })
-  return { doc: newDocument([workload], [run]), workload, run }
+  return { doc: createDocument([workload], [run]), workload, run }
 }
 
 describe("compareWorkload - timing", () => {
@@ -186,7 +186,7 @@ describe("compareDocuments - batch matching by workload id", () => {
   test("only compares workloads present in both documents", () => {
     const a1 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
     const b1 = timingDoc(["bun", "b.ts"], [5_000_000, 5_100_000, 5_050_000])
-    const base = newDocument(
+    const base = createDocument(
       [...a1.doc.workloads, ...b1.doc.workloads],
       [...a1.doc.measurements, ...b1.doc.measurements],
     )
@@ -200,18 +200,37 @@ describe("compareDocuments - batch matching by workload id", () => {
   })
 })
 
+describe("compareDocuments - ordering", () => {
+  test("comparisons follow the candidate's workload order, as ostia ci's do", () => {
+    const samples = [10_000_000, 10_100_000, 10_050_000]
+    const a = timingDoc(["bun", "a.ts"], samples)
+    const b = timingDoc(["bun", "b.ts"], samples)
+    const c = timingDoc(["bun", "c.ts"], samples)
+    const pair = (...docs: (typeof a)[]) =>
+      createDocument(
+        docs.flatMap((d) => d.doc.workloads),
+        docs.flatMap((d) => d.doc.measurements),
+      )
+
+    const { comparisons } = compareDocuments(pair(a, b, c), pair(c, a, b))
+    expect(comparisons.map((cmp) => cmp.candidateMeasurementId)).toEqual(
+      [c, a, b].map((d) => d.run.id),
+    )
+  })
+})
+
 describe("compareDocuments - unmatched workloads and summary (task 04.2)", () => {
   test("reports workloads present on only one side instead of silently dropping them", () => {
     const a1 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
     const b1 = timingDoc(["bun", "b.ts"], [5_000_000, 5_100_000, 5_050_000])
-    const base = newDocument(
+    const base = createDocument(
       [...a1.doc.workloads, ...b1.doc.workloads],
       [...a1.doc.measurements, ...b1.doc.measurements],
     )
 
     const a2 = timingDoc(["bun", "a.ts"], [10_000_000, 10_100_000, 10_050_000])
     const c1 = timingDoc(["bun", "c.ts"], [1_000_000, 1_100_000, 1_050_000])
-    const cand = newDocument(
+    const cand = createDocument(
       [...a2.doc.workloads, ...c1.doc.workloads],
       [...a2.doc.measurements, ...c1.doc.measurements],
     )
@@ -241,11 +260,11 @@ describe("compareDocuments - unmatched workloads and summary (task 04.2)", () =>
       ["bun", "same.ts"],
       [10_020_000, 10_030_000, 10_010_000, 10_025_000, 10_015_000],
     )
-    const base = newDocument(
+    const base = createDocument(
       [...baseRegress.doc.workloads, ...baseSame.doc.workloads],
       [...baseRegress.doc.measurements, ...baseSame.doc.measurements],
     )
-    const cand = newDocument(
+    const cand = createDocument(
       [...candRegress.doc.workloads, ...candSame.doc.workloads],
       [...candRegress.doc.measurements, ...candSame.doc.measurements],
     )
@@ -275,7 +294,7 @@ describe("compareWorkload - a task.skip()'d candidate (item 10)", () => {
       timing: computeTimingStats([10_000_000, 10_100_000, 10_050_000]),
       warnings: [],
     })
-    const base = newDocument([baseWorkload], [baseRun])
+    const base = createDocument([baseWorkload], [baseRun])
 
     // Candidate: same workload id (same suite file, task name, no params),
     // but skipped this run - no measurement.
@@ -283,7 +302,7 @@ describe("compareWorkload - a task.skip()'d candidate (item 10)", () => {
       label: "g/measured",
       skipped: true,
     })
-    const cand = newDocument([candWorkload], [])
+    const cand = createDocument([candWorkload], [])
 
     const cmp = compareWorkload(base, cand, baseWorkload.id)
     expect(cmp).toBeDefined()
@@ -324,7 +343,7 @@ describe("compareWorkload - CPU frame deltas", () => {
       warnings: [],
       artifacts: [],
     })
-    return { doc: newDocument([workload], [run]), workload }
+    return { doc: createDocument([workload], [run]), workload }
   }
 
   test("ranks frames by absolute delta and flags a regression above minFrameSelfUs floor", () => {

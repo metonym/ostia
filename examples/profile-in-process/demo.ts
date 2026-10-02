@@ -8,7 +8,7 @@ function hashLoop(n: number): number {
 
 const { result, measurement, document } = await profile(
   () => hashLoop(8_000_000),
-  { origin: "jsc", intervalUs: 100 },
+  { origin: "jsc", cpuIntervalUs: 100 },
 )
 
 console.log("result:", result)
@@ -36,9 +36,7 @@ if (!measurement.jit || measurement.jit.tiers.ftl === 0) {
   process.exit(1)
 }
 
-// `document` is a full ProfileDocument (one workload, one measurement), so it
-// composes with the same renderers `ostia time --cpu` and `ostia bench` use,
-// with no need to reach into src/ir/document.ts.
+// `document` composes with the same renderers the CLI uses.
 const { files } = await renderers.collapsed.render(document, {})
 console.log(
   `\ncollapsed stacks: ${files![0]!.content.split("\n").length} lines`,

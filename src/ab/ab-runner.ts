@@ -3,25 +3,28 @@
 import {
   filterTasks,
   getRegisteredTasks,
+  groupEdges,
   type RegisteredTask,
   resetRegistry,
+  runGroupHooks,
   selectTasks,
   taskId,
 } from "../bench/registry.ts"
 import { taskWorkload } from "../bench/run-tasks.ts"
+import { median } from "../bench/support.ts"
 import {
   configFingerprint,
+  createDocument,
   makePairedMeasurement,
-  newDocument,
   saveDocument,
 } from "../ir/document.ts"
 import { canonicalJSON } from "../ir/fp.ts"
 import type { Measurement, Workload } from "../ir/types.ts"
 import { measurePaired, ratioStats } from "../measure/paired.ts"
-import { computeTimingStats, percentile } from "../stats/index.ts"
+import { computeTimingStats } from "../stats/index.ts"
 
 export interface AbRunnerOpts {
-  /** Regex, matched against "group/name" task ids (see `filterTasks`). */
+  /** Regex matched against "group/name" task ids. */
   filter?: string
   /** Measure only these workloads (a fresh-process repeat of flagged ones). */
   workloadIds?: string[]
@@ -31,8 +34,7 @@ export interface AbRunnerOpts {
   preload?: string[]
 }
 
-/** Tasks pair across the two sides by their "group/name" id plus `params`,
- * the same identity the workload id hashes. */
+/** Tasks pair across sides by "group/name" plus `params`, the workload id's identity. */
 function pairKey(t: RegisteredTask): string {
   return `${taskId(t)}\u0000${canonicalJSON(t.params ?? null)}`
 }
@@ -43,13 +45,11 @@ async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
   return [...getRegisteredTasks()]
 }
 
-/** Runs one suite file's tasks against the same file at the base checkout,
- * in this one process. The base copy is imported first and the working
- * tree's second, each from its own path, so each side's relative imports
- * (and tsconfig `paths`) resolve within its own tree while bare package
- * imports share the project's `node_modules` - including `ostia` itself, so
- * both register into the same registry. `baseSuite` is "" when the file
- * doesn't exist at the base ref: every task is then candidate-only. */
+/** Pairs one suite file's tasks against the same file at the base checkout,
+ * in this process. Each side is imported from its own path so its relative
+ * imports resolve within its own tree, while bare imports (including `ostia`,
+ * hence the shared registry) share `node_modules`. `baseSuite` is "" when
+ * the file doesn't exist at the base ref: every task is candidate-only. */
 async function main(): Promise<number> {
   const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2)
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {
@@ -75,7 +75,12 @@ async function main(): Promise<number> {
 
   let candTasks: RegisteredTask[]
   try {
-    candTasks = selectTasks(candRegistered, opts.filter, candSuite)
+    candTasks = selectTasks(
+      candRegistered,
+      opts.filter,
+      candSuite,
+      !opts.workloadIds,
+    )
   } catch (err) {
     process.stderr.write(`ab runner: ${(err as Error).message}\n`)
     return 2
@@ -102,10 +107,11 @@ async function main(): Promise<number> {
     else candOnly.push(workload.id)
   }
 
-  // A task that only exists at the base ref, keyed by the candidate suite's
-  // path so its id is the one it had before it was removed.
+  // Keyed by the candidate suite's path so the id is the one it had before removal.
+  // A `.only` in the candidate narrows the run, as `--filter` does: tasks
+  // removed from the suite aren't part of it.
   const baseOnly: string[] = []
-  if (!wanted) {
+  if (!wanted && !candRegistered.some((t) => t.only)) {
     for (const base of filterTasks(baseTasks, opts.filter)) {
       if (base.skipped || candKeys.has(pairKey(base))) continue
       const workload = taskWorkload(candSuite, base)
@@ -114,14 +120,7 @@ async function main(): Promise<number> {
     }
   }
 
-  // Group hooks wrap the group's measured tasks, on both sides.
-  const firstInGroup = new Map<string, number>()
-  const lastInGroup = new Map<string, number>()
-  pairs.forEach(({ cand }, i) => {
-    if (cand.groupName === undefined) return
-    if (!firstInGroup.has(cand.groupName)) firstInGroup.set(cand.groupName, i)
-    lastInGroup.set(cand.groupName, i)
-  })
+  const edges = groupEdges(pairs.map((p) => p.cand))
 
   const cfgFp = configFingerprint({
     rounds: opts.rounds,
@@ -130,13 +129,9 @@ async function main(): Promise<number> {
   const measurements: Measurement[] = []
   for (let i = 0; i < pairs.length; i++) {
     const { workload, base, cand } = pairs[i]!
-    const group = cand.groupName
-    const isFirst = group !== undefined && firstInGroup.get(group) === i
-    const isLast = group !== undefined && lastInGroup.get(group) === i
-    if (isFirst) {
-      await base.groupBefore?.()
-      await cand.groupBefore?.()
-    }
+    const { enter, leave } = edges(i)
+    await runGroupHooks(base, "before", enter)
+    await runGroupHooks(cand, "before", enter)
     await base.opts?.before?.()
     await cand.opts?.before?.()
 
@@ -157,10 +152,7 @@ async function main(): Promise<number> {
           rounds: result.rounds,
           batch: result.batch,
           baseSamples: result.baseSamples,
-          baseMedianNs: percentile(
-            Float64Array.from(result.baseSamples).sort(),
-            0.5,
-          ),
+          baseMedianNs: median(result.baseSamples),
           ratios: result.ratios,
           ...stats,
           verdict: stats.flagged ?? "unchanged",
@@ -171,13 +163,11 @@ async function main(): Promise<number> {
 
     await cand.opts?.after?.()
     await base.opts?.after?.()
-    if (isLast) {
-      await cand.groupAfter?.()
-      await base.groupAfter?.()
-    }
+    await runGroupHooks(cand, "after", leave)
+    await runGroupHooks(base, "after", leave)
   }
 
-  const doc = newDocument(workloads, measurements)
+  const doc = createDocument(workloads, measurements)
   doc.unmatched = { baseOnly, candOnly }
   await saveDocument(doc, outputPath)
   return 0

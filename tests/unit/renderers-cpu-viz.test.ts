@@ -1,9 +1,9 @@
 import { describe, expect, test } from "bun:test"
 import {
+  createDocument,
   makeArtifactRef,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
-  newDocument,
 } from "../../src/ir/document.ts"
 import type { CallNode, CpuEvidence, Frame } from "../../src/ir/types.ts"
 import {
@@ -60,7 +60,7 @@ function fixedDocWithCpu() {
     warnings: [],
     artifacts: [],
   })
-  return { doc: newDocument([workload], [run]), workload, run }
+  return { doc: createDocument([workload], [run]), workload, run }
 }
 
 describe("cpu-tree helpers", () => {

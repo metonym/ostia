@@ -9,8 +9,10 @@ import { speedscopeRenderer } from "./speedscope/index.ts"
 import { terminalRenderer } from "./terminal/index.ts"
 import type { FormatName, Renderer } from "./types.ts"
 
-// biome-ignore lint/suspicious/noExplicitAny: heterogeneous Renderer options per format
-export const renderers: Record<FormatName, Renderer<any>> = {
+/** Each format's renderer, typed with its own options. `Renderer<never>` is
+ * the top type, so `satisfies` checks every format is present without
+ * widening the options. */
+export const renderers = {
   table: terminalRenderer,
   json: jsonRenderer,
   markdown: markdownRenderer,
@@ -20,6 +22,6 @@ export const renderers: Record<FormatName, Renderer<any>> = {
   mermaid: mermaidRenderer,
   speedscope: speedscopeRenderer,
   cpuprofile: cpuprofileRenderer,
-}
+} satisfies Record<FormatName, Renderer<never>>
 
 export type { FormatName, Renderer, RenderResult } from "./types.ts"

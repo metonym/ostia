@@ -81,16 +81,25 @@ export interface GroupOptions {
   after?: Hook
 }
 
+/** One enclosing group of a task, with the hooks it declared. */
+interface GroupFrame {
+  /** Slash-joined names from the outermost group down to this one. */
+  path: string
+  before?: Hook
+  after?: Hook
+}
+
 export interface RegisteredTask {
+  /** The enclosing groups' names joined with "/", outermost first. */
   groupName?: string
+  /** Enclosing groups, outermost first. */
+  groupChain?: readonly GroupFrame[]
   groupDescription?: string
   groupIsolate?: boolean
   groupGc?: boolean
   groupCpu?: boolean
   groupAlloc?: boolean
   groupPeakMem?: boolean
-  groupBefore?: Hook
-  groupAfter?: Hook
   name: string
   fn: () => unknown | Promise<unknown>
   baseline?: boolean
@@ -106,21 +115,12 @@ export interface RegisteredTask {
   opts?: TaskOptions
 }
 
+type Flags = { skip?: boolean; only?: boolean }
+
 const tasks: RegisteredTask[] = []
 let currentGroup:
-  | {
-      name: string
-      description?: string
-      isolate?: boolean
-      gc?: boolean
-      cpu?: boolean
-      alloc?: boolean
-      peakMem?: boolean
-      before?: Hook
-      after?: Hook
-      skip?: boolean
-      only?: boolean
-    }
+  | (Omit<GroupOptions, "before" | "after"> &
+      Flags & { path: string; chain: readonly GroupFrame[] })
   | undefined
 let currentParams: Record<string, string | number | boolean> | undefined
 
@@ -128,21 +128,25 @@ function registerGroup(
   name: string,
   fn: () => void,
   opts: GroupOptions | undefined,
-  flags: { skip?: boolean; only?: boolean },
+  flags: Flags,
 ): void {
   const previous = currentGroup
+  // An inner group inherits what it doesn't set, and skip/only from outside.
+  const path = previous ? `${previous.path}/${name}` : name
   currentGroup = {
-    name,
-    description: opts?.description,
-    isolate: opts?.isolate,
-    gc: opts?.gc,
-    cpu: opts?.cpu,
-    alloc: opts?.alloc,
-    peakMem: opts?.peakMem,
-    before: opts?.before,
-    after: opts?.after,
-    skip: flags.skip,
-    only: flags.only,
+    path,
+    chain: [
+      ...(previous?.chain ?? []),
+      { path, before: opts?.before, after: opts?.after },
+    ],
+    description: opts?.description ?? previous?.description,
+    isolate: opts?.isolate ?? previous?.isolate,
+    gc: opts?.gc ?? previous?.gc,
+    cpu: opts?.cpu ?? previous?.cpu,
+    alloc: opts?.alloc ?? previous?.alloc,
+    peakMem: opts?.peakMem ?? previous?.peakMem,
+    skip: flags.skip || previous?.skip,
+    only: flags.only || previous?.only,
   }
   try {
     fn()
@@ -151,26 +155,30 @@ function registerGroup(
   }
 }
 
-interface GroupFn {
-  (name: string, fn: () => void, opts?: GroupOptions): void
+type GroupRegistrar = (
+  name: string,
+  fn: () => void,
+  opts?: GroupOptions,
+) => void
+
+interface GroupFn extends GroupRegistrar {
   /** Registers every task inside as skipped: the runner never measures
    * them, but the document still carries their workloads (marked
    * `Workload.skipped`). */
-  skip: (name: string, fn: () => void, opts?: GroupOptions) => void
+  skip: GroupRegistrar
   /** When any task or group in the suite uses `.only`, the runner restricts
    * the whole suite file to only those tasks (before `--filter` narrows
    * further) and prints a one-line notice to stderr. */
-  only: (name: string, fn: () => void, opts?: GroupOptions) => void
+  only: GroupRegistrar
 }
 
 export const group: GroupFn = Object.assign(
-  (name: string, fn: () => void, opts?: GroupOptions): void =>
-    registerGroup(name, fn, opts, {}),
+  ((name, fn, opts) => registerGroup(name, fn, opts, {})) as GroupRegistrar,
   {
-    skip: (name: string, fn: () => void, opts?: GroupOptions): void =>
-      registerGroup(name, fn, opts, { skip: true }),
-    only: (name: string, fn: () => void, opts?: GroupOptions): void =>
-      registerGroup(name, fn, opts, { only: true }),
+    skip: ((name, fn, opts) =>
+      registerGroup(name, fn, opts, { skip: true })) as GroupRegistrar,
+    only: ((name, fn, opts) =>
+      registerGroup(name, fn, opts, { only: true })) as GroupRegistrar,
   },
 )
 
@@ -178,22 +186,21 @@ function registerTask(
   name: string,
   fn: () => unknown | Promise<unknown>,
   opts: TaskOptions | undefined,
-  flags: { skip?: boolean; only?: boolean },
+  flags: Flags,
 ): void {
   const params =
     currentParams !== undefined || opts?.params !== undefined
       ? { ...currentParams, ...opts?.params }
       : undefined
   tasks.push({
-    groupName: currentGroup?.name,
+    groupName: currentGroup?.path,
+    groupChain: currentGroup?.chain,
     groupDescription: currentGroup?.description,
     groupIsolate: currentGroup?.isolate,
     groupGc: currentGroup?.gc,
     groupCpu: currentGroup?.cpu,
     groupAlloc: currentGroup?.alloc,
     groupPeakMem: currentGroup?.peakMem,
-    groupBefore: currentGroup?.before,
-    groupAfter: currentGroup?.after,
     name,
     fn,
     baseline: opts?.baseline,
@@ -204,44 +211,31 @@ function registerTask(
   })
 }
 
-interface TaskFn {
-  (name: string, fn: () => unknown | Promise<unknown>, opts?: TaskOptions): void
+type TaskRegistrar = (
+  name: string,
+  fn: () => unknown | Promise<unknown>,
+  opts?: TaskOptions,
+) => void
+
+interface TaskFn extends TaskRegistrar {
   /** Registers the task as skipped: the runner never measures it, but the
    * document still carries its workload (marked `Workload.skipped`) so a
    * renderer or `compare` can say so explicitly instead of the task simply
    * being absent. */
-  skip: (
-    name: string,
-    fn: () => unknown | Promise<unknown>,
-    opts?: TaskOptions,
-  ) => void
+  skip: TaskRegistrar
   /** When any task or group in the suite uses `.only`, the runner restricts
    * the whole suite file to only those tasks (before `--filter` narrows
    * further) and prints a one-line notice to stderr. */
-  only: (
-    name: string,
-    fn: () => unknown | Promise<unknown>,
-    opts?: TaskOptions,
-  ) => void
+  only: TaskRegistrar
 }
 
 export const task: TaskFn = Object.assign(
-  (
-    name: string,
-    fn: () => unknown | Promise<unknown>,
-    opts?: TaskOptions,
-  ): void => registerTask(name, fn, opts, {}),
+  ((name, fn, opts) => registerTask(name, fn, opts, {})) as TaskRegistrar,
   {
-    skip: (
-      name: string,
-      fn: () => unknown | Promise<unknown>,
-      opts?: TaskOptions,
-    ): void => registerTask(name, fn, opts, { skip: true }),
-    only: (
-      name: string,
-      fn: () => unknown | Promise<unknown>,
-      opts?: TaskOptions,
-    ): void => registerTask(name, fn, opts, { only: true }),
+    skip: ((name, fn, opts) =>
+      registerTask(name, fn, opts, { skip: true })) as TaskRegistrar,
+    only: ((name, fn, opts) =>
+      registerTask(name, fn, opts, { only: true })) as TaskRegistrar,
   },
 )
 
@@ -255,11 +249,8 @@ export function resetRegistry(): void {
   currentParams = undefined
 }
 
-/** Runs `fn` with `params` as the current sweep point, so `task()` calls
- * inside it automatically inherit those as their params (an explicit
- * `TaskOptions.params` still merges over it, explicit keys win). Used by
- * `sweep()`, kept here so it shares the registry's internal state stack
- * instead of duplicating it. */
+/** Runs `fn` with `params` as the current sweep point: `task()` calls inside
+ * inherit it as their params (explicit `TaskOptions.params` keys win). */
 export function withCurrentParams<T>(
   params: Record<string, string | number | boolean>,
   fn: () => T,
@@ -277,9 +268,8 @@ export function taskId(t: RegisteredTask): string {
   return t.groupName ? `${t.groupName}/${t.name}` : t.name
 }
 
-// Effective per-task flags: the task's own value wins, then its group's,
-// then the suite-wide default passed to `bench()`.
-
+// Effective per-task flags: the task's own value, then its group's, then the
+// suite-wide default.
 export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
   return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate
 }
@@ -298,6 +288,48 @@ export function taskAlloc(t: RegisteredTask, suiteAlloc: boolean): boolean {
 
 export function taskPeakMem(t: RegisteredTask, suitePeakMem: boolean): boolean {
   return t.opts?.peakMem ?? t.groupPeakMem ?? suitePeakMem
+}
+
+/** For the task at an index, the paths of the groups it opens (it's the first
+ * measured task inside them: outermost first) and closes (the last: innermost
+ * first), so group hooks wrap measured tasks only (a group's tasks needn't be
+ * contiguous) and an outer group's hooks run once around its nested groups. */
+export function groupEdges(
+  tasks: readonly RegisteredTask[],
+): (index: number) => { enter: string[]; leave: string[] } {
+  const first = new Map<string, number>()
+  const last = new Map<string, number>()
+  tasks.forEach((t, i) => {
+    if (t.skipped) return
+    for (const { path } of t.groupChain ?? []) {
+      if (!first.has(path)) first.set(path, i)
+      last.set(path, i)
+    }
+  })
+  return (i) => {
+    const paths = (tasks[i]!.groupChain ?? []).map((f) => f.path)
+    return {
+      enter: paths.filter((p) => first.get(p) === i),
+      leave: paths.filter((p) => last.get(p) === i).reverse(),
+    }
+  }
+}
+
+/** Runs the task's `before`/`after` hooks for the groups at `paths` (in the
+ * order given; default: all its groups, outermost first for `before`,
+ * innermost first for `after`). A path the task isn't in is skipped. */
+export async function runGroupHooks(
+  t: RegisteredTask,
+  kind: "before" | "after",
+  paths?: readonly string[],
+): Promise<void> {
+  const chain = t.groupChain ?? []
+  const order =
+    paths ??
+    (kind === "before" ? chain : [...chain].reverse()).map((f) => f.path)
+  for (const path of order) {
+    await chain.find((f) => f.path === path)?.[kind]?.()
+  }
 }
 
 /** mitata-compatible: filter value is a JS regex source, substring-matched (no
@@ -319,10 +351,13 @@ export function selectTasks(
   registered: readonly RegisteredTask[],
   filter: string | undefined,
   where: string,
+  // False in the follow-up processes of one run (isolated tasks, peak-memory
+  // readings, ab repeats), so the notice prints once per suite file.
+  announce = true,
 ): RegisteredTask[] {
   const onlyTasks = registered.filter((t) => t.only)
   const candidates = onlyTasks.length > 0 ? onlyTasks : registered
-  if (onlyTasks.length > 0) {
+  if (announce && onlyTasks.length > 0) {
     process.stderr.write(
       `bench: ${onlyTasks.length} task(s) selected by .only\n`,
     )

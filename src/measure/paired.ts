@@ -1,11 +1,12 @@
-import { percentile } from "../stats/index.ts"
-import { compileLoop, isPromiseLike, SINK_SIZE } from "./inprocess.ts"
-
-type TaskBody = () => unknown | Promise<unknown>
+import { percentile, sortedCopy } from "../stats/index.ts"
+import { batchTimer, probeFirstCall, type TaskBody } from "./loop.ts"
 
 export interface PairedTimingOptions {
   /** Rounds of one base batch and one candidate batch (default: 15). */
   rounds?: number
+  /** Aborting rejects `measurePaired` with the signal's reason at the next
+   * batch boundary; partial rounds are discarded. */
+  signal?: AbortSignal
 }
 
 export interface PairedTimingResult {
@@ -24,70 +25,59 @@ export interface PairedTimingResult {
 
 export interface RatioStats {
   medianRatio: number
-  p25: number
-  p75: number
+  ratioP25: number
+  ratioP75: number
   flagged?: "regressed" | "improved"
 }
 
 const DEFAULT_ROUNDS = 15
-// Each side's batch is sized to about this long: timer resolution and call
-// overhead vanish, and a round is still short enough that the machine barely
-// changes between its two halves.
+// Long enough that timer resolution vanishes, short enough that the machine
+// barely changes between a round's two halves.
 const ROUND_BATCH_NS = 10_000_000
-// Warmup doubles both sides' batch until one spans this long, so each side's
-// compiled loop is hot before its batch size is planned.
+// Warmup doubles each side's batch until it spans this long.
 const WARMUP_CHUNK_NS = 1_000_000
 const WARM_ROUNDS = 3
 
-/** Times `base` and `cand` against each other in one process: after a
- * warmup, `rounds` rounds of one ~10ms batch per side, alternating which side
- * goes first so neither always runs on a warmer machine. Whatever drifts over
- * the run (load from other processes, thermal throttling) lands on both
- * halves of a round alike and cancels in that round's ratio, which a
- * baseline measured minutes earlier can't do. Each side is timed through its
- * own compiled loop (see `compileLoop`). */
+/** Times `base` and `cand` against each other in one process: after warmup,
+ * `rounds` rounds of one ~10ms batch per side, alternating which goes first.
+ * Drift (load, thermal throttling) hits both halves of a round alike and
+ * cancels in that round's ratio, which a baseline measured minutes earlier
+ * can't do. */
 export async function measurePaired(
   base: TaskBody,
   cand: TaskBody,
   opts: PairedTimingOptions = {},
 ): Promise<PairedTimingResult> {
   const rounds = opts.rounds ?? DEFAULT_ROUNDS
+  const { signal } = opts
+  signal?.throwIfAborted()
   const start = Bun.nanoseconds()
 
-  const first = async (fn: TaskBody) => {
-    const t0 = Bun.nanoseconds()
-    const value = fn()
-    const isAsync = isPromiseLike(value)
-    const result = isAsync ? await value : value
-    return { isAsync, result, ns: Math.max(1, Bun.nanoseconds() - t0) }
-  }
-  const baseFirst = await first(base)
-  const candFirst = await first(cand)
+  const baseFirst = await probeFirstCall(base)
+  const candFirst = await probeFirstCall(cand)
   const sameOutput = Bun.deepEquals(baseFirst.result, candFirst.result)
 
-  const side = (fn: TaskBody, isAsync: boolean) => {
-    const loop = compileLoop(isAsync)
-    const sink: unknown[] = new Array(SINK_SIZE)
-    return (n: number): number | Promise<number> => loop(fn, sink, n)
-  }
-  const timeBase = side(base, baseFirst.isAsync)
-  const timeCand = side(cand, candFirst.isAsync)
+  const timeBase = batchTimer(base, baseFirst.isAsync)
+  const timeCand = batchTimer(cand, candFirst.isAsync)
 
-  let baseCallNs = baseFirst.ns
-  let candCallNs = candFirst.ns
-  for (let n = 1; ; n *= 2) {
-    const b = await timeBase(n)
-    const c = await timeCand(n)
-    baseCallNs = Math.max(1, b / n)
-    candCallNs = Math.max(1, c / n)
-    if (b >= WARMUP_CHUNK_NS && c >= WARMUP_CHUNK_NS) break
+  // Each side warms alone: sharing one doubling would run a slow side
+  // thousands of times just to get a fast side's batch past the chunk.
+  const warmUp = async (time: (n: number) => number | Promise<number>) => {
+    for (let n = 1; ; n *= 2) {
+      signal?.throwIfAborted()
+      const ns = await time(n)
+      if (ns >= WARMUP_CHUNK_NS) return Math.max(1, ns / n)
+    }
   }
+  const baseCallNs = await warmUp(timeBase)
+  const candCallNs = await warmUp(timeCand)
 
   const batch = Math.max(
     1,
     Math.round(ROUND_BATCH_NS / Math.max(baseCallNs, candCallNs)),
   )
   for (let r = 0; r < WARM_ROUNDS; r++) {
+    signal?.throwIfAborted()
     await timeBase(batch)
     await timeCand(batch)
   }
@@ -96,6 +86,7 @@ export async function measurePaired(
   const candSamples: number[] = []
   const ratios: number[] = []
   for (let r = 0; r < rounds; r++) {
+    signal?.throwIfAborted()
     let b: number
     let c: number
     if (r % 2 === 0) {
@@ -123,23 +114,21 @@ export async function measurePaired(
   }
 }
 
-/** Median and quartiles of per-round candidate/base ratios, and whether they
- * cross `thresholdPct`: `regressed` when the median ratio is above
- * `1 + thresholdPct/100` and the 25th percentile is above 1 (the candidate
- * was slower in at least three quarters of rounds); `improved` is the mirror
- * image. The quartile condition keeps a few wild rounds from flagging a
- * workload whose typical round shows no change. */
+/** `regressed` when the median ratio is above `1 + thresholdPct/100` and the
+ * 25th percentile is above 1 (slower in at least three quarters of rounds);
+ * `improved` is the mirror. The quartile condition keeps a few wild rounds
+ * from flagging a workload whose typical round shows no change. */
 export function ratioStats(ratios: number[], thresholdPct: number): RatioStats {
-  const sorted = Float64Array.from(ratios).sort()
+  const sorted = sortedCopy(ratios)
   const medianRatio = percentile(sorted, 0.5)
-  const p25 = percentile(sorted, 0.25)
-  const p75 = percentile(sorted, 0.75)
+  const ratioP25 = percentile(sorted, 0.25)
+  const ratioP75 = percentile(sorted, 0.75)
   const t = thresholdPct / 100
   const flagged =
-    medianRatio > 1 + t && p25 > 1
+    medianRatio > 1 + t && ratioP25 > 1
       ? "regressed"
-      : medianRatio < 1 - t && p75 < 1
+      : medianRatio < 1 - t && ratioP75 < 1
         ? "improved"
         : undefined
-  return { medianRatio, p25, p75, ...(flagged && { flagged }) }
+  return { medianRatio, ratioP25, ratioP75, ...(flagged && { flagged }) }
 }

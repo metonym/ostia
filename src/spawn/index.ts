@@ -1,90 +1,75 @@
 export interface TrialResult {
   wallNs: number
-  /** `null` when the trial timed out: the process was killed before it could
-   * exit on its own, so its exit code carries no information. */
+  /** `null` when the trial timed out: its exit code carries no information. */
   exitCode: number | null
   userNs?: number
   systemNs?: number
   maxRssBytes?: number
-  /** The command's own reported time, parsed from its output with
-   * `timeSource`, in ns. Only present when `timeSource` is set. */
+  /** Parsed from the command's output via `timeSource`, in ns. */
   reportedNs?: number
-  /** Set when `timeoutMs` elapsed before the process exited on its own; it
-   * was killed with SIGKILL. A timed-out trial contributes no sample. */
+  /** `timeoutMs` elapsed and the process was SIGKILLed; contributes no sample. */
   timedOut?: true
-  /** Set when `timeSource` was configured but its pattern didn't match this
-   * trial's output. A trial with this set has no `reportedNs` and
-   * contributes no sample - it isn't a fallback to `wallNs`, which would
-   * silently mix wall-clock time into a reported-time series. */
+  /** `timeSource` was set but its pattern missed this trial's output;
+   * contributes no sample (no `wallNs` fallback). */
   timeSourceNoMatch?: true
-  /** A 2 KiB-max excerpt of this trial's output, only set alongside
-   * `timeSourceNoMatch`. Not part of the persisted `Trial` (it would bloat
-   * the document once per miss); the timing phase folds one excerpt into
-   * the aggregate `time-source-no-match` warning instead. */
+  /** Up to 2 KiB of output, set with `timeSourceNoMatch`. Not persisted on
+   * `Trial`; the timing phase folds one into the aggregate warning. */
   timeSourceMissOutput?: string
 }
 
-/** Which trial a `prepare` hook is about to run ahead of. `index` counts
- * from 0 within each phase, so a hook that needs "first run" logic checks
- * `phase === "warmup" && index === 0` (or `phase === "timing"` when warmup
- * is 0). */
+/** `index` counts from 0 within each phase, so "first run" logic checks
+ * `phase === "warmup" && index === 0` (or `phase === "timing"` when warmup is 0). */
 export interface PrepareRun {
   phase: "warmup" | "timing" | "cpu" | "heap"
   index: number
 }
 
-/** Return value ignored (so `() => Bun.write(...)` is a valid hook);
- * a returned promise is awaited. */
+/** Return value ignored; a returned promise is awaited. */
 export type PrepareFn = (run: PrepareRun) => unknown
 
-/** Runs before every trial of a command, unmeasured, in the command's own
- * `cwd`/`env`: a shell-less command (string, whitespace-split like the
- * command itself, or argv array) spawned and awaited, or a function for the
- * library API. hyperfine's `--prepare`. A non-zero exit from the command
- * form aborts the run. */
+/** Runs unmeasured before every trial of a command, in its `cwd`/`env`
+ * (hyperfine's `--prepare`): a shell-less command (string, whitespace-split,
+ * or argv array) that must exit 0 or the run aborts, or a function. */
 export type PrepareHook = string | string[] | PrepareFn
 
 export type TimeUnit = "ns" | "us" | "ms" | "s"
 
 /** Take a command's timing from a number in its own stdout/stderr instead of
- * the subprocess wall clock - e.g. a build tool's `built in 342ms` summary
- * line, which excludes the runtime's startup cost. `pattern` is matched
- * against stdout, then stderr; `group` (default 1) is the capture group
- * holding the number; `unit` (default "ms") is what that number is in. A
- * trial whose output doesn't match contributes no sample (a
- * `time-source-no-match` warning records it) rather than aborting the
- * whole run; if every trial of a workload misses, that workload has no
- * timing stats. `pattern` as a `RegExp` must not carry the `g`, `y`, or `d`
- * flag - `exec` is called on it once per trial, and a `g`/`y` flag makes a
- * reused `RegExp` alternate match/no-match via `lastIndex` across those
- * calls. A plain (flagless) pattern, string or `RegExp`, is always safe to
- * reuse. */
+ * the wall clock (e.g. a build tool's `built in 342ms` line). `pattern` is
+ * matched against stdout, then stderr; `group` (default 1) holds the number;
+ * `unit` defaults to "ms". A trial that doesn't match contributes no sample
+ * (`time-source-no-match` warning); if every trial misses, the workload has
+ * no timing stats. A `RegExp` pattern must not carry the `g`, `y`, or `d`
+ * flag: it is reused across trials, and `lastIndex` would make it alternate
+ * match/no-match. */
 export interface TimeSource {
   pattern: string | RegExp
   group?: number
   unit?: TimeUnit
 }
 
-/** Thrown by `parseReportedTime` specifically when the pattern didn't match
- * at all (as opposed to matching but the capture group being missing or
- * non-numeric, which are configuration errors, not a per-trial miss).
- * `runTrial` catches this one specifically to record a per-trial miss
- * instead of failing the whole run. */
+/** A pattern miss (a per-trial drop), unlike a matched-but-malformed capture,
+ * which is a configuration error and throws a plain `Error`. */
 class TimeSourceNoMatchError extends Error {}
 
-/** `TimeSource.pattern` is compiled once per workload and `exec`'d once per
- * trial for the life of the run, so a `g`/`y` flag - which advances
- * `lastIndex` on every match - would make it alternate match/no-match across
- * trials instead of testing the same thing each time. `d` (hasIndices) is
- * rejected too since it's never useful here (nothing reads match indices)
- * and its presence usually signals the same copy-pasted-flags mistake.
- * Called once per workload (not per trial) so a bad pattern fails fast
- * before any trial runs. */
+const compiledPatterns = new WeakMap<TimeSource, RegExp>()
+
+/** A string pattern is compiled once per `TimeSource` object, not per trial. */
+function compiledPattern(source: TimeSource): RegExp {
+  if (typeof source.pattern !== "string") return source.pattern
+  let re = compiledPatterns.get(source)
+  if (!re) {
+    re = new RegExp(source.pattern)
+    compiledPatterns.set(source, re)
+  }
+  return re
+}
+
+/** Called once per workload so a bad pattern fails before any trial runs. */
 export function assertReusableTimeSource(source: TimeSource): void {
-  if (typeof source.pattern === "string") return
-  const { flags } = source.pattern
-  if (flags.includes("g") || flags.includes("y") || flags.includes("d")) {
-    throw new RangeError("timeSource pattern must not use the g or y flag")
+  const re = compiledPattern(source)
+  if (/[gyd]/.test(re.flags)) {
+    throw new RangeError("timeSource pattern must not use the g, y or d flag")
   }
 }
 
@@ -93,30 +78,12 @@ export interface SpawnTrialOptions {
   cwd?: string
   env?: Record<string, string>
   timeSource?: TimeSource
-  /** Kills the trial's process with SIGKILL if it hasn't exited after this
-   * many ms. The trial resolves (never rejects) with `exitCode: null,
-   * timedOut: true` and contributes no sample. No default: an unset
-   * `timeoutMs` never times out. */
+  /** SIGKILLs the trial after this many ms; it resolves (never rejects) with
+   * `exitCode: null, timedOut: true`. Unset never times out. */
   timeoutMs?: number
-  /** Aborting kills this trial's process (if any) with SIGKILL. Distinct
-   * from `timeoutMs`: an aborted trial is discarded by the caller rather
-   * than recorded as `timedOut`, since cancellation isn't something the
-   * command did. */
+  /** Aborting SIGKILLs the process. Unlike `timeoutMs`, the caller discards
+   * the trial rather than recording `timedOut`. */
   signal?: AbortSignal
-}
-
-/** Combines any number of possibly-absent signals into one: `undefined` when
- * none are given, the signal itself when exactly one is, `AbortSignal.any`
- * otherwise. Used everywhere a per-trial timeout signal and a caller's
- * run-wide cancellation signal both need to be able to kill the same
- * process. */
-function combineSignals(
-  ...signals: (AbortSignal | undefined)[]
-): AbortSignal | undefined {
-  const defined = signals.filter((s): s is AbortSignal => s !== undefined)
-  if (defined.length === 0) return undefined
-  if (defined.length === 1) return defined[0]
-  return AbortSignal.any(defined)
 }
 
 const UNIT_NS: Record<TimeUnit, number> = {
@@ -126,10 +93,8 @@ const UNIT_NS: Record<TimeUnit, number> = {
   s: 1e9,
 }
 
-/** The kill switch for one spawned process: `timeoutMs` (per process) and
- * the caller's run-wide `signal`, folded into spawn options that SIGKILL on
- * either, plus `timedOut()` to tell a timeout apart from a caller-driven
- * cancellation after the fact. */
+/** `timeoutMs` and the caller's `signal` folded into spawn options that
+ * SIGKILL on either; `timedOut()` tells the two apart afterwards. */
 export function killSwitch(
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
@@ -139,7 +104,8 @@ export function killSwitch(
 } {
   const timeout =
     timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined
-  const combined = combineSignals(timeout, signal)
+  const combined =
+    timeout && signal ? AbortSignal.any([timeout, signal]) : (timeout ?? signal)
   return {
     spawn: combined ? { signal: combined, killSignal: "SIGKILL" } : {},
     timedOut: () => timeout?.aborted ?? false,
@@ -159,9 +125,7 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
     stdin: "ignore",
     ...kill.spawn,
   })
-  // Drain the pipes concurrently with waiting on exit: a command writing more
-  // than the pipe buffer would otherwise block on a full pipe and inflate
-  // (or deadlock) the wall-clock measurement.
+  // Drain concurrently with exit: a full pipe would block the command and inflate the wall time.
   const output = capture
     ? Promise.all([
         new Response(proc.stdout as ReadableStream).text(),
@@ -179,14 +143,11 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
     userNs: usage ? Number(usage.cpuTime.user) * 1000 : undefined,
     systemNs: usage ? Number(usage.cpuTime.system) * 1000 : undefined,
     maxRssBytes: usage?.maxRSS,
-    ...(timedOut ? { timedOut: true as const } : {}),
+    ...(timedOut && { timedOut: true as const }),
   }
   if (output) {
     const [stdout, stderr] = await output
-    // A killed process's output is partial at best; there's no reported time
-    // to parse out of it, so skip straight past timeSource entirely (the
-    // pipes are still drained above either way, so a killed process can't
-    // block on a full pipe).
+    // A killed process's output is partial: nothing to parse.
     if (opts.timeSource && !timedOut) {
       try {
         result.reportedNs = parseReportedTime(
@@ -196,11 +157,8 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
           opts.argv,
         )
       } catch (err) {
-        // A flat-out miss is this trial's problem, not the run's: drop the
-        // sample and let the caller decide (a `time-source-no-match`
-        // warning, not a thrown error). A matched-but-malformed capture
-        // (missing group, non-numeric) is a configuration error instead -
-        // every trial would hit it identically, so it still throws.
+        // A miss drops this trial's sample; a malformed capture would hit
+        // every trial identically, so that still throws.
         if (!(err instanceof TimeSourceNoMatchError)) throw err
         result.timeSourceNoMatch = true
         result.timeSourceMissOutput = excerptForNoMatch(stdout, stderr)
@@ -216,10 +174,7 @@ export function parseReportedTime(
   stderr: string,
   argv: string[] = [],
 ): number {
-  const re =
-    typeof source.pattern === "string"
-      ? new RegExp(source.pattern)
-      : source.pattern
+  const re = compiledPattern(source)
   const group = source.group ?? 1
   const match = re.exec(stdout) ?? re.exec(stderr)
   const label = argv.length > 0 ? ` for "${argv.join(" ")}"` : ""
@@ -255,10 +210,7 @@ function excerpt(stdout: string, stderr: string): string {
 
 const NO_MATCH_OUTPUT_LIMIT_BYTES = 2048
 
-/** The `output` sample folded into a `time-source-no-match` warning's
- * `data`, capped at 2 KiB total (not per-stream, unlike `excerpt`): the
- * warning is meant to show enough to see why the pattern missed, not to
- * carry the whole capture. */
+/** `excerpt` capped at 2 KiB total, for a `time-source-no-match` warning's `data`. */
 function excerptForNoMatch(stdout: string, stderr: string): string {
   const full = excerpt(stdout, stderr)
   if (Buffer.byteLength(full, "utf8") <= NO_MATCH_OUTPUT_LIMIT_BYTES) {
@@ -272,19 +224,12 @@ function excerptForNoMatch(stdout: string, stderr: string): string {
 }
 
 const OUTPUT_CAP_BYTES = 1024 * 1024
-const ELIDED_MARKER = (n: number) => `\n…(${n} bytes elided)…\n`
 
-/** Reads a stream into a string capped at `capBytes` total: the first half
- * and the last half, joined by a marker, with the true memory footprint
- * bounded to roughly `capBytes` regardless of how much the stream actually
- * produces (the middle is dropped as it arrives, never buffered). Used for
- * output that's shown on failure for debugging, not measured or parsed - a
- * `--prepare` hook that misbehaves and dumps gigabytes to stderr shouldn't
- * be able to blow up the run's memory just to report why it failed.
- * Contrast `timeSource`'s own capture (`runTrial`), which deliberately
- * stays unbounded: a build tool's summary line the regex needs to match
- * could be anywhere in a large output, so truncating it there would trade
- * a memory bound for silently-wrong matches. */
+/** Reads a stream into a string capped at `capBytes`: the first and last half
+ * joined by an elision marker, dropping the middle as it arrives so memory
+ * stays bounded. For debug output (a misbehaving `prepare` hook's stderr), not
+ * `timeSource` capture, which stays unbounded because a summary line may be
+ * anywhere in the output. */
 export async function readBoundedText(
   stream: ReadableStream<Uint8Array>,
   capBytes: number = OUTPUT_CAP_BYTES,
@@ -318,8 +263,7 @@ export async function readBoundedText(
       }
       tailChunks.push(chunk)
       tailBytes += chunk.byteLength
-      // Trim the tail buffer down to its last `halfBytes` as it grows, so
-      // memory never scales with the stream's total size.
+      // Keep only the last `halfBytes`.
       while (tailBytes > halfBytes && tailChunks.length > 0) {
         const first = tailChunks[0]!
         const excess = tailBytes - halfBytes
@@ -337,35 +281,17 @@ export async function readBoundedText(
   }
 
   const decoder = new TextDecoder()
-  const head = decoder.decode(concatChunks(headChunks))
+  const head = decoder.decode(Buffer.concat(headChunks))
   if (totalBytes <= headBytes + tailBytes) return head
-  const tail = decoder.decode(concatChunks(tailChunks))
+  const tail = decoder.decode(Buffer.concat(tailChunks))
   const elidedBytes = totalBytes - headBytes - tailBytes
-  return `${head}${ELIDED_MARKER(elidedBytes)}${tail}`
+  return `${head}\n…(${elidedBytes} bytes elided)…\n${tail}`
 }
 
-function concatChunks(chunks: Uint8Array[]): Uint8Array {
-  const total = chunks.reduce((n, c) => n + c.byteLength, 0)
-  const out = new Uint8Array(total)
-  let offset = 0
-  for (const c of chunks) {
-    out.set(c, offset)
-    offset += c.byteLength
-  }
-  return out
-}
-
-/** Runs a `prepare` hook ahead of one trial. Command forms spawn in the
- * command's `cwd`/`env` with stdout discarded and must exit 0. `timeoutMs`
- * (no default: function hooks can't be killed this way and are never timed
- * out) kills a hung command-form hook with SIGKILL and aborts the run with a
- * clear message, the same way a non-zero exit already does. `signal` kills a
- * command-form hook the same way, but silently: a caller-driven cancellation
- * isn't a failure, so it never throws (the run is already stopping).
- * stderr is captured (bounded to 1 MiB, `readBoundedText`) rather than
- * streamed live, so a hook re-run before every trial doesn't flood the
- * terminal - it's folded into the thrown error instead, on the (timeout or
- * non-zero exit) trials where the hook actually failed. */
+/** Runs a `prepare` hook ahead of one trial. Command forms must exit 0.
+ * `timeoutMs` SIGKILLs a hung command and aborts the run; `signal` kills it
+ * silently, since cancellation isn't a failure. stderr is captured (1 MiB
+ * bounded) and folded into the thrown error rather than streamed. */
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
@@ -390,34 +316,25 @@ export async function runPrepare(
     stdin: "ignore",
     ...kill.spawn,
   })
-  // Drains concurrently with waiting on exit regardless of whether the
-  // success path below ever awaits it, so a chatty hook can't block on a
-  // full pipe; `.catch` keeps a stream error from becoming an unhandled
-  // rejection when nothing reads this promise.
+  // Drain even if nothing reads it, so a chatty hook can't block on a full
+  // pipe; `.catch` avoids an unhandled rejection.
   const stderrText = readBoundedText(proc.stderr as ReadableStream).catch(
     () => "",
   )
   const exitCode = await proc.exited
-  if (kill.timedOut()) {
-    const stderr = (await stderrText).trim()
-    throw new Error(
-      `prepare command "${argv.join(" ")}" timed out after ${opts.timeoutMs}ms before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
-    )
-  }
-  // Killed by the caller's signal, not a timeout or the command itself: the
-  // run is already winding down, so this isn't a new failure to report.
-  if (opts.signal?.aborted) return
-  if (exitCode !== 0) {
-    const stderr = (await stderrText).trim()
-    throw new Error(
-      `prepare command "${argv.join(" ")}" exited with code ${exitCode} before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
-    )
-  }
+  const timedOut = kill.timedOut()
+  if (!timedOut && opts.signal?.aborted) return
+  if (!timedOut && exitCode === 0) return
+  const how = timedOut
+    ? `timed out after ${opts.timeoutMs}ms`
+    : `exited with code ${exitCode}`
+  const stderr = (await stderrText).trim()
+  throw new Error(
+    `prepare command "${argv.join(" ")}" ${how} before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
+  )
 }
 
-/** The serializable shape of a `prepare` hook for the document: the argv of
- * a command form, or nothing for a function (which lives only in the
- * process that ran it). */
+/** The command form's argv, for the document; a function isn't serializable. */
 export function prepareArgv(
   hook: PrepareHook | undefined,
 ): string[] | undefined {
@@ -425,9 +342,7 @@ export function prepareArgv(
   return Array.isArray(hook) ? hook : splitCommand(hook)
 }
 
-/** The serializable shape of a `TimeSource`: a `RegExp` pattern becomes its
- * source string (flags dropped, since only `exec` on a single-shot match is
- * ever used). */
+/** A `RegExp` pattern becomes its source string (flags dropped). */
 export function timeSourceSpec(
   source: TimeSource | undefined,
 ): SerializedTimeSource | undefined {

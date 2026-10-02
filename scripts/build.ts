@@ -40,20 +40,18 @@ if (!result.success) {
   process.exit(1)
 }
 
-const cliOut = join(out, "main.js")
-if (existsSync(cliOut)) {
-  renameSync(cliOut, join(out, "cli.js"))
-}
-
-// The runners are spawned by path (`new URL("./runner.ts", import.meta.url)`
-// in src/bench, `./ab-runner.ts` in src/ab), so they keep their source names.
-for (const runner of ["runner", "ab-runner"]) {
-  const runnerOut = join(out, `${runner}.js`)
-  if (!existsSync(runnerOut)) {
-    console.error(`build: missing ${runner}.js`)
+// The runners are spawned by path (`new URL("./runner.ts", import.meta.url)`),
+// so they keep their source names.
+for (const [from, to] of [
+  ["main.js", "cli.js"],
+  ["runner.js", "runner.ts"],
+  ["ab-runner.js", "ab-runner.ts"],
+]) {
+  if (!existsSync(join(out, from!))) {
+    console.error(`build: missing ${from}`)
     process.exit(1)
   }
-  renameSync(runnerOut, join(out, `${runner}.ts`))
+  renameSync(join(out, from!), join(out, to!))
 }
 
 await bundleDts({

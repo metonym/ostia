@@ -4,10 +4,24 @@ import {
   lstatSync,
   realpathSync,
   renameSync,
+  statSync,
+  utimesSync,
 } from "node:fs"
-import { isAbsolute, relative, sep } from "node:path"
+import { mkdir, readdir } from "node:fs/promises"
+import { relative, sep } from "node:path"
+import {
+  absolutePath,
+  assertSuiteExists,
+  captureRunEnvironment,
+  median,
+  removeDir,
+  runRunnerProcess,
+  stampRunWarnings,
+  uniqueTmpDir,
+} from "../bench/support.ts"
 import { DEFAULT_OUT_DIR } from "../config/index.ts"
-import { loadDocument, newDocument } from "../ir/document.ts"
+import { OstiaUsageError } from "../errors.ts"
+import { createDocument, loadDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type {
   AbSummary,
@@ -16,17 +30,12 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
-import {
-  captureEnvironment,
-  noisyMachineWarning,
-} from "../measure/environment.ts"
-import { killSwitch } from "../spawn/index.ts"
-import { percentile } from "../stats/index.ts"
+import { assertSamplingOptions } from "../measure/timing.ts"
 import type { AbRunnerOpts } from "./ab-runner.ts"
 
 export interface AbOptions {
   suites: string[]
-  /** Git ref whose committed tree is the base side (default: `"HEAD"`). The
+  /** Git ref whose committed tree is the base side (default: `"HEAD"`); the
    * candidate is the working tree, uncommitted changes included. */
   base?: string
   /** Rounds per workload, each one base batch and one candidate batch of
@@ -39,9 +48,8 @@ export interface AbOptions {
    * this many percent (default: 1.5): a broad slowdown too small to flag any
    * one workload. */
   geomeanThresholdPct?: number
-  /** Fresh-process repeats of each flagged workload; it only counts when
-   * every repeat flags it the same way (default: 2; 0 trusts the first
-   * process). */
+  /** Fresh-process repeats of each flagged workload, which only counts when
+   * every repeat flags it the same way (default: 2; 0 trusts the first). */
   confirm?: number
   filter?: string
   preload?: string[]
@@ -49,17 +57,16 @@ export interface AbOptions {
   outDir?: string
   cwd?: string
   noiseCheck?: boolean
-  /** Kills a runner process (one suite file, or one repeat) after this many
-   * ms. No default. */
+  /** SIGKILLs a runner process (one suite file or repeat) after this many ms. */
   timeoutMs?: number
   /** Aborting kills the running process and resolves with the suites that
-   * had finished, plus an `aborted` warning; repeats not yet run leave their
+   * had finished, plus an `aborted` warning; unrun repeats leave their
    * workloads unconfirmed. */
   signal?: AbortSignal
 }
 
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
-export class AbBaseError extends Error {}
+export class AbBaseError extends OstiaUsageError {}
 
 const RUNNER_PATH = new URL("./ab-runner.ts", import.meta.url).pathname
 
@@ -80,15 +87,11 @@ function git(args: string[], cwd: string): string | undefined {
   return proc.success ? proc.stdout.toString().trim() : undefined
 }
 
-// Appended to every script in the base tree, so no file is byte-identical to
-// its working-tree copy. JSC's code cache reuses compiled code between
-// identical sources, and identical copies didn't measure independently: on
-// caligula, with no change at all, whichever copy the runner imported first
-// (and so warmed first, in the suite's module-scope setup) ran 5-15% faster,
-// reproducibly in fresh processes. With the copies' text differing, the same
-// A/A run read +0.1% whichever went first. A statement, not a comment: Bun's
-// transpiler strips comments and inert expressions. Reading an absent global
-// has no effect.
+// Appended to every base-tree script so no file is byte-identical to its
+// working-tree copy: JSC's code cache shares compiled code between identical
+// sources, and whichever copy was imported (and warmed) first ran 5-15%
+// faster in A/A runs. A statement, not a comment: Bun's transpiler strips
+// comments and inert expressions.
 const BASE_SALT = "\n;globalThis.__ostia_ab_base__;\n"
 const SCRIPT_GLOB = "**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
 
@@ -104,15 +107,17 @@ async function saltScripts(dir: string): Promise<void> {
   }
 }
 
-/** The committed tree at `sha`, extracted once under `dir` and reused by
- * every later run against the same commit, with each script salted (see
- * `BASE_SALT`). Extracted into a temp directory and renamed into place, so a
- * directory at `dir` is always complete. */
+/** Extracts the committed tree at `sha` under `dir` (reused by later runs
+ * against the same commit), scripts salted. Renamed into place from a temp
+ * directory, so a directory at `dir` is always complete. */
 async function extractTree(sha: string, dir: string, cwd: string) {
-  if (existsSync(dir)) return
-  const tmp = `${dir}.tmp-${process.pid}`
-  await Bun.spawn(["rm", "-rf", tmp]).exited
-  await Bun.spawn(["mkdir", "-p", tmp]).exited
+  if (existsSync(dir)) {
+    markUsed(dir)
+    return
+  }
+  const tmp = `${dir}${TMP_MARK}${process.pid}-${crypto.randomUUID().slice(0, 8)}`
+  await removeDir(tmp)
+  await mkdir(tmp, { recursive: true })
   const archive = Bun.spawn(["git", "archive", "--format=tar", sha], {
     cwd,
     stdout: "pipe",
@@ -127,25 +132,63 @@ async function extractTree(sha: string, dir: string, cwd: string) {
     const stderr = await new Response(
       archiveCode !== 0 ? archive.stderr : tar.stderr,
     ).text()
-    await Bun.spawn(["rm", "-rf", tmp]).exited
+    await removeDir(tmp)
     throw new Error(`Could not extract ${sha}: ${stderr.trim()}`)
   }
   await saltScripts(tmp)
   try {
     renameSync(tmp, dir)
   } catch {
-    // Another run extracted the same commit first; its copy is complete.
-    await Bun.spawn(["rm", "-rf", tmp]).exited
+    // Another run extracted the same commit first.
+    await removeDir(tmp)
+  }
+  markUsed(dir)
+}
+
+// Extracted trees kept besides any a concurrent run could still be using.
+const KEEP_TREES = 5
+const IN_USE_WINDOW_MS = 60 * 60 * 1000
+const TMP_MARK = ".tmp-"
+
+// Last use is the directory's mtime: reading a tree never changes it.
+function markUsed(dir: string): void {
+  try {
+    const now = new Date()
+    utimesSync(dir, now, now)
+  } catch {
+    // Pruning is best-effort.
   }
 }
 
-function median(values: number[]): number {
-  return percentile(Float64Array.from(values).sort(), 0.5)
+/** Removes extracted trees beyond the `KEEP_TREES` most recently used, and
+ * abandoned half-extracted ones, but never one used within the last hour (a
+ * concurrent run may be reading it). Best-effort: a failure leaves them. */
+async function pruneTrees(root: string): Promise<void> {
+  try {
+    const now = Date.now()
+    const entries = (await readdir(root))
+      .map((name) => ({
+        name,
+        stat: statSync(`${root}/${name}`, { throwIfNoEntry: false }),
+      }))
+      .filter((e) => e.stat?.isDirectory())
+      .map((e) => ({ name: e.name, mtimeMs: e.stat!.mtimeMs }))
+    const trees = entries
+      .filter((e) => !e.name.includes(TMP_MARK))
+      .sort((a, b) => b.mtimeMs - a.mtimeMs)
+    const leftovers = entries.filter((e) => e.name.includes(TMP_MARK))
+    await Promise.all(
+      [...trees.slice(KEEP_TREES), ...leftovers]
+        .filter((e) => now - e.mtimeMs > IN_USE_WINDOW_MS)
+        .map((e) => removeDir(`${root}/${e.name}`)),
+    )
+  } catch {
+    // Pruning is best-effort.
+  }
 }
 
-/** A workload's best estimate of its ratio: the median over its main run
- * and any fresh-process repeats, so one process's JIT luck moves the
- * geomean less. */
+/** Median over the main run and any fresh-process repeats, so one process's
+ * JIT luck moves the geomean less. */
 function ratioEstimate(p: PairedEvidence): number {
   if (!p.repeats?.length) return p.medianRatio
   return median([p.medianRatio, ...p.repeats.map((r) => r.medianRatio)])
@@ -163,12 +206,13 @@ export function summarizePaired(
   const paired = measurements
     .map((m) => m.paired)
     .filter((p): p is PairedEvidence => p !== undefined)
-  let logSum = 0
-  for (const p of paired) logSum += Math.log(ratioEstimate(p))
+  const count = (verdict: PairedEvidence["verdict"]) =>
+    paired.filter((p) => p.verdict === verdict).length
+  const logSum = paired.reduce((sum, p) => sum + Math.log(ratioEstimate(p)), 0)
   const geomeanPct =
     paired.length > 0 ? (Math.exp(logSum / paired.length) - 1) * 100 : null
-  const regressed = paired.filter((p) => p.verdict === "regressed").length
-  const improved = paired.filter((p) => p.verdict === "improved").length
+  const regressed = count("regressed")
+  const improved = count("improved")
   return {
     ...settings,
     matched: paired.length,
@@ -189,10 +233,10 @@ export function summarizePaired(
 /** Paired A/B timing of suite files against a git ref: every task runs on
  * the ref's committed tree (base) and the working tree (candidate) in one
  * process, alternating short batches, and is judged on the per-round time
- * ratio. Drift that makes two runs minutes apart disagree cancels within a
- * round. What pairing can't cancel is how the JIT happened to compile each
- * side in that process, so every flagged workload is measured again in
- * `confirm` fresh processes and only counts when they all agree. */
+ * ratio. Drift between two runs minutes apart cancels within a round. What
+ * pairing can't cancel is how the JIT compiled each side in that process, so
+ * every flagged workload is re-measured in `confirm` fresh processes and only
+ * counts when they all agree. */
 export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const ref = opts.base ?? DEFAULTS.base
   const rounds = opts.rounds ?? DEFAULTS.rounds
@@ -215,10 +259,17 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     }
   }
 
+  assertSamplingOptions("ab", { timeoutMs: opts.timeoutMs })
+
   const cwd = opts.cwd ?? process.cwd()
-  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
-  const absOutDir = isAbsolute(outDir) ? outDir : `${cwd}/${outDir}`
-  const tmpDir = `${absOutDir}/ab-tmp`
+  const absOutDir = absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR)
+  const tmpDir = uniqueTmpDir(absOutDir, "ab")
+
+  // Same path join as `bench()`, so workload ids match `ostia bench`'s.
+  const candSuites = opts.suites.map((file) => absolutePath(cwd, file))
+  for (const [i, suite] of candSuites.entries()) {
+    assertSuiteExists(opts.suites[i]!, suite)
+  }
 
   const toplevel = git(["rev-parse", "--show-toplevel"], cwd)
   if (toplevel === undefined) {
@@ -229,31 +280,22 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     throw new AbBaseError(`"${ref}" is not a commit in ${toplevel}.`)
   }
   // Under the project's node_modules, so a bare import from the base tree
-  // (a dependency, or `ostia` itself) walks up to the same package the
-  // working tree uses.
+  // resolves to the same packages (and `ostia` itself) as the working tree.
   const checkout = `${absOutDir}/ab/${sha}`
   await extractTree(sha, checkout, cwd)
+  await pruneTrees(`${absOutDir}/ab`)
 
-  const environment =
-    opts.noiseCheck === false ? undefined : captureEnvironment()
+  const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck)
 
-  // Plain string join, not path.resolve: the suite path is hashed into every
-  // workload id, so these ids match `ostia bench`'s for the same files.
-  const absolute = (file: string) =>
-    isAbsolute(file) ? file : `${cwd}/${file}`
-  const candSuites = opts.suites.map(absolute)
   // "" when the file doesn't exist at the base ref: all its tasks are new.
   const baseSuites = candSuites.map((suite, i) => {
-    if (!existsSync(suite)) {
-      throw new Error(`Suite not found: ${opts.suites[i]}`)
-    }
     const inRepo = relative(toplevel, realpathSync(suite))
     if (inRepo === ".." || inRepo.startsWith(`..${sep}`)) {
-      throw new AbBaseError(`${opts.suites[i]} is outside ${toplevel}.`)
+      throw new OstiaUsageError(`${opts.suites[i]} is outside ${toplevel}.`)
     }
     return existsSync(`${checkout}/${inRepo}`) ? `${checkout}/${inRepo}` : ""
   })
-  const preload = (opts.preload ?? []).map(absolute)
+  const preload = (opts.preload ?? []).map((file) => absolutePath(cwd, file))
   const bunFlags = opts.bunFlags ?? []
 
   let spawned = 0
@@ -269,8 +311,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       preload,
       ...extra,
     }
-    const kill = killSwitch(opts.timeoutMs, opts.signal)
-    const proc = Bun.spawn(
+    const ran = await runRunnerProcess(
       [
         "bun",
         ...bunFlags,
@@ -281,26 +322,14 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         JSON.stringify(runnerOpts),
       ],
       {
+        label: "A/B suite",
+        name: opts.suites[s]!,
         cwd,
-        stdout: "inherit",
-        stderr: "inherit",
-        stdin: "ignore",
-        ...kill.spawn,
+        timeoutMs: opts.timeoutMs,
+        signal: opts.signal,
       },
     )
-    const exitCode = await proc.exited
-    if (opts.signal?.aborted) return undefined
-    if (kill.timedOut()) {
-      throw new Error(
-        `A/B suite timed out after ${opts.timeoutMs}ms: ${opts.suites[s]}`,
-      )
-    }
-    if (exitCode !== 0) {
-      throw new Error(
-        `A/B suite failed: ${opts.suites[s]} (runner exited ${exitCode})`,
-      )
-    }
-    return loadDocument(outPath)
+    return ran ? loadDocument(outPath) : undefined
   }
 
   try {
@@ -331,8 +360,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         if (!repeat) break
         p.repeats.push({
           medianRatio: repeat.medianRatio,
-          p25: repeat.p25,
-          p75: repeat.p75,
+          ratioP25: repeat.ratioP25,
+          ratioP75: repeat.ratioP75,
           ...(repeat.flagged && { flagged: repeat.flagged }),
         })
       }
@@ -342,19 +371,15 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       p.verdict = p.confirmed ? p.flagged : "unchanged"
     }
 
-    const noiseWarning = environment && noisyMachineWarning(environment)
-    if (noiseWarning && measurements.length > 0) {
-      measurements[0]!.warnings.push(noiseWarning)
-    }
-    if (opts.signal?.aborted && measurements.length > 0) {
-      measurements[measurements.length - 1]!.warnings.push({
-        code: "aborted",
-        message:
-          "Run was cancelled before it finished; this document holds whatever suites had already completed.",
-      })
-    }
+    stampRunWarnings(
+      measurements,
+      noiseWarning,
+      opts.signal?.aborted
+        ? "Run was cancelled before it finished; this document holds whatever suites had already completed."
+        : undefined,
+    )
 
-    const doc = newDocument(workloads, measurements, environment)
+    const doc = createDocument(workloads, measurements, environment)
     doc.unmatched = { baseOnly, candOnly }
     doc.ab = summarizePaired(measurements, {
       base: { ref, sha },
@@ -364,6 +389,6 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     })
     return doc
   } finally {
-    await Bun.spawn(["rm", "-rf", tmpDir]).exited
+    await removeDir(tmpDir)
   }
 }

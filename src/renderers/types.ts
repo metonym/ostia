@@ -12,6 +12,7 @@ export type FormatName =
   | "cpuprofile"
 
 export interface VizOptions {
+  /** Render this measurement only, instead of every CPU measurement. */
   measurementId?: string
 }
 

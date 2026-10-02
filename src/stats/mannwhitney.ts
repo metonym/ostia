@@ -1,10 +1,10 @@
+import { sortedCopy } from "./index.ts"
+
 export interface MannWhitneyResult {
-  /** U statistic for `a` (sum of `a`'s ranks minus `a`'s minimum possible
-   * rank sum). */
+  /** U statistic for `a`. */
   u: number
-  /** Standard score of `u` against its null-hypothesis mean/variance. */
   z: number
-  /** Two-sided p-value, normal approximation, tie-corrected. */
+  /** Two-sided, normal approximation, tie-corrected. */
   pValue: number
 }
 
@@ -28,23 +28,20 @@ function normalCdf(z: number): number {
   return 0.5 * (1 + erf(z / Math.SQRT2))
 }
 
-/** Mann-Whitney U test (two-sided, normal approximation, tie-corrected):
- * whether `a` and `b` are drawn from the same distribution, without assuming
- * normality the way a t-test would - the right fit for wall-clock timing
- * samples, which are usually right-skewed. Ranks come from a merge walk over
- * the two independently sorted sides, so no per-sample objects are built. */
+/** Mann-Whitney U test: whether `a` and `b` share a distribution, without the
+ * normality a t-test assumes (wall-clock samples are right-skewed). Ranks come
+ * from a merge walk over the two sorted sides. An empty side gives `pValue: 1`. */
 export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   const n1 = a.length
   const n2 = b.length
   const n = n1 + n2
+  // No evidence either way: the variance below is 0/0 for an empty side.
+  if (n1 === 0 || n2 === 0) return { u: 0, z: 0, pValue: 1 }
 
-  const sa = new Float64Array(a)
-  const sb = new Float64Array(b)
-  sa.sort()
-  sb.sort()
+  const sa = sortedCopy(a)
+  const sb = sortedCopy(b)
 
-  // Walk both sorted sides together, one tie group (distinct value) at a
-  // time: every member of the group gets the group's average rank.
+  // One tie group (distinct value) at a time; each member gets the group's average rank.
   let r1 = 0 // rank sum of `a`
   let tieCorrection = 0
   let i = 0

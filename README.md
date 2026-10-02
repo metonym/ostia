@@ -132,7 +132,7 @@ Scratch output (cache, artifacts) goes to `node_modules/.cache/ostia`. Baselines
 
 `--format minimal` (on `time`, `bench`, `ab`, `compare`, `report`, `ci`) prints one JSON
 object per line on stdout and nothing else. Every line has `event` and
-`protocolVersion: 1`. Timing values are in nanoseconds.
+`protocolVersion: 2`. Timing values are in nanoseconds.
 
 ```sh
 ostia time --samples 10 "bun a.ts" --format minimal
@@ -142,16 +142,16 @@ ostia ci --format minimal; echo $?
 
 | `event` | When | Key fields |
 |---|---|---|
-| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples`, `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `retainedBytesPerOp?`/`peakBytes?` (`--alloc`/`--peak-mem`), `relative?`, `noiseFloorPct?`, `warnings[]`, on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }`, and on `ab`: `paired: { baseMedian, medianRatio, p25, p75, rounds, verdict, flagged?, confirmed?, repeats?, sameOutput }` |
+| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples` (0 when no trial produced one), `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `retainedBytesPerOp?`/`peakBytes?` (`--alloc`/`--peak-mem`), `relative?`, `noiseFloorPct?`, `warnings[]`, on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }`, and on `ab`: `paired: { baseMedian, medianRatio, ratioP25, ratioP75, rounds, verdict, flagged?, confirmed?, repeats?, sameOutput }` |
 | `unmatched` | One per workload on only one side of `compare`/`ci`/`ab` | `workloadId`, `task`, `side: "base" \| "cand"` |
 | `summary` | Last line of `compare`/`ci`/`ab` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `base?`/`geomeanThresholdPct?`/`unconfirmed?`/`outputDiffers?` (`ab`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
 
 ```
-{"event":"run","protocolVersion":1,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
-{"event":"summary","protocolVersion":1,"command":"ci","matched":1,"regressed":1,"improved":0,"unchanged":0,"unmatched":0,"geomeanPct":44.098920968212305,"effectiveTimingPct":10,"verdict":"fail","exitCode":1,"cached":1,"executed":0,"failed":0,"missingBaseline":0,"baseline":{"name":"main","path":".ostia/baselines/main.json"},"noiseFloorPct":2.09286}
+{"event":"run","protocolVersion":2,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
+{"event":"summary","protocolVersion":2,"command":"ci","matched":1,"regressed":1,"improved":0,"unchanged":0,"unmatched":0,"geomeanPct":44.098920968212305,"effectiveTimingPct":10,"verdict":"fail","exitCode":1,"cached":1,"executed":0,"failed":0,"missingBaseline":0,"baseline":{"name":"main","path":".ostia/baselines/main.json"},"noiseFloorPct":2.09286}
 ```
 
-Within `protocolVersion: 1`, keys are only ever added, never renamed or removed.
+Within `protocolVersion: 2`, keys are only ever added, never renamed or removed.
 
 Exit codes, the same for every command:
 
@@ -160,9 +160,9 @@ Exit codes, the same for every command:
 | `0` | Pass |
 | `1` | At least one workload regressed (`compare`/`ci`/`ab` only; `time`/`bench` never return 1) |
 | `2` | Harness error: a command exited non-zero or produced no samples, a suite failed, nothing matched, a bad flag, a missing/invalid config or baseline |
-| `130` | Cancelled with Ctrl-C (`time`/`bench`/`ab`; partial results are still exported) |
+| `130` | Cancelled with Ctrl-C (`time`/`bench`/`ab`/`ci`; partial results are still exported) |
 
-On exit 2, stderr's last line is `{"event":"error","protocolVersion":1,"code":...,"message":...,"data"?:...}`
+On exit 2, stderr's last line is `{"event":"error","protocolVersion":2,"code":...,"message":...,"data"?:...}`
 when stderr is not a TTY or a machine format (`minimal`/`json`/`jsonl`) was requested.
 A person at a terminal sees only the prose message. `code` is one of `invalid-flag`,
 `config-missing`, `config-invalid`, `baseline-missing`, `no-matches`, `spawn-failed`,
@@ -386,8 +386,8 @@ export default defineConfig({
 })
 ```
 
-A config that still uses the old `runs` field fails to load with a message naming
-`samples` (error code `config-invalid`). All fields: [docs/config.md](docs/config.md).
+A config with a wrong-typed value, or the old `runs` field, fails to load with a message
+naming the key (error code `config-invalid`). All fields: [docs/config.md](docs/config.md).
 
 ## Documentation
 

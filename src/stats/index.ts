@@ -1,5 +1,5 @@
+import { formatDuration } from "../format.ts"
 import type { TimingStats, Warning } from "../ir/types.ts"
-import { formatDuration } from "../renderers/format.ts"
 
 export function computeTimingStats(samples: number[]): TimingStats {
   if (samples.length === 0) {
@@ -58,7 +58,7 @@ export function computeTimingStats(samples: number[]): TimingStats {
   }
 }
 
-function sortedCopy(samples: number[]): Float64Array {
+export function sortedCopy(samples: number[]): Float64Array {
   const sorted = new Float64Array(samples.length)
   sorted.set(samples)
   sorted.sort()
@@ -78,18 +78,14 @@ export function percentile(sorted: Float64Array, p: number): number {
 
 const FAST_COMMAND_NS = 5_000_000
 
-/** `reported` is a subprocess whose samples are its own reported times (a
- * `timeSource` workload): neither the spawn-overhead nor the timer-resolution
- * heuristic applies to a number the command printed itself. */
+/** `reported`: samples are the command's own printed times (`timeSource`), so
+ * the spawn-overhead heuristic doesn't apply. */
 export type TimingMode = "subprocess" | "inprocess" | "reported"
 
 export function timingWarnings(
   stats: TimingStats,
   exitCodes: (number | undefined)[],
   mode: TimingMode = "subprocess",
-  /** Exit codes treated as success (`ostia time --ignore-failure`,
-   * `TimeOptions.ignoreExitCodes`): excluded from the `nonzero-exit`
-   * warning's count and `data.exitCodes` entirely. */
   ignoreExitCodes: number[] = [],
 ): Warning[] {
   const warnings: Warning[] = []
@@ -97,8 +93,7 @@ export function timingWarnings(
   const first = stats.samples[0]
   if (first !== undefined) {
     const iqr = stats.p75 - stats.p25
-    // Both an outlier by the IQR fence and materially slow: with a tight
-    // distribution the fence alone flags a first sample a few percent slow.
+    // The IQR fence alone flags a first sample a few percent slow when the spread is tight.
     if (first > stats.median + 3 * iqr && first > 2 * stats.median && iqr > 0) {
       warnings.push({
         code: "slow-first-run",
@@ -108,11 +103,8 @@ export function timingWarnings(
     }
   }
 
-  // In-process samples always carry a long right tail (GC pauses, tier-up)
-  // across thousands of trials, and the median every report and verdict uses
-  // is robust to it, so flagging it on every task only teaches users to
-  // ignore warnings. A subprocess run has a handful of trials, where one
-  // outlier genuinely moves the numbers.
+  // In-process samples always have a long right tail (GC, tier-up) that the
+  // median is robust to; with a handful of subprocess trials one outlier matters.
   if (mode !== "inprocess" && stats.outliers.mild + stats.outliers.severe > 0) {
     warnings.push({
       code: "outliers-detected",

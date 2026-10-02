@@ -104,7 +104,8 @@ value is stored per comparison (`thresholds.effectiveTimingPct`) and in the summ
 When both sides have CPU evidence, per-frame self-time changes are reported; a frame
 fails the comparison when its self time grows by more than `frameSelfPct` and it has at
 least `minFrameSelfUs` of self time on either side. When both sides have heap snapshots,
-a heap object type fails when its count grows by more than `heapTypePct`. These make the
+a heap object type fails when its count grows by more than `heapTypePct` (the count only;
+`retainedBytes` is informational and is never gated). These make the
 comparison's overall `verdict` `"fail"` (exit 1) without changing the timing verdict.
 They are plain percentage thresholds, not significance tests: each side is a single
 instrumented run.

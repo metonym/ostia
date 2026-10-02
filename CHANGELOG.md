@@ -1,5 +1,165 @@
 # Changelog
 
+## Unreleased
+
+**Breaking**
+
+- `ab` ratio quartiles are renamed `ratioP25`/`ratioP75` (was `p25`/`p75`) on
+  `PairedEvidence`, its `repeats`, and the `--format minimal` `paired` object,
+  so they can't be mistaken for `TimingStats.p25`/`p75` (ns). `schemaVersion`
+  stays 2: `loadDocument` reads the old names from `ab` documents saved by
+  0.2.8-0.2.9 as the new ones. The minimal protocol bumps to `protocolVersion: 2`
+  (a key was renamed); no other event changed.
+- Nested `group()` calls no longer replace the outer group: the inner group's
+  name is the path (`outer/inner`), so a task in it has id `outer/inner/task`
+  and `Workload.group` `outer/inner`. Workload ids of tasks inside a nested
+  group change, so a baseline holding them needs re-saving. Ids of tasks in a
+  single group are unchanged.
+- Config values are validated when the file loads: a wrong type or range
+  (`samples: "5"`, `bench.jobs: 0`, a non-array `workloads`, a workload with
+  both or neither of `command` and `suites`, a string `command`) is a
+  `config-invalid` error (exit 2) naming the key; before, it was passed along
+  unchecked. A `.ts` config with no default export is an error too (it used to
+  load as `{}`), and `ostia ci` fails a `suites` glob that matches no files
+  instead of gating nothing. Unknown keys don't fail: they warn on stderr.
+- Surplus input is a usage error (`invalid-flag`, exit 2) instead of being
+  ignored: a third `compare` path (or a second with `--baseline`), arguments
+  to `baseline list`, `time --time-unit` without `--time-source`, `time
+  --cpu-interval` without `--cpu`, and `report`/`baseline show` with
+  `--measurement` or `--out-dir` and a non-visualization `--format`.
+- `ostia ci --save-baseline` implies `--full`, so the saved baseline is always
+  fresh measurements (it could save a cached run).
+- `profile()`'s `intervalUs` option is renamed `cpuIntervalUs`, matching
+  `time()`/`bench()`, the config key and `--cpu-interval`. The old name is
+  ignored.
+- The `--format minimal` `summary` event's `verdict` is `"pass"` for exit 0,
+  `"fail"` for exit 1 (a regression) and the new `"error"` for any other code
+  (2, a harness error; 130, cancelled); it was `"fail"` for every non-zero code.
+  Folded into `protocolVersion: 2`, which is unreleased.
+- Byte counts are labelled `KiB`/`MiB` (they were always 1024-based, but
+  printed `KB`/`MB`), in the `Retained/op` and `Peak mem` columns, the
+  `peak-hidden` warning and heap snapshot summaries. The heap summary used
+  1e6-based `MB`; it now matches the rest (`117.19KiB`).
+
+**Changes**
+
+- `renderers` is typed per format instead of `Renderer<any>`, so each
+  renderer's options are checked. `BenchOptions`, `AbOptions`,
+  `ProfileOptions`, `ProfileResult`, `MinimalRenderOptions`,
+  `MinimalProtocolContext`, `MermaidOptions` and `VizOptions` are now exported
+  types.
+- `--format minimal`: `task` is the workload's label (the same as the other
+  formats), else its command line, else its task id. Identical for every
+  workload ostia itself creates (`bench` tasks are labelled with their id).
+- An inner `group()` inherits `description`, `isolate`, `gc`, `cpu`, `alloc`,
+  `peakMem` and `.skip`/`.only` from the group around it (its own values win);
+  an outer group's `before`/`after` run once around everything inside it,
+  nested groups included.
+- `compareDocuments` lists comparisons in the candidate's workload order
+  (it followed the baseline's), matching `ostia ci`.
+- `bench()` rejects a `jobs` that isn't an integer >= 1 (`NaN` used to run
+  nothing, `2.5` was floored); `ab()` validates `timeoutMs` like `bench()`.
+- A missing suite file is a usage error naming the path (`invalid-flag`, exit
+  2) from `bench` and `ab` alike, instead of "runner exited 1" from `bench` and
+  `spawn-failed` from `ab`. A suite outside the repository under `ab` no longer
+  reads `--base: ...`.
+- `ab` keeps the five most recently used base trees under `<outDir>/ab` and
+  removes older ones (never one used in the last hour).
+- Docs: names and the deliberately different defaults across `time`, `bench`,
+  `ab` and `ci`; `retainedBytes` is shown but never gated.
+- `--config PATH` on `bench`, `ab`, `compare`, `ci` and `baseline` loads that
+  config file instead of discovery; a missing file is `config-missing`.
+- `ostia ci` handles Ctrl-C like `bench` and `ab`: in-flight trials and suite
+  processes are killed, the finished workloads are exported with an `aborted`
+  warning, nothing is compared, saved as a baseline or cached, and the exit
+  code is 130. `runCi` takes a `signal` and returns `aborted`.
+- If both `ostia.config.ts` and `ostia.config.json` exist, the `.ts` file is
+  used as before and a warning now says the JSON one is ignored.
+- `loadDocument` checks the document's structure (`workloads` and
+  `measurements` arrays, string ids, `trials`/`warnings`/`artifacts` arrays)
+  and throws `OstiaDocumentError` (`not-a-document`) naming the offending
+  entry, instead of a `TypeError` from a renderer.
+- `time` measurements' artifact ids hash the measurement's own id instead of a
+  hand-built string, matching every other producer; the ids of `--cpu` and
+  `--heap` artifacts in new documents differ from earlier versions (nothing
+  matches on them).
+- `createDocument` is the only name of the document builder internally, and the
+  `sortKeysDeep` and `expandSuiteGlobs` exports are gone (neither was public).
+- `profile()` takes an optional `name`: it is the workload's label and the
+  only input to its id, so closures with the same source but different captured
+  values (`() => work(n)`) stay distinct, and the id survives edits to the
+  function. Without it the id still hashes the function's name and source
+  (documented in `docs/library.md`).
+- `table` and `markdown` share their grouping (`entry.group`, else the id split
+  on its last `/`: markdown pivots no longer miss a group the table shows), their
+  percent deltas (a delta that rounds to zero is `0.0%` in both and in `ab`,
+  not `+0.0%` in some) and their fallback for a comparison or capture whose
+  workload is missing from the document (the raw workload id, not `unknown`).
+
+**Fixes**
+
+- Concurrent `bench()`/`ab()` calls sharing an `outDir` no longer delete each
+  other's scratch files: each run uses its own `bench-tmp-*`/`ab-tmp-*`
+  directory.
+- The `.only` notice prints once per suite file, not once per isolated task,
+  peak-memory reading or `ab` repeat. Under `ab`, a candidate `.only` also
+  leaves out base-only tasks, as `--filter` does.
+- `ostia ci` honors `timeoutMs` on a `suites` workload (it was read only for
+  `command` workloads), taking precedence over `bench.timeoutMs`.
+- `ostia baseline save` always measures fresh; it could write a cached `ci` run
+  into the baseline.
+- `inputs` and suite globs match dotfiles (`.github/**` used to match nothing)
+  and no longer descend into `node_modules` or `.git` through a wildcard, so
+  `**/*.ts` doesn't hash dependencies. A wildcard-free absolute path in
+  `inputs` now matches its file (Bun's glob matched nothing for it). Hashing
+  `inputs` reads at most 32 files at once instead of all of them, so a large
+  glob no longer fails with `EMFILE`.
+- `ab` pairing warms each side alone, so a large speed gap no longer runs the
+  slow side thousands of times during warmup. `measurePaired` takes an optional
+  `signal`.
+- `time` and `bench` reject a non-finite or negative `warmup` and a non-positive
+  `timeoutMs` up front; a per-command `timeoutMs` is checked when its trials
+  start.
+- `mannWhitneyU` returns `pValue: 1` for an empty side instead of `NaN`;
+  `bootstrapMedianDiffCi` throws a `RangeError` for one.
+- The `timeSource` flag error names all three rejected flags (`g`, `y`, `d`),
+  and a string pattern is compiled once, not per trial. An invalid string
+  pattern now fails before the first trial.
+- The in-process `low-sample-count` message formats the per-trial cost like
+  every other duration (`1.50 s`, not `1.50s`).
+- The CPU diagnostic wall time of an inspector capture no longer includes
+  `Profiler.enable`/`setSamplingInterval`, matching the jsc capture's window.
+
+- A command whose trials all timed out or never matched `--time-source` no
+  longer vanishes from the report along with its warnings: `table` and
+  `markdown` show a `- no samples` row, and `minimal` emits a `run` line with
+  `samples: 0`, no stats and the warnings.
+- CLI: a flag missing its value (e.g. a trailing `--export-json`) is a usage
+  error instead of being ignored; `--ignore-failure` validates integers 0–255;
+  a non-object config is a `config-invalid` error; subcommand and flag lookup
+  no longer resolves `Object.prototype` names.
+- `bench` with `isolate` no longer returns the first sweep point twice when
+  sweep points share a task name.
+- `bench --peak-mem` fails with an error instead of hanging when the RSS
+  sampler worker fails to start or dies.
+- Per-call allocation measurement stops after 1s, so a slow task no longer
+  costs ~100 calls.
+- The `BUN_OPTIONS` capture fallback keeps an existing `BUN_OPTIONS` and
+  escapes spaces in the artifact directory.
+- A truncated cache file is a cache miss instead of crashing `ostia ci`.
+- A negative bootstrap difference against a zero baseline median is
+  `-Infinity`, not `+Infinity`.
+- The missing-config message names both `ostia.config.ts` and
+  `ostia.config.json`.
+- `baseline show <missing>` is `baseline-missing` (it was `document-load-failed`),
+  as `ci` reports the same condition. A usage error inside `ci` (a bad suite,
+  say) is `invalid-flag` like in `bench`.
+- An explicit `undefined` in `ostia.config.ts` (`warmup: undefined`) keeps the
+  default instead of overwriting it.
+- `saveDocument` and `--export-json` write through a unique temp file, so
+  concurrent saves of one path don't collide, and remove it if the write or
+  rename fails.
+
 ## 0.2.9 — 2026-09-30
 
 **Fixes**

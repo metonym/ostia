@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test"
 import { measureAllocPerOp } from "../../src/measure/alloc"
-import { measurePeakMem } from "../../src/measure/peak"
+import { measurePeakMem, startRssSampler } from "../../src/measure/peak"
 
 describe("measure/alloc", () => {
   test("reports bytesPerOp for a task that allocates", async () => {
@@ -40,6 +40,32 @@ describe("measure/alloc - retained, not allocated", () => {
       return kept.length
     }, 20)
     expect(result.memory.bytesPerOp!).toBeGreaterThan(40_000)
+  })
+})
+
+describe("measure/alloc - batch sizing", () => {
+  test("stops early on a slow task but always makes at least one call", async () => {
+    let calls = 0
+    const result = await measureAllocPerOp(
+      async () => {
+        calls++
+        await Bun.sleep(30)
+      },
+      100,
+      50,
+    )
+    expect(calls).toBeGreaterThanOrEqual(1)
+    expect(calls).toBeLessThan(10)
+    expect(Number.isFinite(result.memory.bytesPerOp)).toBe(true)
+    calls = 0
+    await measureAllocPerOp(() => ++calls, 100, 0)
+    expect(calls).toBe(1)
+  })
+
+  test("a fast task still gets the full batch", async () => {
+    let calls = 0
+    await measureAllocPerOp(() => ++calls, 100)
+    expect(calls).toBe(100)
   })
 })
 
@@ -91,5 +117,25 @@ describe("measure/peak", () => {
     })
     expect(result.slackBytes).toBeGreaterThanOrEqual(0)
     expect(result.wallNs).toBeGreaterThan(0)
+  })
+
+  test("rejects instead of hanging when the sampler worker fails to start", async () => {
+    await expect(startRssSampler("throw new Error('boom')")).rejects.toThrow(
+      /RSS sampler worker failed/,
+    )
+  })
+
+  test("rejects instead of hanging when the sampler worker dies mid-run", async () => {
+    const sampler = await startRssSampler(
+      `self.onmessage = (e) => {
+        const slots = new Int32Array(e.data)
+        Atomics.store(slots, 0, 1)
+        Atomics.wait(slots, 0, 1)
+        throw new Error("died")
+      }`,
+    )
+    await expect(
+      measurePeakMem(async () => {}, undefined, sampler),
+    ).rejects.toThrow(/RSS sampler worker failed/)
   })
 })

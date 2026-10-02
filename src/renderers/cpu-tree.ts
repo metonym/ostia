@@ -1,14 +1,38 @@
 import type { CpuEvidence, Measurement, ProfileDocument } from "../ir/types.ts"
+import type { RenderResult, VizOptions } from "./types.ts"
+
+export type CpuRun = Measurement & { cpu: CpuEvidence }
+
+function hasCpu(m: Measurement): m is CpuRun {
+  return m.cpu !== undefined
+}
 
 export function selectCpuRuns(
   doc: ProfileDocument,
   measurementId?: string,
-): Measurement[] {
+): CpuRun[] {
   if (measurementId) {
     const run = doc.measurements.find((r) => r.id === measurementId)
-    return run?.cpu ? [run] : []
+    return run && hasCpu(run) ? [run] : []
   }
-  return doc.measurements.filter((r) => r.phase === "cpu" && r.cpu)
+  return doc.measurements.filter(
+    (r): r is CpuRun => r.phase === "cpu" && hasCpu(r),
+  )
+}
+
+/** One file per selected CPU run, named `<measurement id>.<ext>`. */
+export function renderCpuFiles(
+  doc: ProfileDocument,
+  options: VizOptions,
+  ext: string,
+  build: (run: CpuRun) => string,
+): RenderResult {
+  return {
+    files: selectCpuRuns(doc, options.measurementId).map((run) => ({
+      path: `${run.id}.${ext}`,
+      content: build(run),
+    })),
+  }
 }
 
 export function buildParentMap(cpu: CpuEvidence): Map<number, number> {

@@ -4,10 +4,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   type BenchCliOverrides,
-  expandSuiteGlobs,
   resolveBenchOptions,
 } from "../../src/bench/index.ts"
 import type { BenchConfig } from "../../src/config/index.ts"
+import { scanGlobs } from "../../src/glob.ts"
 
 function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
   return {
@@ -19,7 +19,7 @@ function cli(overrides: Partial<BenchCliOverrides> = {}): BenchCliOverrides {
   }
 }
 
-describe("expandSuiteGlobs", () => {
+describe("scanGlobs", () => {
   test("expands a glob against cwd, deduped and sorted", async () => {
     const dir = await mkdtemp(join(tmpdir(), "bench-glob-test-"))
     try {
@@ -28,7 +28,7 @@ describe("expandSuiteGlobs", () => {
       await Bun.write(join(dir, "bench/nested/c.bench.ts"), "export {}\n")
       await Bun.write(join(dir, "bench/skip.ts"), "export {}\n")
 
-      const result = await expandSuiteGlobs(["bench/**/*.bench.ts"], dir)
+      const result = await scanGlobs(["bench/**/*.bench.ts"], dir)
 
       expect(result).toEqual([
         "bench/a.bench.ts",
@@ -46,7 +46,7 @@ describe("expandSuiteGlobs", () => {
       await Bun.write(join(dir, "a.bench.ts"), "export {}\n")
       await Bun.write(join(dir, "b.bench.ts"), "export {}\n")
 
-      const result = await expandSuiteGlobs(["*.bench.ts", "a.bench.ts"], dir)
+      const result = await scanGlobs(["*.bench.ts", "a.bench.ts"], dir)
 
       expect(result).toEqual(["a.bench.ts", "b.bench.ts"])
     } finally {

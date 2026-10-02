@@ -1,5 +1,6 @@
-import { renameSync } from "node:fs"
+import { rename, rm } from "node:fs/promises"
 import { isAbsolute, relative } from "node:path"
+import { errorMessage } from "../errors.ts"
 import {
   assertReusableTimeSource,
   type PrepareHook,
@@ -28,7 +29,28 @@ import type {
   Workload,
 } from "./types.ts"
 
-export function newDocument(
+function definedFields<T extends object>(fields: T): Partial<T> {
+  return Object.fromEntries(
+    Object.entries(fields).filter(([, v]) => v !== undefined),
+  ) as Partial<T>
+}
+
+function measurementId(
+  workloadId: string,
+  phase: Phase,
+  configFingerprint: string,
+): string {
+  return fp(
+    "run",
+    workloadId,
+    phase,
+    configFingerprint,
+    Bun.version,
+    TOOL_VERSION,
+  )
+}
+
+export function createDocument(
   workloads: Workload[],
   measurements: Measurement[],
   environment?: Environment,
@@ -42,8 +64,7 @@ export function newDocument(
     createdAt: new Date().toISOString(),
     workloads,
     measurements,
-    ...(environment !== undefined && { environment }),
-    ...(git !== undefined && { git }),
+    ...definedFields({ environment, git }),
   }
 }
 
@@ -52,21 +73,14 @@ export interface SubprocessWorkloadOptions {
   timeSource?: TimeSource
 }
 
-/** `prepare` and `timeSource` join the id only when given, so commands
- * without them keep their pre-existing id (no orphaned baselines). A
- * function-form `prepare` hashes by its source text, like an in-process
- * workload does. The id deliberately excludes `process.cwd()`: it identifies
- * what is measured (command argv, prepare, timeSource), not where the
- * measuring process happened to run, so a baseline saved from a CI runner
- * matches a candidate measured in a developer's checkout or a different
- * worktree of the same repo. */
+/** `prepare` and `timeSource` join the id only when given, so commands without
+ * them keep their old id. A function `prepare` hashes by source text. The id
+ * excludes `process.cwd()` so baselines match across checkouts. */
 export function makeSubprocessWorkload(
   command: string[],
   label?: string,
   opts: SubprocessWorkloadOptions = {},
 ): Workload {
-  // Fails fast, once per workload, before any trial runs - not once per
-  // trial deep inside the sampling loop.
   if (opts.timeSource) assertReusableTimeSource(opts.timeSource)
   const prepare = prepareArgv(opts.prepare)
   const timeSource = timeSourceSpec(opts.timeSource)
@@ -85,17 +99,21 @@ export function makeSubprocessWorkload(
     kind: "subprocess",
     command,
     label,
-    ...(prepare !== undefined && { prepare }),
-    ...(timeSource !== undefined && { timeSource }),
+    ...definedFields({ prepare, timeSource }),
   }
 }
 
+/** Without `name` the id hashes the function's name and source, not the values
+ * it closes over; `name` replaces both and is the label. */
 export function makeInprocessWorkload(
   fn: (...args: unknown[]) => unknown,
-  label?: string,
+  name?: string,
 ): Workload {
-  const id = fp("wl", "inprocess", fn.name, fn.toString())
-  return { id, kind: "inprocess", label }
+  const id =
+    name === undefined
+      ? fp("wl", "inprocess", fn.name, fn.toString())
+      : fp("wl", "inprocess-named", name)
+  return { id, kind: "inprocess", label: name }
 }
 
 export interface EntryWorkloadOptions {
@@ -109,42 +127,26 @@ export interface EntryWorkloadOptions {
   skipped?: boolean
 }
 
-/** `taskName` is the registry's "group/name" id and, together with `params`
- * when present, is all the workload id hashes over: descriptions, the
- * explicit group field and the baseline flag are annotations, so adding or
- * editing them never orphans a saved baseline. `params` must be part of the
- * id (only when given, so tasks without it keep their pre-existing id) since
- * a `sweep()` point reuses one task name across every point in the sweep. */
+/** The id hashes the file (cwd-relative, so checkouts match), `taskName` (the
+ * registry's "group/name") and `params` when present; `params` joins only when
+ * given so tasks without it keep their old id, and a `sweep()` reuses one task
+ * name across points. Everything else is annotation and never orphans a baseline. */
 export function makeEntryWorkload(
   file: string,
   taskName: string,
   opts: EntryWorkloadOptions = {},
 ): Workload {
-  // Hashed relative to the cwd, like a subprocess workload's id leaves out
-  // its cwd: a baseline saved from one checkout (a CI runner, another
-  // worktree) still matches a candidate measured from another.
   const idPath = isAbsolute(file) ? relative(process.cwd(), file) : file
   const id =
     opts.params !== undefined
       ? fp("wl", "inprocess-entry", idPath, taskName, opts.params)
       : fp("wl", "inprocess-entry", idPath, taskName)
+  const { group, ...annotations } = opts
   return {
     id,
     kind: "inprocess",
-    entry: {
-      file,
-      task: taskName,
-      ...(opts.group !== undefined && { group: opts.group }),
-    },
-    ...(opts.label !== undefined && { label: opts.label }),
-    ...(opts.baseline !== undefined && { baseline: opts.baseline }),
-    ...(opts.description !== undefined && { description: opts.description }),
-    ...(opts.groupDescription !== undefined && {
-      groupDescription: opts.groupDescription,
-    }),
-    ...(opts.isolated !== undefined && { isolated: opts.isolated }),
-    ...(opts.params !== undefined && { params: opts.params }),
-    ...(opts.skipped !== undefined && { skipped: opts.skipped }),
+    entry: { file, task: taskName, ...definedFields({ group }) },
+    ...definedFields(annotations),
   }
 }
 
@@ -152,10 +154,8 @@ export interface TimingMeasurementInput {
   workload: Workload
   configFingerprint: string
   trials: Trial[]
-  /** Absent when every trial was excluded from sampling (e.g. every trial
-   * timed out or, with a `timeSource`, missed the pattern): the measurement
-   * still records the attempt (trials, warnings) but has no timing stats,
-   * and renderers skip it like a skipped workload. */
+  /** Absent when no trial produced a sample (all timed out or missed the
+   * `timeSource` pattern); renderers then skip the measurement. */
   timing?: TimingStats
   warnings: Warning[]
   interleaved?: boolean
@@ -164,16 +164,8 @@ export interface TimingMeasurementInput {
 export function makeTimingMeasurement(
   input: TimingMeasurementInput,
 ): Measurement {
-  const id = fp(
-    "run",
-    input.workload.id,
-    "timing",
-    input.configFingerprint,
-    Bun.version,
-    TOOL_VERSION,
-  )
   return {
-    id,
+    id: measurementId(input.workload.id, "timing", input.configFingerprint),
     workloadId: input.workload.id,
     phase: "timing",
     instrumented: false,
@@ -183,7 +175,7 @@ export function makeTimingMeasurement(
     warnings: input.warnings,
     artifacts: [],
     memory: memoryFromTrials(input.trials),
-    ...(input.interleaved !== undefined && { interleaved: input.interleaved }),
+    ...definedFields({ interleaved: input.interleaved }),
   }
 }
 
@@ -215,16 +207,8 @@ export interface InstrumentedMeasurementInput {
 export function makeInstrumentedMeasurement(
   input: InstrumentedMeasurementInput,
 ): Measurement {
-  const id = fp(
-    "run",
-    input.workload.id,
-    input.phase,
-    input.configFingerprint,
-    Bun.version,
-    TOOL_VERSION,
-  )
   return {
-    id,
+    id: measurementId(input.workload.id, input.phase, input.configFingerprint),
     workloadId: input.workload.id,
     phase: input.phase,
     instrumented: true,
@@ -252,22 +236,12 @@ export interface PairedMeasurementInput {
   warnings: Warning[]
 }
 
-/** A `phase: "paired"` measurement: `timing` is the candidate side, `paired`
- * the base side and the per-round ratios. Not instrumented - both sides ran
- * through the same plain timing loops. */
+/** `timing` is the candidate side; `paired` holds the base side and the ratios. */
 export function makePairedMeasurement(
   input: PairedMeasurementInput,
 ): Measurement {
-  const id = fp(
-    "run",
-    input.workload.id,
-    "paired",
-    input.configFingerprint,
-    Bun.version,
-    TOOL_VERSION,
-  )
   return {
-    id,
+    id: measurementId(input.workload.id, "paired", input.configFingerprint),
     workloadId: input.workload.id,
     phase: "paired",
     instrumented: false,
@@ -282,19 +256,16 @@ export function makePairedMeasurement(
 }
 
 export async function makeArtifactRef(
-  measurementId: string,
+  ownerId: string,
   kind: ArtifactRef["kind"],
   path: string,
 ): Promise<ArtifactRef> {
-  const file = Bun.file(path)
-  const buf = await file.arrayBuffer()
-  const hasher = new Bun.CryptoHasher("sha256")
-  hasher.update(buf)
+  const buf = await Bun.file(path).arrayBuffer()
   return {
-    id: fp("art", measurementId, kind, path),
+    id: fp("art", ownerId, kind, path),
     kind,
     path,
-    sha256: hasher.digest("hex"),
+    sha256: Bun.CryptoHasher.hash("sha256", buf, "hex"),
     bytes: buf.byteLength,
   }
 }
@@ -307,20 +278,22 @@ export function serializeDocument(doc: ProfileDocument): string {
   return `${canonicalJSON(doc, 2)}\n`
 }
 
-/** Writes `text` to `${path}.tmp-${pid}` then renames over `path`, so a
- * process killed mid-write (e.g. `ci --save-baseline`) never leaves a
- * truncated document at `path` - the rename is the only step that touches
- * it, and that step is atomic. Split out from `saveDocument` so a caller
- * that already has the serialized text on hand (e.g. the CLI's `--format
- * json` alongside `--export-json`) can reuse it instead of paying for
- * `serializeDocument` a second time. */
+/** Writes to a unique temp file then renames, so a killed process never leaves
+ * a truncated document at `path` and concurrent saves of one path don't share a
+ * temp file. Takes serialized text so a caller that already has it can skip
+ * `serializeDocument`. */
 export async function saveDocumentText(
   text: string,
   path: string,
 ): Promise<void> {
-  const tmpPath = `${path}.tmp-${process.pid}`
-  await Bun.write(tmpPath, text)
-  renameSync(tmpPath, path)
+  const tmpPath = `${path}.tmp-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
+  try {
+    await Bun.write(tmpPath, text)
+    await rename(tmpPath, path)
+  } catch (err) {
+    await rm(tmpPath, { force: true })
+    throw err
+  }
 }
 
 export async function saveDocument(
@@ -354,7 +327,7 @@ export async function loadDocument(path: string): Promise<ProfileDocument> {
   try {
     raw = JSON.parse(text)
   } catch (err) {
-    const cause = err instanceof Error ? err.message : String(err)
+    const cause = errorMessage(err)
     throw new OstiaDocumentError(
       "invalid-json",
       `${path}: invalid JSON (${cause})`,
@@ -379,12 +352,74 @@ export async function loadDocument(path: string): Promise<ProfileDocument> {
       { path, schemaVersion },
     )
   }
-  return backfillTimingStats(raw as ProfileDocument)
+  assertDocumentShape(raw as Record<string, unknown>, path)
+  return renamePairedRatioFields(backfillTimingStats(raw as ProfileDocument))
 }
 
-/** Documents saved before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`: recompute
- * them from the stored samples here, once, so every consumer can rely on the
- * full `TimingStats` shape instead of each renderer carrying fallbacks. */
+const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v)
+
+/** Cheap structural check, so a hand-edited or truncated document fails here
+ * with a path and index instead of a TypeError deep in a renderer. */
+function assertDocumentShape(doc: Record<string, unknown>, path: string): void {
+  const bad = (what: string) =>
+    new OstiaDocumentError(
+      "not-a-document",
+      `${path}: malformed document: ${what}`,
+      {
+        path,
+      },
+    )
+  if (!Array.isArray(doc.workloads)) throw bad(`"workloads" must be an array`)
+  if (!Array.isArray(doc.measurements)) {
+    throw bad(`"measurements" must be an array`)
+  }
+  doc.workloads.forEach((w, i) => {
+    if (!isObject(w) || typeof w.id !== "string") {
+      throw bad(`workloads[${i}] must be an object with a string "id"`)
+    }
+  })
+  doc.measurements.forEach((m, i) => {
+    if (
+      !isObject(m) ||
+      typeof m.id !== "string" ||
+      typeof m.workloadId !== "string" ||
+      typeof m.phase !== "string"
+    ) {
+      throw bad(
+        `measurements[${i}] must be an object with string "id", "workloadId" and "phase"`,
+      )
+    }
+    for (const key of ["trials", "warnings", "artifacts"]) {
+      if (!Array.isArray(m[key])) {
+        throw bad(`measurements[${i}].${key} must be an array`)
+      }
+    }
+  })
+}
+
+/** `ab` documents from ostia 0.2.8-0.2.9 name the ratio quartiles `p25`/`p75`,
+ * now `ratioP25`/`ratioP75`; read the old names so saved documents still
+ * render. */
+function renamePairedRatioFields(doc: ProfileDocument): ProfileDocument {
+  const rename = (r: Record<string, unknown>) => {
+    if (r.ratioP25 !== undefined || r.p25 === undefined) return
+    r.ratioP25 = r.p25
+    r.ratioP75 = r.p75
+    delete r.p25
+    delete r.p75
+  }
+  for (const m of doc.measurements) {
+    if (!m.paired) continue
+    rename(m.paired as unknown as Record<string, unknown>)
+    for (const r of m.paired.repeats ?? [])
+      rename(r as unknown as Record<string, unknown>)
+  }
+  return doc
+}
+
+/** Documents from before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`; recompute
+ * them so every consumer sees the full `TimingStats`. */
 function backfillTimingStats(doc: ProfileDocument): ProfileDocument {
   for (const m of doc.measurements) {
     const t = m.timing

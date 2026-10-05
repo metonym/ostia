@@ -123,6 +123,16 @@ export async function measurePaired(
   }
 }
 
+/** False when the suite file changed and the two sides' outputs differ:
+ * the sides then likely ran different benchmarks, and their time ratio says
+ * nothing about the code under test. */
+export function comparable(p: {
+  suiteChanged?: true
+  sameOutput: boolean
+}): boolean {
+  return !(p.suiteChanged && !p.sameOutput)
+}
+
 /** Median and quartiles of per-round candidate/base ratios, and whether they
  * cross `thresholdPct`: `regressed` when the median ratio is above
  * `1 + thresholdPct/100` and the 25th percentile is above 1 (the candidate

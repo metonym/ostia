@@ -58,6 +58,8 @@ interface MinimalPaired {
   /** Median ratio of each fresh-process repeat. */
   repeats?: number[]
   sameOutput: boolean
+  /** The suite file differs from the base's copy. */
+  suiteChanged?: true
 }
 
 /** One JSON object per timing run, nothing else: no header, no raw sample
@@ -165,6 +167,7 @@ interface MinimalSummaryLine {
   /** `ab` only: workloads whose first call returned different values on the
    * two sides. Informational. */
   outputDiffers?: number
+  notComparable?: number
   git?: { base?: GitMetadata; cand?: GitMetadata }
   exportedTo?: string
   verdict: "pass" | "fail"
@@ -359,6 +362,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
         ...(p.confirmed !== undefined && { confirmed: p.confirmed }),
         ...(p.repeats && { repeats: p.repeats.map((r) => sig(r.medianRatio)) }),
         sameOutput: p.sameOutput,
+        ...(p.suiteChanged && { suiteChanged: true as const }),
       }
     }
     return line
@@ -421,6 +425,10 @@ function summaryLine(
     line.geomeanThresholdPct = doc.ab.geomeanThresholdPct
     line.unconfirmed = doc.ab.unconfirmed
     line.outputDiffers = doc.ab.outputDiffers
+    // Absent from documents written before 0.3.
+    if (doc.ab.notComparable !== undefined) {
+      line.notComparable = doc.ab.notComparable
+    }
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

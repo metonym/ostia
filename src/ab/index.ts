@@ -22,6 +22,7 @@ import {
   captureEnvironment,
   noisyMachineWarning,
 } from "../measure/environment.ts"
+import { comparable } from "../measure/paired.ts"
 import { killSwitch } from "../spawn/index.ts"
 import { percentile } from "../stats/index.ts"
 import type { AbRunnerOpts } from "./ab-runner.ts"
@@ -350,10 +351,11 @@ export function summarizePaired(
   const paired = measurements
     .map((m) => m.paired)
     .filter((p): p is PairedEvidence => p !== undefined)
+  const judged = paired.filter(comparable)
   let logSum = 0
-  for (const p of paired) logSum += Math.log(ratioEstimate(p))
+  for (const p of judged) logSum += Math.log(ratioEstimate(p))
   const geomeanPct =
-    paired.length > 0 ? (Math.exp(logSum / paired.length) - 1) * 100 : null
+    judged.length > 0 ? (Math.exp(logSum / judged.length) - 1) * 100 : null
   const regressed = paired.filter((p) => p.verdict === "regressed").length
   const improved = paired.filter((p) => p.verdict === "improved").length
   return {
@@ -364,6 +366,7 @@ export function summarizePaired(
     unchanged: paired.length - regressed - improved,
     unconfirmed: paired.filter((p) => p.confirmed === false).length,
     outputDiffers: paired.filter((p) => !p.sameOutput).length,
+    notComparable: paired.length - judged.length,
     geomeanPct,
     verdict:
       regressed > 0 ||
@@ -462,6 +465,20 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     }
     return existsSync(`${checkout}/${inRepo}`) ? `${checkout}/${inRepo}` : ""
   })
+  // A suite whose text changed may time something else on each side (a
+  // fixed fixture, a new input), so its tasks are marked. The base copy
+  // carries the salt; nothing else differs in an unchanged file.
+  const suiteChanged = await Promise.all(
+    candSuites.map(async (suite, s) => {
+      if (!baseSuites[s]) return false
+      const base = await Bun.file(baseSuites[s]).text()
+      const cand = await Bun.file(suite).text()
+      return (
+        (base.endsWith(BASE_SALT) ? base.slice(0, -BASE_SALT.length) : base) !==
+        cand
+      )
+    }),
+  )
   const preload = (opts.preload ?? []).map(absolute)
   const bunFlags = opts.bunFlags ?? []
 
@@ -523,14 +540,25 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       if (!doc) break
       workloads.push(...doc.workloads)
       measurements.push(...doc.measurements)
-      for (const m of doc.measurements) suiteOf.set(m.workloadId, s)
+      for (const m of doc.measurements) {
+        suiteOf.set(m.workloadId, s)
+        if (!suiteChanged[s] || !m.paired) continue
+        m.paired.suiteChanged = true
+        if (!comparable(m.paired)) m.paired.verdict = "unchanged"
+        m.warnings.push({
+          code: "suite-changed",
+          message: comparable(m.paired)
+            ? "The suite file differs from the base's copy, so each side may run a different benchmark."
+            : "The suite file differs from the base's copy and so does the output: each side likely ran a different benchmark. Left out of the verdict and geomean.",
+        })
+      }
       baseOnly.push(...(doc.unmatched?.baseOnly ?? []))
       candOnly.push(...(doc.unmatched?.candOnly ?? []))
     }
 
     for (const m of measurements) {
       const p = m.paired
-      if (!p?.flagged || confirm === 0) continue
+      if (!p?.flagged || confirm === 0 || !comparable(p)) continue
       p.repeats = []
       for (let r = 0; r < confirm && !opts.signal?.aborted; r++) {
         const doc = await runSuite(suiteOf.get(m.workloadId)!, {

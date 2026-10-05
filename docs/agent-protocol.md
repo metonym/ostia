@@ -82,6 +82,7 @@ digits.
 | `confirmed` | With `flagged`: whether every fresh-process repeat flagged the same way. |
 | `repeats` | With `flagged`: each repeat's median ratio. |
 | `sameOutput` | Whether the first call returned deep-equal values on both sides. |
+| `suiteChanged` | `true` when the suite file differs from the base's copy. With `sameOutput: false`, the task is not comparable: `verdict` is `"unchanged"` and it's left out of `geomeanPct`. |
 
 ### `unmatched`
 
@@ -108,6 +109,7 @@ digits.
 | `geomeanThresholdPct` | `ab` only: the run fails when `geomeanPct` exceeds it. |
 | `unconfirmed` | `ab` only: flagged in the first process, not reproduced by the repeats; counted in `unchanged`. |
 | `outputDiffers` | `ab` only: tasks whose first call returned different values on each side. |
+| `notComparable` | `ab` only: tasks whose suite file and output both changed; counted in `unchanged`, left out of `geomeanPct`. |
 | `noiseFloorPct` | When the candidate document has one. |
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |

@@ -303,6 +303,11 @@ export interface PairedEvidence {
    * (`Bun.deepEquals`, prototypes ignored). Informational: expected to be
    * `false` for a change in behavior, never a failure. */
   sameOutput: boolean
+  /** Set when the suite file's text differs from the base ref's copy, so
+   * each side may run a different benchmark (a fixed fixture, a changed
+   * input). With `sameOutput: false` too, the task is "not comparable": its
+   * verdict is `"unchanged"` and it's left out of the geomean. */
+  suiteChanged?: true
 }
 
 /** Run-level result of `ab()`, stamped on the document as `ab`. */
@@ -322,6 +327,10 @@ export interface AbSummary {
   unconfirmed: number
   /** Workloads whose first call returned different values on each side. */
   outputDiffers: number
+  /** Workloads whose suite file and output both changed (see
+   * `PairedEvidence.suiteChanged`); counted in `unchanged`, left out of
+   * `geomeanPct`. */
+  notComparable: number
   /** Geometric mean of each workload's median ratio, as a signed percent
    * (negative: candidate faster on average). A flagged workload contributes
    * the median over its main run and repeats. `null` when nothing was
@@ -352,6 +361,7 @@ export const WARNING_CODES = [
   "time-source-no-match",
   "environment-mismatch",
   "peak-hidden",
+  "suite-changed",
 ] as const
 
 export type WarningCode = (typeof WARNING_CODES)[number]

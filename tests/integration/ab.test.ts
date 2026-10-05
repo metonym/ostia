@@ -165,6 +165,46 @@ describe("ab() - paired A/B against a git ref", () => {
     expect(doc.unmatched!.candOnly).toHaveLength(2)
   }, 60_000)
 
+  test("a changed suite with changed output is not comparable and stays out of the verdict", async () => {
+    // A "fixed fixture": four times the input, so a different result and a
+    // ~4x slower task, from the suite alone.
+    await Bun.write(
+      `${REPO}/bench/s.bench.ts`,
+      SUITE.replace("work(20_000)", "work(80_000)"),
+    )
+    const doc = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
+    const byTask = new Map(
+      doc.measurements.map((m) => [
+        doc.workloads.find((w) => w.id === m.workloadId)!.entry!.task,
+        m,
+      ]),
+    )
+    const work = byTask.get("g/work")!
+    expect(work.paired!.suiteChanged).toBe(true)
+    expect(work.paired!.sameOutput).toBe(false)
+    expect(work.paired!.verdict).toBe("unchanged")
+    expect(work.paired!.repeats).toBeUndefined()
+    expect(work.warnings.map((w) => w.code)).toContain("suite-changed")
+
+    // Same output: still judged, but marked.
+    const stable = byTask.get("g/stable")!
+    expect(stable.paired!.suiteChanged).toBe(true)
+    expect(stable.paired!.sameOutput).toBe(true)
+
+    expect(doc.ab!.notComparable).toBe(1)
+    expect(doc.ab!.regressed).toBe(0)
+    // The geomean is the stable task's alone.
+    expect(Math.abs(doc.ab!.geomeanPct!)).toBeLessThan(50)
+  }, 60_000)
+
+  test("an unchanged suite file isn't marked", async () => {
+    const doc = await ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
+    for (const m of doc.measurements) {
+      expect(m.paired!.suiteChanged).toBeUndefined()
+    }
+    expect(doc.ab!.notComparable).toBe(0)
+  }, 60_000)
+
   test("workload ids match bench()'s for the same suite, and the base tree is cached per commit", async () => {
     const paired = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
     const timed = await bench({
@@ -338,6 +378,29 @@ describe("ostia ab", () => {
     expect(stdout).toContain("A/B: working tree vs HEAD")
     expect(stdout).toMatch(/g\/work .* regressed/)
     expect(stdout).toContain("Geomean +")
+  }, 60_000)
+
+  test("marks a changed suite in the table", async () => {
+    await Bun.write(
+      `${REPO}/bench/s.bench.ts`,
+      SUITE.replace("work(20_000)", "work(80_000)"),
+    )
+    const { stdout, exitCode } = await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "5",
+      "--no-noise-check",
+      // Wide enough that the stable task can't fail the run on a loaded
+      // machine.
+      "--threshold",
+      "25",
+      "--geomean-threshold",
+      "25",
+    ])
+    expect(stdout).toMatch(/work .* not comparable/)
+    expect(stdout).toContain("! suite-changed")
+    expect(stdout).toContain("1 not comparable")
+    expect(exitCode).toBe(0)
   }, 60_000)
 
   test("exits 2 when nothing pairs, and on an unknown ref", async () => {

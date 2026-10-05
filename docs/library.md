@@ -256,7 +256,7 @@ const doc = await ab({
   cwd: process.cwd(),
   noiseCheck: true,
 })
-doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, geomeanPct, verdict, ... }
+doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, geomeanPct, verdict, ... }
 doc.measurements  // one phase: "paired" measurement per paired task
 if (doc.ab!.verdict === "fail") process.exitCode = 1
 ```

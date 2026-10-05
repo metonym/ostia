@@ -255,6 +255,7 @@ const doc = await ab({
   outDir: "node_modules/.cache/ostia",
   cwd: process.cwd(),
   noiseCheck: true,
+  onProgress: (p) => console.error(p), // { phase: "setup" | "measure" | "confirm", ... }
 })
 doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict, ... }
 doc.measurements  // one phase: "paired" measurement per paired task; `threw` instead of `timing` when it threw

@@ -25,7 +25,21 @@ import {
 import { comparable } from "../measure/paired.ts"
 import { killSwitch } from "../spawn/index.ts"
 import { percentile } from "../stats/index.ts"
-import type { AbRunnerOpts } from "./ab-runner.ts"
+import type { AbRunnerOpts, AbRunnerProgress } from "./ab-runner.ts"
+
+/** What `ab()` is doing, for `onProgress`. Counts start at 1. */
+export type AbProgress =
+  | { phase: "setup"; command: string }
+  | {
+      phase: "measure"
+      suite: number
+      suites: number
+      file: string
+      task: number
+      tasks: number
+      label: string
+    }
+  | { phase: "confirm"; repeat: number; repeats: number; label: string }
 
 export interface AbOptions {
   suites: string[]
@@ -66,6 +80,8 @@ export interface AbOptions {
    * had finished, plus an `aborted` warning; repeats not yet run leave their
    * workloads unconfirmed. */
   signal?: AbortSignal
+  /** Called as each setup command, task and confirmation repeat starts. */
+  onProgress?: (progress: AbProgress) => void
 }
 
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
@@ -126,6 +142,7 @@ interface TreeSetup {
   cwd: string
   timeoutMs?: number
   signal?: AbortSignal
+  onProgress?: (progress: AbProgress) => void
 }
 
 /** Where the base tree for `sha` lives: `<sha>`, or with setup commands,
@@ -254,6 +271,7 @@ async function runSetup(
   }
   try {
     for (const command of setup.commands) {
+      setup.onProgress?.({ phase: "setup", command })
       const { exitCode, timedOut, output } = await runSetupCommand(
         command,
         dir,
@@ -438,6 +456,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     cwd,
     timeoutMs: opts.timeoutMs,
     signal: opts.signal,
+    onProgress: opts.onProgress,
   })
   const settings = {
     base: { ref, sha },
@@ -488,6 +507,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const preload = (opts.preload ?? []).map(absolute)
   const bunFlags = opts.bunFlags ?? []
 
+  const onProgress = opts.onProgress
   let spawned = 0
   const runSuite = async (
     s: number,
@@ -499,6 +519,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       rounds,
       thresholdPct,
       preload,
+      // Per task only on the first pass; repeats report themselves.
+      progress: onProgress !== undefined && !extra.workloadIds,
       ...extra,
     }
     const kill = killSwitch(opts.timeoutMs, opts.signal)
@@ -517,6 +539,16 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         stdout: "inherit",
         stderr: "inherit",
         stdin: "ignore",
+        ...(runnerOpts.progress && {
+          ipc: (message: AbRunnerProgress) =>
+            onProgress?.({
+              phase: "measure",
+              suite: s + 1,
+              suites: candSuites.length,
+              file: opts.suites[s]!,
+              ...message,
+            }),
+        }),
         ...kill.spawn,
       },
     )
@@ -566,12 +598,22 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       candOnly.push(...(doc.unmatched?.candOnly ?? []))
     }
 
-    for (const m of measurements) {
-      const p = m.paired
-      if (!p?.flagged || confirm === 0 || !comparable(p)) continue
-      const flagged = p.flagged
+    const toConfirm = measurements.filter(
+      (m) => m.paired?.flagged && confirm > 0 && comparable(m.paired),
+    )
+    const labelOf = new Map(workloads.map((w) => [w.id, w.entry?.task ?? w.id]))
+    let started = 0
+    for (const m of toConfirm) {
+      const p = m.paired!
+      const flagged = p.flagged!
       p.repeats = []
       for (let r = 0; r < confirm && !opts.signal?.aborted; r++) {
+        onProgress?.({
+          phase: "confirm",
+          repeat: ++started,
+          repeats: toConfirm.length * confirm,
+          label: labelOf.get(m.workloadId) ?? m.workloadId,
+        })
         const doc = await runSuite(suiteOf.get(m.workloadId)!, {
           workloadIds: [m.workloadId],
         })

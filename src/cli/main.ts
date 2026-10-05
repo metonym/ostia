@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
-import { AbBaseError, AbSetupError, ab } from "../ab/index.ts"
+import { writeSync } from "node:fs"
+import { AbBaseError, type AbProgress, AbSetupError, ab } from "../ab/index.ts"
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import {
   availableJobs,
@@ -393,6 +394,8 @@ Flags:
   --no-noise-check     skip the ~200ms noise-floor measurement
   --export-json PATH   write the ProfileDocument to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --progress           print progress to stderr (default: when stderr is a terminal and not
+                       --quiet); --no-progress turns it off
   --quiet              don't print the report
   --help               show this message
 
@@ -977,6 +980,7 @@ interface AbArgs {
   noiseCheck: boolean
   exportJson?: string
   format: FormatName
+  progress?: boolean
   quiet: boolean
   help: boolean
 }
@@ -1004,9 +1008,50 @@ const AB_FLAGS: Record<string, FlagDef> = {
     dest: "format",
     spec: { kind: "enum", values: DOCUMENT_FORMATS },
   },
+  "--progress": { dest: "progress", spec: { kind: "bool", value: true } },
+  "--no-progress": { dest: "progress", spec: { kind: "bool", value: false } },
   "--quiet": { dest: "quiet", spec: { kind: "bool", value: true } },
   "--help": { dest: "help", spec: { kind: "bool", value: true } },
   "-h": { dest: "help", spec: { kind: "bool", value: true } },
+}
+
+/** `[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex` */
+function formatAbProgress(p: AbProgress): string {
+  switch (p.phase) {
+    case "setup":
+      return `[ab] base setup: ${p.command}`
+    case "measure":
+      return `[ab] suite ${p.suite}/${p.suites} ${p.file} · task ${p.task}/${p.tasks} ${p.label}`
+    case "confirm":
+      return `[ab] confirming flagged tasks · repeat ${p.repeat}/${p.repeats} ${p.label}`
+  }
+}
+
+/** Progress lines on stderr, so stdout stays the report alone. On a
+ * terminal, each line replaces the last, and `done()` clears it before the
+ * report prints; elsewhere (a log, an agent reading a pipe), one line each.
+ * Synchronous writes, so lines never interleave out of order. */
+function progressWriter(tty: boolean): {
+  onProgress: (p: AbProgress) => void
+  done: () => void
+} {
+  let shown = false
+  return {
+    onProgress: (p) => {
+      const line = formatAbProgress(p)
+      if (!tty) {
+        writeSync(2, `${line}\n`)
+        return
+      }
+      const width = process.stderr.columns || 80
+      writeSync(2, `\r\x1b[K${line.slice(0, width - 1)}`)
+      shown = true
+    },
+    done: () => {
+      if (shown) writeSync(2, "\r\x1b[K")
+      shown = false
+    },
+  }
 }
 
 function parseAbArgs(argv: string[]): AbArgs {
@@ -1047,6 +1092,13 @@ async function abCommand(argv: string[]): Promise<number> {
         : []
   if (suites.length === 0) return showHelp(AB_HELP, false)
 
+  const { isatty } = await import("node:tty")
+  const tty = isatty(2)
+  const progress =
+    (parsed.progress ?? (tty && !parsed.quiet))
+      ? progressWriter(tty)
+      : undefined
+
   let doc: ProfileDocument
   let aborted: boolean
   try {
@@ -1073,9 +1125,11 @@ async function abCommand(argv: string[]): Promise<number> {
         outDir: parsed.outDir ?? config?.outDir,
         noiseCheck: parsed.noiseCheck,
         signal,
+        onProgress: progress?.onProgress,
       }),
     ))
   } catch (err) {
+    progress?.done()
     if (err instanceof AbBaseError) {
       await writeCliError("invalid-flag", `--base: ${err.message}`)
       return 2
@@ -1088,6 +1142,7 @@ async function abCommand(argv: string[]): Promise<number> {
     return 2
   }
 
+  progress?.done()
   const summary = doc.ab!
   // Decided before rendering, same as `compare`: `minimal`'s trailing
   // `summary` event needs the real exit code inline.

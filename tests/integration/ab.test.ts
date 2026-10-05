@@ -3,6 +3,7 @@ import { existsSync, readdirSync } from "node:fs"
 import {
   AbBaseError,
   type AbOptions,
+  type AbProgress,
   AbSetupError,
   ab,
 } from "../../src/ab/index.ts"
@@ -259,6 +260,40 @@ group("g", () => {
     expect(both.boom.threw!.side).toBe("both")
   }, 60_000)
 
+  test("reports progress for setup, each task and each confirmation repeat", async () => {
+    await Bun.write(`${REPO}/src/lib.ts`, SLOW_LIB)
+    const events: AbProgress[] = []
+    await ab({
+      ...QUICK,
+      suites: ["bench/s.bench.ts"],
+      baseSetup: "true",
+      onProgress: (p) => events.push(p),
+    })
+    expect(events[0]).toEqual({ phase: "setup", command: "true" })
+    expect(events.filter((e) => e.phase === "measure")).toEqual([
+      {
+        phase: "measure",
+        suite: 1,
+        suites: 1,
+        file: "bench/s.bench.ts",
+        task: 1,
+        tasks: 2,
+        label: "g/work",
+      },
+      {
+        phase: "measure",
+        suite: 1,
+        suites: 1,
+        file: "bench/s.bench.ts",
+        task: 2,
+        tasks: 2,
+        label: "g/stable",
+      },
+    ])
+    const confirms = events.filter((e) => e.phase === "confirm")
+    expect(confirms.at(-1)).toMatchObject({ repeat: 2, label: "g/work" })
+  }, 60_000)
+
   test("workload ids match bench()'s for the same suite, and the base tree is cached per commit", async () => {
     const paired = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
     const timed = await bench({
@@ -508,6 +543,40 @@ describe("ostia ab", () => {
     expect(stderr).toContain("the candidate side failed to load")
     expect(stderr).toContain('"code":"spawn-failed"')
   }, 20_000)
+
+  test("--progress writes progress to stderr and keeps stdout to the protocol", async () => {
+    const quiet = await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "3",
+      "--confirm",
+      "0",
+      "--no-noise-check",
+      "--format",
+      "minimal",
+    ])
+    // stderr isn't a terminal here, so it's off unless asked for.
+    expect(quiet.stderr).not.toContain("[ab]")
+
+    const { stdout, stderr } = await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "3",
+      "--confirm",
+      "0",
+      "--no-noise-check",
+      "--format",
+      "minimal",
+      "--progress",
+    ])
+    expect(stderr).toContain(
+      "[ab] suite 1/1 bench/s.bench.ts · task 1/2 g/work\n",
+    )
+    expect(stderr).toContain(
+      "[ab] suite 1/1 bench/s.bench.ts · task 2/2 g/stable\n",
+    )
+    for (const line of stdout.trim().split("\n")) JSON.parse(line)
+  }, 60_000)
 
   test("exits 2 when nothing pairs, and on an unknown ref", async () => {
     await Bun.write(`${REPO}/bench/new.bench.ts`, SUITE)

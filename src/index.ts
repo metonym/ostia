@@ -37,7 +37,7 @@ import {
   type TimeSource,
 } from "./spawn/index.ts"
 
-export type { AbOptions } from "./ab/index.ts"
+export type { AbOptions, AbProgress } from "./ab/index.ts"
 export { AbBaseError, AbSetupError, ab } from "./ab/index.ts"
 export { bench } from "./bench/index.ts"
 export { range } from "./bench/range.ts"

@@ -13,6 +13,11 @@ ostia compare before.json after.json --format minimal
 ostia ci --format minimal; echo $?
 ```
 
+`ostia ab` can run for many minutes. Add `--progress` to see where it is: it writes
+`[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex` lines to stderr, never
+stdout, so the protocol stays clean. Without the flag, progress only shows when stderr is
+a terminal.
+
 The TypeScript type for a parsed line is exported as `MinimalEvent`; narrow on `event`.
 
 ```ts

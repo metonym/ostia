@@ -14,6 +14,12 @@
   failed command exits 2 (`command-failed`) with the tail of its stderr. Each
   command runs in its own process group, killed when it ends, times out or is
   cancelled.
+- `ostia ab` marks tasks whose suite file differs from the base's copy, which
+  can mean each side times a different benchmark (a fixed fixture, a new
+  input). They carry a new `suite-changed` warning and `paired.suiteChanged`.
+  A task whose output differs too reads `not comparable`: its verdict is
+  `unchanged`, it isn't re-measured, and it's left out of the geomean.
+  Documents and the minimal `summary` line gain `notComparable`.
 
 ## 0.2.9 — 2026-09-30
 

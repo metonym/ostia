@@ -35,7 +35,7 @@ recomputes them from the stored samples, so every loaded `TimingStats` has them.
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
-| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, geomeanPct, verdict }`. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, geomeanPct, verdict }`. |
 
 ## Workloads
 
@@ -99,11 +99,13 @@ For batched in-process tasks, `samples` are per-call times and `batch` is the nu
 calls per trial.
 
 `PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
-medianRatio, p25, p75, flagged?, repeats?, confirmed?, verdict, sameOutput }`.
+medianRatio, p25, p75, flagged?, repeats?, confirmed?, verdict, sameOutput, suiteChanged? }`.
 `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call times in round `i`,
 and `ratios[i]` is candidate over base. `flagged` is what the first process saw;
 `repeats` are the fresh-process re-measurements of a flagged task (`{ medianRatio, p25,
-p75, flagged? }`), and `verdict` is `flagged` only when `confirmed`. See
+p75, flagged? }`), and `verdict` is `flagged` only when `confirmed`. `suiteChanged` is
+`true` when the suite file differs from the base's copy; with `sameOutput: false` too,
+`verdict` is `unchanged`. See
 [cli.md](cli.md#ostia-ab).
 
 ## Comparisons
@@ -142,6 +144,7 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 | `thin-comparison` | comparison | Fewer than 5 samples on a side; point-estimate verdict. |
 | `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
 | `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
+| `suite-changed` | `ab` | The suite file's text differs from the base ref's copy, so each side may run a different benchmark. When the output differs too, the task is not comparable: verdict `unchanged`, left out of the geomean. |
 | `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) freed 16MB or more that the allocator still held, which the call could reuse without RSS rising, so `peakBytes` can be that much low. `data: { slackBytes, processes }`. |
 
 ## Files on disk

@@ -5,6 +5,7 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
+import { comparable } from "../measure/paired.ts"
 import { workloadLabel } from "./format.ts"
 
 export type PairedRun = Measurement & {
@@ -28,8 +29,10 @@ export function formatRatio(ratio: number): string {
 
 /** `regressed`, `improved`, blank for unchanged; a flagged workload that
  * fresh processes didn't reproduce reads `unconfirmed`. Repeats follow in
- * parentheses so a reader sees what the confirmation runs measured. */
+ * parentheses so a reader sees what the confirmation runs measured. A
+ * changed suite with changed output reads `not comparable`. */
 export function pairedVerdict(p: PairedEvidence): string {
+  if (!comparable(p)) return "not comparable"
   if (!p.flagged) return ""
   const repeats = p.repeats?.length
     ? ` (repeats: ${p.repeats.map((r) => formatRatio(r.medianRatio)).join(", ")})`
@@ -49,8 +52,11 @@ export function formatAbSummary(ab: AbSummary): string {
     ab.geomeanPct === null
       ? "Geomean -"
       : `Geomean ${ab.geomeanPct >= 0 ? "+" : ""}${ab.geomeanPct.toFixed(1)}% (threshold ${ab.geomeanThresholdPct}%)`
-  const unconfirmed =
-    ab.unconfirmed > 0 ? ` (${ab.unconfirmed} unconfirmed)` : ""
+  const notes = [
+    ab.unconfirmed > 0 && `${ab.unconfirmed} unconfirmed`,
+    ab.notComparable > 0 && `${ab.notComparable} not comparable`,
+  ].filter(Boolean)
+  const unconfirmed = notes.length > 0 ? ` (${notes.join(", ")})` : ""
   return `${geomean} · ${ab.regressed} regressed, ${ab.improved} improved, ${ab.unchanged} unchanged of ${ab.matched}${unconfirmed} · ${ab.verdict}`
 }
 

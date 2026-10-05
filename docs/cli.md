@@ -478,6 +478,13 @@ only as steady as those few tasks, so raise `--geomean-threshold` accordingly.
 expected for a change in behavior, and never fails the run. Return the result from the
 task (`task("x", () => parse(input))`) for it to mean anything.
 
+**Changed suites.** The base side runs the base tree's copy of each suite file. When the
+suite itself changed, the two sides may time different things: a fixed fixture, a new
+input size. So when a suite file's text differs from the base's copy, its tasks carry a
+`suite-changed` warning. A task whose output differs as well is marked `not comparable`:
+its verdict is `unchanged`, it isn't re-measured, and it's left out of the geomean. Only
+the suite file itself is checked, not the files it imports.
+
 The noise floor is measured and reported as usual but doesn't widen the threshold:
 pairing already cancels the drift it measures.
 

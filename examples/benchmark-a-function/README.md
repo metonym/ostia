@@ -25,11 +25,11 @@ console.log(text)
 ```
 
 ```
-Task                                   Median     Spread             Range              Relative
-------------------------------------------------------------------------------------------------
+Task                            Median     Spread             Range              Relative
+-----------------------------------------------------------------------------------------
 dedupe:
-  dedupe/naive (indexOf scan, O(n²))   217.8 µs   208.3 µs…227.2 µs  197.3 µs…825.5 µs  9.08× slower
-  dedupe/Set-based (O(n))              24.0 µs    23.2 µs…24.9 µs    21.6 µs…258.8 µs   1.00×
+  naive (indexOf scan, O(n²))   217.8 µs   208.3 µs…227.2 µs  197.3 µs…825.5 µs  9.08× slower
+  Set-based (O(n))              24.0 µs    23.2 µs…24.9 µs    21.6 µs…258.8 µs   1.00×
 ```
 
 Each suite file runs in its own spawned child, isolated from the caller's state - the

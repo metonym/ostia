@@ -489,7 +489,8 @@ describe("ostia ab", () => {
       "--no-noise-check",
     ])
     expect(stdout).toContain("A/B: working tree vs HEAD")
-    expect(stdout).toMatch(/g\/work .* regressed/)
+    expect(stdout).toMatch(/^g:\n {2}work .* regressed/m)
+    expect(stdout).not.toContain("g/work")
     expect(stdout).toContain("Geomean +")
   }, 60_000)
 

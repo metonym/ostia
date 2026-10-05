@@ -17,6 +17,14 @@ export function groupOf(workload: Workload | undefined): string | undefined {
   return idx === -1 ? undefined : id.slice(0, idx)
 }
 
+/** A row's label under its group's header: the task name alone, since the
+ * header already shows the group. */
+export function labelInGroup(label: string, group: string | undefined): string {
+  return group !== undefined && label.startsWith(`${group}/`)
+    ? label.slice(group.length + 1)
+    : label
+}
+
 /** Reference median for each row's Relative value. Grouped tasks compare
  * against their own group: its `task(..., { baseline: true })` task if one is
  * marked, else its fastest task (which, for a single-task group, is itself).

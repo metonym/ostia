@@ -65,11 +65,11 @@ ostia bench suite.ts
 ```
 Apple M2 · 8 cores · load 3.5 · noise floor 0.4%
 
-Task                                   Median     Spread             Range              Relative
-------------------------------------------------------------------------------------------------
+Task                            Median     Spread             Range              Relative
+-----------------------------------------------------------------------------------------
 dedupe:
-  dedupe/naive (indexOf scan, O(n²))   173.9 µs   180.4 µs…205.8 µs  170.1 µs…635.5 µs  7.40× slower
-  dedupe/Set-based (O(n))              23.5 µs    24.9 µs…72.5 µs    18.7 µs…208.3 µs   1.00×
+  naive (indexOf scan, O(n²))   173.9 µs   180.4 µs…205.8 µs  170.1 µs…635.5 µs  7.40× slower
+  Set-based (O(n))              23.5 µs    24.9 µs…72.5 µs    18.7 µs…208.3 µs   1.00×
 ```
 
 ### Check a change for regressions
@@ -84,11 +84,11 @@ ostia ab suite.ts   # every task: working tree vs HEAD, paired in one process
 ```
 A/B: working tree vs HEAD (3945768) · 15 rounds · threshold 10% · geomean threshold 1.5%
 
-Task                                   Base       Candidate  Change    p25…p75            Verdict
--------------------------------------------------------------------------------------------------
+Task                            Base       Candidate  Change    p25…p75            Verdict
+------------------------------------------------------------------------------------------
 dedupe:
-  dedupe/naive (indexOf scan, O(n²))   183.5 µs   178.5 µs   -1.9%     -3.5%…-0.3%
-  dedupe/Set-based (O(n))              25.2 µs    181.2 µs   +618.1%   +554.2%…+659.2%    regressed, confirmed (repeats: +630.6%, +584.5%)
+  naive (indexOf scan, O(n²))   183.5 µs   178.5 µs   -1.9%     -3.5%…-0.3%
+  Set-based (O(n))              25.2 µs    181.2 µs   +618.1%   +554.2%…+659.2%    regressed, confirmed (repeats: +630.6%, +584.5%)
 
 Geomean +165.4% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
 ```

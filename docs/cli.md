@@ -293,13 +293,13 @@ Ordinary setup (reading fixtures, building inputs) leaves a few MB of this slack
 small differences with that in mind; `--peak-mem` is for calls that allocate megabytes.
 
 ```
-Task                     Median     Spread             Range              Retained/op Peak mem   Relative
----------------------------------------------------------------------------------------------------------
+Task                 Median     Spread             Range              Retained/op Peak mem   Relative
+-----------------------------------------------------------------------------------------------------
 mem:
-  mem/garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MB    4291943.33× slower
+  garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MB    4291943.33× slower
     ! slow-first-run
-  mem/retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KB      48.00KB    2731.39× slower
-  mem/noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
+  retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KB      48.00KB    2731.39× slower
+  noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
 ```
 
 The first task allocates and drops a 40MB array per call: `Retained/op` sees nothing,
@@ -394,11 +394,11 @@ ostia ab bench/*.ts --filter 'source map' --rounds 21
 ```
 A/B: working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%
 
-Task       Base       Candidate  Change    p25…p75            Verdict
----------------------------------------------------------------------
+Task     Base       Candidate  Change    p25…p75            Verdict
+-------------------------------------------------------------------
 g:
-  g/work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    regressed, confirmed (repeats: +103.1%, +101.8%)
-  g/same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%
+  work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    regressed, confirmed (repeats: +103.1%, +101.8%)
+  same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%
 
 Output differs from the base (1):
   g/work

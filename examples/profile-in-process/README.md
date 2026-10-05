@@ -14,7 +14,7 @@ function hashLoop(n: number): number {
   return acc
 }
 
-const { result, run } = await profile(() => hashLoop(8_000_000), { origin: "jsc", intervalUs: 100 })
+const { result, run } = await profile(() => hashLoop(8_000_000), { origin: "jsc", cpuIntervalUs: 100 })
 console.log(run.jit?.tiers)
 ```
 

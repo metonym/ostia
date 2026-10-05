@@ -1,16 +1,8 @@
 import type { HeapEvidence, Warning } from "../../ir/types.ts"
-import { withBunFlags } from "../bunflags.ts"
+import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts"
 import { parseHeapSnapshot, type RawHeapSnapshot } from "./parse.ts"
 
-// Do not pass `--heap-prof-md` with `--heap-prof`: md wins and the binary snapshot is silently skipped.
-
-export interface HeapCaptureOptions {
-  argv: string[]
-  cwd?: string
-  env?: Record<string, string>
-  artifactDir: string
-  fileName: string
-}
+export type HeapCaptureOptions = ProfiledRunOptions
 
 export interface HeapCaptureResult {
   diagnosticWallNs: number
@@ -20,12 +12,12 @@ export interface HeapCaptureResult {
   warnings: Warning[]
 }
 
+// `--heap-prof-md` must not accompany `--heap-prof`: md wins and the binary snapshot is skipped.
 export async function runHeapCapture(
   opts: HeapCaptureOptions,
 ): Promise<HeapCaptureResult> {
-  const artifactPath = `${opts.artifactDir}/${opts.fileName}`
-  const { argv, env } = withBunFlags(
-    opts.argv,
+  const { raw, ...run } = await runProfiled<RawHeapSnapshot>(
+    opts,
     [
       "--heap-prof",
       "--heap-prof-dir",
@@ -33,37 +25,7 @@ export async function runHeapCapture(
       "--heap-prof-name",
       opts.fileName,
     ],
-    opts.env,
+    { what: "a heap snapshot", kind: "heap" },
   )
-
-  const start = Bun.nanoseconds()
-  const proc = Bun.spawn(argv, {
-    cwd: opts.cwd,
-    env,
-    stdout: "ignore",
-    stderr: "ignore",
-    stdin: "ignore",
-  })
-  const exitCode = await proc.exited
-  const diagnosticWallNs = Bun.nanoseconds() - start
-
-  const file = Bun.file(artifactPath)
-  if (!(await file.exists())) {
-    return {
-      diagnosticWallNs,
-      exitCode,
-      warnings: [
-        {
-          code: "artifact-missing",
-          message: `Expected a heap snapshot at ${artifactPath} after exit ${exitCode}, found nothing. The workload's argv[0] must be a \`bun\` binary for heap capture.`,
-          data: { artifactPath, argv: opts.argv },
-        },
-      ],
-    }
-  }
-
-  const raw = (await file.json()) as RawHeapSnapshot
-  const heap = parseHeapSnapshot(raw)
-
-  return { diagnosticWallNs, exitCode, artifactPath, heap, warnings: [] }
+  return raw ? { ...run, heap: parseHeapSnapshot(raw) } : run
 }

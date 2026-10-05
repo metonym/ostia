@@ -29,14 +29,14 @@ describe("ratioStats", () => {
     // Median 1.2, but p25 is below 1: the candidate wasn't consistently slower.
     const stats = ratioStats([0.8, 0.85, 0.9, 1.2, 1.2, 1.25, 1.3, 1.3], 10)
     expect(stats.medianRatio).toBeGreaterThan(1.1)
-    expect(stats.p25).toBeLessThan(1)
+    expect(stats.ratioP25).toBeLessThan(1)
     expect(stats.flagged).toBeUndefined()
   })
 
   test("a consistent change under the threshold isn't flagged", () => {
     const stats = ratioStats([1.05, 1.06, 1.04, 1.05, 1.05], 10)
     expect(stats.flagged).toBeUndefined()
-    expect(stats.p25).toBeGreaterThan(1)
+    expect(stats.ratioP25).toBeGreaterThan(1)
   })
 })
 
@@ -78,6 +78,42 @@ describe("measurePaired", () => {
       { rounds: 3 },
     )
     expect(result.sameOutput).toBe(false)
+  }, 20_000)
+
+  test("a slow side isn't over-run while a fast side's warmup catches up", async () => {
+    let slowCalls = 0
+    const slow = () => {
+      slowCalls++
+      const end = Bun.nanoseconds() + 2_000_000
+      while (Bun.nanoseconds() < end) {}
+    }
+    await measurePaired(() => 1, slow, { rounds: 3 })
+    // Probe + one calibration call + ~5-call batches for 3 warm and 3 timed rounds.
+    expect(slowCalls).toBeLessThan(100)
+  }, 20_000)
+
+  test("rejects with the signal's reason when aborted", async () => {
+    const aborted = AbortSignal.abort(new Error("stop"))
+    await expect(
+      measurePaired(
+        () => 1,
+        () => 2,
+        { signal: aborted },
+      ),
+    ).rejects.toThrow("stop")
+
+    const controller = new AbortController()
+    let calls = 0
+    await expect(
+      measurePaired(
+        () => {
+          if (++calls === 50) controller.abort(new Error("mid-run"))
+          return spin(2_000)
+        },
+        () => spin(2_000),
+        { rounds: 5000, signal: controller.signal },
+      ),
+    ).rejects.toThrow("mid-run")
   }, 20_000)
 
   test("works with async tasks", async () => {
@@ -151,8 +187,8 @@ function pairedMeasurement(p: Partial<PairedEvidence>): Measurement {
       baseMedianNs: 1,
       ratios: [],
       medianRatio: 1,
-      p25: 1,
-      p75: 1,
+      ratioP25: 1,
+      ratioP75: 1,
       verdict: "unchanged",
       sameOutput: true,
       ...p,
@@ -202,7 +238,12 @@ describe("summarizePaired", () => {
           confirmed: true,
           verdict: "regressed",
           repeats: [
-            { medianRatio: 1.5, p25: 1.4, p75: 1.6, flagged: "regressed" },
+            {
+              medianRatio: 1.5,
+              ratioP25: 1.4,
+              ratioP75: 1.6,
+              flagged: "regressed",
+            },
           ],
         }),
         pairedMeasurement({
@@ -210,7 +251,7 @@ describe("summarizePaired", () => {
           flagged: "regressed",
           confirmed: false,
           verdict: "unchanged",
-          repeats: [{ medianRatio: 1.0, p25: 0.9, p75: 1.1 }],
+          repeats: [{ medianRatio: 1.0, ratioP25: 0.9, ratioP75: 1.1 }],
         }),
         pairedMeasurement({ sameOutput: false }),
       ],
@@ -232,8 +273,8 @@ describe("summarizePaired", () => {
           confirmed: false,
           verdict: "unchanged",
           repeats: [
-            { medianRatio: 1.0, p25: 0.95, p75: 1.05 },
-            { medianRatio: 1.01, p25: 0.95, p75: 1.05 },
+            { medianRatio: 1.0, ratioP25: 0.95, ratioP75: 1.05 },
+            { medianRatio: 1.01, ratioP25: 0.95, ratioP75: 1.05 },
           ],
         }),
       ],

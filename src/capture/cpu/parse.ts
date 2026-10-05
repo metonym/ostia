@@ -1,10 +1,5 @@
-import { fp } from "../../ir/fp.ts"
-import type {
-  CallNode,
-  CpuEvidence,
-  Frame,
-  FrameTotal,
-} from "../../ir/types.ts"
+import type { CallNode, CpuEvidence, FrameTotal } from "../../ir/types.ts"
+import { addFrameTotal, createFrameTable, sortedTotals } from "../frames.ts"
 
 interface RawCallFrame {
   functionName: string
@@ -29,7 +24,7 @@ export interface RawCpuProfile {
   timeDeltas: number[]
 }
 
-// cpu-prof/inspector: sourcemapped file:// URLs, 0-based lines (jsc is 1-based; see capture/jsc/parse.ts).
+// cpu-prof/inspector: sourcemapped file:// URLs, 0-based lines (jsc is 1-based).
 function normalizeUrl(url: string): string {
   return url.startsWith("file://") ? url.slice("file://".length) : url
 }
@@ -42,44 +37,21 @@ export function parseCpuProfile(
   const rawNodes = raw.nodes
   const count = rawNodes.length
 
-  const frameIxByName = new Map<string, Map<string, number>>()
-  const frames: Frame[] = []
+  const { frames, intern } = createFrameTable()
   const indexById = new Map<number, number>()
-  const frameIxOf = new Int32Array(count)
+  const nodes: CallNode[] = new Array(count)
 
   for (let i = 0; i < count; i++) {
     const node = rawNodes[i]!
     const cf = node.callFrame
-    const url = normalizeUrl(cf.url)
-    let byUrl = frameIxByName.get(cf.functionName)
-    if (byUrl === undefined) {
-      byUrl = new Map()
-      frameIxByName.set(cf.functionName, byUrl)
-    }
-    let ix = byUrl.get(url)
-    if (ix === undefined) {
-      ix = frames.length
-      byUrl.set(url, ix)
-      frames.push({
-        key: fp("fr", cf.functionName, url),
-        name: cf.functionName,
-        url: url || undefined,
-        line: cf.lineNumber >= 0 ? cf.lineNumber : undefined,
-        col: cf.columnNumber >= 0 ? cf.columnNumber : undefined,
-      })
-    }
-    frameIxOf[i] = ix
+    const frameIx = intern(
+      cf.functionName,
+      normalizeUrl(cf.url) || undefined,
+      cf.lineNumber >= 0 ? cf.lineNumber : undefined,
+      cf.columnNumber >= 0 ? cf.columnNumber : undefined,
+    )
+    nodes[i] = { id: node.id, frameIx, children: node.children ?? [] }
     indexById.set(node.id, i)
-  }
-
-  const nodes: CallNode[] = new Array(count)
-  for (let i = 0; i < count; i++) {
-    const n = rawNodes[i]!
-    nodes[i] = {
-      id: n.id,
-      frameIx: frameIxOf[indexById.get(n.id)!]!,
-      children: n.children ?? [],
-    }
   }
 
   const selfUs = new Float64Array(count)
@@ -102,6 +74,7 @@ export function parseCpuProfile(
       if (c !== undefined) parentIx[c] = i
     }
   }
+  // Parents-before-children order, so walking it backwards rolls totals up.
   const order: number[] = []
   const stack: number[] = []
   for (let i = count - 1; i >= 0; i--) if (parentIx[i] === -1) stack.push(i)
@@ -123,25 +96,15 @@ export function parseCpuProfile(
     if (p >= 0) totalUs[p]! += totalUs[i]!
   }
 
-  const totalsByFrameIx: (FrameTotal | undefined)[] = new Array(frames.length)
-  const totals: FrameTotal[] = []
+  const totals = new Map<number, FrameTotal>()
   for (let i = 0; i < count; i++) {
-    const frameIx = nodes[i]!.frameIx
-    const existing = totalsByFrameIx[frameIx]
-    if (existing) {
-      existing.selfUs += selfUs[i]!
-      existing.totalUs += totalUs[i]!
-      existing.samples += sampleCount[i]!
-    } else {
-      const t = {
-        frameIx,
-        selfUs: selfUs[i]!,
-        totalUs: totalUs[i]!,
-        samples: sampleCount[i]!,
-      }
-      totalsByFrameIx[frameIx] = t
-      totals.push(t)
-    }
+    addFrameTotal(
+      totals,
+      nodes[i]!.frameIx,
+      selfUs[i]!,
+      totalUs[i]!,
+      sampleCount[i]!,
+    )
   }
 
   return {
@@ -149,7 +112,7 @@ export function parseCpuProfile(
     samplingIntervalUs,
     frames,
     nodes,
-    totals: totals.sort((a, b) => b.selfUs - a.selfUs),
+    totals: sortedTotals(totals),
     samples: { nodeIds: raw.samples, timeDeltasUs: raw.timeDeltas },
   }
 }

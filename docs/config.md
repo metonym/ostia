@@ -4,7 +4,12 @@
 directory; `ostia bench` reads its `bench` section when present. Discovery checks
 `ostia.config.ts` first (default export, typically wrapped in `defineConfig` for type
 checking), then `ostia.config.json`. Both support the same fields, except that functions
-and `RegExp` values only work in `.ts`.
+and `RegExp` values only work in `.ts`. `--config PATH` (on `bench`, `ab`, `compare`, `ci`
+and `baseline`) loads a specific file instead; paths inside it (`baselineDir`, `suites`,
+`inputs`, ...) still resolve against the current directory, not the file's.
+
+If both `ostia.config.ts` and `ostia.config.json` exist, the `.ts` file is used and the
+JSON one ignored, with a warning on stderr. A `.ts` config must have a default export.
 
 ```ts
 // ostia.config.ts
@@ -42,9 +47,22 @@ export default defineConfig({
 }
 ```
 
-An `ostia.config.json` that isn't valid JSON, or a config that uses a renamed field, fails
-with error code `config-invalid` (exit 2). The top-level `runs` field was renamed to
-`samples`; a config that still has `runs` is rejected with a message saying so.
+A config that isn't valid JSON, isn't an object, has no default export (`.ts`), uses a
+renamed field, or has a value of the wrong type fails with error code `config-invalid`
+(exit 2); the message names the key (`"bench.jobs" must be a positive integer or "auto",
+got "many"`). The top-level `runs` field was renamed to `samples`; a config that still has
+`runs` is rejected with a message saying so.
+
+Validation covers the type and range of every documented field (the tables below show
+them): counts are positive integers, `warmup` a non-negative integer, `thresholds`
+fields non-negative numbers (`alpha` at most 1), `workloads` an array where each entry
+has exactly one of `command` (a non-empty argv array) or `suites`, and so on. A key set
+to `undefined` in `ostia.config.ts` counts as unset and keeps its default.
+
+Unknown keys (a typo like `baselineDirr`) and command-only keys (`inputs`, `prepare`,
+`timeSource`, `ignoreExitCodes`) on a `suites` workload don't fail: they are ignored with
+a one-line warning on stderr naming the key. Keys starting with `$` (`"$schema"`) are
+never reported.
 
 ## Top-level fields
 
@@ -73,7 +91,7 @@ with error code `config-invalid` (exit 2). The top-level `runs` field was rename
 | `bootstrapIterations` | 2000 | Bootstrap rounds for the 95% CI. |
 | `frameSelfPct` | 10 | A CPU frame whose self time grows by more than this fails. |
 | `minFrameSelfUs` | 1000 | Frames below this self time on both sides are ignored. |
-| `heapTypePct` | 10 | A heap object type whose count grows by more than this fails. |
+| `heapTypePct` | 10 | A heap object type whose count grows by more than this fails. Only the count is gated: `retainedBytes` is shown, never compared. |
 
 How these are applied: [statistics.md](statistics.md).
 
@@ -89,7 +107,7 @@ Each workload has exactly one of `command` or `suites`.
 | `inputs` | command | Globs of files the timing depends on, for caching. Absent: always rerun. `[]`: depends on nothing. |
 | `prepare` | command | Runs before every trial, unmeasured: a command string, an argv array, or (`.ts` only) a function `({ phase, index }) => ...`. |
 | `timeSource` | command | `{ pattern, group?, unit? }`: take the time from the command's output. `pattern` is a regex source string, or a `RegExp` in `.ts` (no `g`/`y`/`d` flags). `group` defaults to 1, `unit` to `"ms"`. |
-| `timeoutMs` | command | Kill a trial or prepare hook after this long (default under `ci`: 10 minutes). |
+| `timeoutMs` | both | `command`: kill a trial or prepare hook after this long. `suites`: kill a suite file's (or isolated task's) process after this long, overriding `bench.timeoutMs`. Default under `ci`: 10 minutes. |
 | `ignoreExitCodes` | command | Exit codes treated as success. |
 
 `prepare` and `timeSource` are part of the workload id; `label`, `inputs`, `timeoutMs` and
@@ -123,7 +141,10 @@ and `timeoutMs` from it.
 | `outDir` | `node_modules/.cache/ostia` (`ci`: top-level `outDir`) | `--out-dir` |
 | `timeoutMs` | none (`ci`: 10 minutes) | `--timeout` |
 
-Suite globs resolve against the current directory.
+Suite globs resolve against the current directory. Globs match dotfiles and dot
+directories (`.github/**`), but a wildcard never descends into `node_modules` or `.git`
+unless the pattern names that directory (`node_modules/foo/**`). The same rules apply to a
+command workload's `inputs`.
 
 ## `ab`
 

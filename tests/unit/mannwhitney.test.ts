@@ -40,3 +40,16 @@ describe("mannWhitneyU", () => {
     expect(result.pValue).toBeLessThanOrEqual(1)
   })
 })
+
+describe("mannWhitneyU - empty sides", () => {
+  test("an empty or single-sample total gives pValue 1, never NaN", () => {
+    for (const [a, b] of [
+      [[], []],
+      [[1], []],
+      [[], [1]],
+      [[], [1, 2, 3]],
+    ] as const) {
+      expect(mannWhitneyU([...a], [...b])).toEqual({ u: 0, z: 0, pValue: 1 })
+    }
+  })
+})

@@ -10,9 +10,21 @@ import {
   unlinkSync,
   utimesSync,
 } from "node:fs"
-import { isAbsolute, relative, sep } from "node:path"
+import { mkdir } from "node:fs/promises"
+import { relative, sep } from "node:path"
+import {
+  absolutePath,
+  assertSuiteExists,
+  captureRunEnvironment,
+  median,
+  removeDir,
+  runRunnerProcess,
+  stampRunWarnings,
+  uniqueTmpDir,
+} from "../bench/support.ts"
 import { DEFAULT_OUT_DIR } from "../config/index.ts"
-import { loadDocument, newDocument } from "../ir/document.ts"
+import { OstiaUsageError } from "../errors.ts"
+import { createDocument, loadDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type {
   AbSummary,
@@ -21,13 +33,8 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
-import {
-  captureEnvironment,
-  noisyMachineWarning,
-} from "../measure/environment.ts"
 import { comparable } from "../measure/paired.ts"
-import { killSwitch } from "../spawn/index.ts"
-import { percentile } from "../stats/index.ts"
+import { assertSamplingOptions } from "../measure/timing.ts"
 import type { AbRunnerOpts, AbRunnerProgress } from "./ab-runner.ts"
 
 /** What `ab()` is doing, for `onProgress`. Counts start at 1. */
@@ -46,7 +53,7 @@ export type AbProgress =
 
 export interface AbOptions {
   suites: string[]
-  /** Git ref whose committed tree is the base side (default: `"HEAD"`). The
+  /** Git ref whose committed tree is the base side (default: `"HEAD"`); the
    * candidate is the working tree, uncommitted changes included. */
   base?: string
   /** Rounds per workload, each one base batch and one candidate batch of
@@ -59,9 +66,8 @@ export interface AbOptions {
    * this many percent (default: 1.5): a broad slowdown too small to flag any
    * one workload. */
   geomeanThresholdPct?: number
-  /** Fresh-process repeats of each flagged workload; it only counts when
-   * every repeat flags it the same way (default: 2; 0 trusts the first
-   * process). */
+  /** Fresh-process repeats of each flagged workload, which only counts when
+   * every repeat flags it the same way (default: 2; 0 trusts the first). */
   confirm?: number
   filter?: string
   preload?: string[]
@@ -80,11 +86,11 @@ export interface AbOptions {
    * run, older ones go, least recently used first, unless one was used in
    * the last hour (another run may still need it). Default: 5. */
   keepTrees?: number
-  /** Kills a runner process (one suite file, or one repeat), or a
-   * `baseSetup` command, after this many ms. No default. */
+  /** SIGKILLs a runner process (one suite file or repeat), or a `baseSetup`
+   * command, after this many ms. */
   timeoutMs?: number
   /** Aborting kills the running process and resolves with the suites that
-   * had finished, plus an `aborted` warning; repeats not yet run leave their
+   * had finished, plus an `aborted` warning; unrun repeats leave their
    * workloads unconfirmed. */
   signal?: AbortSignal
   /** Called as each setup command, task and confirmation repeat starts. */
@@ -92,7 +98,7 @@ export interface AbOptions {
 }
 
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
-export class AbBaseError extends Error {}
+export class AbBaseError extends OstiaUsageError {}
 
 /** A `baseSetup` command exited non-zero or timed out. The message names
  * the command and ends with the tail of its output. */
@@ -118,15 +124,11 @@ function git(args: string[], cwd: string): string | undefined {
   return proc.success ? proc.stdout.toString().trim() : undefined
 }
 
-// Appended to every script in the base tree, so no file is byte-identical to
-// its working-tree copy. JSC's code cache reuses compiled code between
-// identical sources, and identical copies didn't measure independently: on
-// caligula, with no change at all, whichever copy the runner imported first
-// (and so warmed first, in the suite's module-scope setup) ran 5-15% faster,
-// reproducibly in fresh processes. With the copies' text differing, the same
-// A/A run read +0.1% whichever went first. A statement, not a comment: Bun's
-// transpiler strips comments and inert expressions. Reading an absent global
-// has no effect.
+// Appended to every base-tree script so no file is byte-identical to its
+// working-tree copy: JSC's code cache shares compiled code between identical
+// sources, and whichever copy was imported (and warmed) first ran 5-15%
+// faster in A/A runs. A statement, not a comment: Bun's transpiler strips
+// comments and inert expressions.
 const BASE_SALT = "\n;globalThis.__ostia_ab_base__;\n"
 const SCRIPT_GLOB = "**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}"
 
@@ -314,9 +316,9 @@ async function extractTree(
   setup: TreeSetup,
 ): Promise<boolean> {
   if (existsSync(dir)) return true
-  const tmp = `${dir}.tmp-${process.pid}`
-  await Bun.spawn(["rm", "-rf", tmp]).exited
-  await Bun.spawn(["mkdir", "-p", tmp]).exited
+  const tmp = `${dir}.tmp-${process.pid}-${crypto.randomUUID().slice(0, 8)}`
+  await removeDir(tmp)
+  await mkdir(tmp, { recursive: true })
   const archive = Bun.spawn(["git", "archive", "--format=tar", sha], {
     cwd: setup.cwd,
     stdout: "pipe",
@@ -331,24 +333,24 @@ async function extractTree(
     const stderr = await new Response(
       archiveCode !== 0 ? archive.stderr : tar.stderr,
     ).text()
-    await Bun.spawn(["rm", "-rf", tmp]).exited
+    await removeDir(tmp)
     throw new Error(`Could not extract ${sha}: ${stderr.trim()}`)
   }
   try {
     if (!(await runSetup(tmp, sha, setup))) {
-      await Bun.spawn(["rm", "-rf", tmp]).exited
+      await removeDir(tmp)
       return false
     }
   } catch (err) {
-    await Bun.spawn(["rm", "-rf", tmp]).exited
+    await removeDir(tmp)
     throw err
   }
   await saltScripts(tmp)
   try {
     renameSync(tmp, dir)
   } catch {
-    // Another run extracted the same commit first; its copy is complete.
-    await Bun.spawn(["rm", "-rf", tmp]).exited
+    // Another run extracted the same commit first.
+    await removeDir(tmp)
   }
   return true
 }
@@ -386,7 +388,7 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   const trees: { path: string; mtimeMs: number }[] = []
   for (const name of readdirSync(abDir)) {
     const path = `${abDir}/${name}`
-    const tmp = /\.tmp-(\d+)$/.exec(name)
+    const tmp = /\.tmp-(\d+)(?:-\w+)?$/.exec(name)
     if (tmp) {
       if (!pidAlive(Number(tmp[1]))) doomed.push(path)
       continue
@@ -401,7 +403,7 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   for (const tree of trees.slice(keep)) {
     if (now - tree.mtimeMs > PRUNE_GRACE_MS) doomed.push(tree.path)
   }
-  for (const path of doomed) await Bun.spawn(["rm", "-rf", path]).exited
+  for (const path of doomed) await removeDir(path)
   return doomed.length
 }
 
@@ -411,21 +413,15 @@ export async function cleanAbTrees(
   opts: { outDir?: string; cwd?: string } = {},
 ): Promise<number> {
   const cwd = opts.cwd ?? process.cwd()
-  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
-  const abDir = `${isAbsolute(outDir) ? outDir : `${cwd}/${outDir}`}/ab`
+  const abDir = `${absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR)}/ab`
   if (!existsSync(abDir)) return 0
   const count = readdirSync(abDir).length
-  await Bun.spawn(["rm", "-rf", abDir]).exited
+  await removeDir(abDir)
   return count
 }
 
-function median(values: number[]): number {
-  return percentile(Float64Array.from(values).sort(), 0.5)
-}
-
-/** A workload's best estimate of its ratio: the median over its main run
- * and any fresh-process repeats, so one process's JIT luck moves the
- * geomean less. */
+/** Median over the main run and any fresh-process repeats, so one process's
+ * JIT luck moves the geomean less. */
 function ratioEstimate(p: PairedEvidence): number {
   if (!p.repeats?.length) return p.medianRatio
   return median([p.medianRatio, ...p.repeats.map((r) => r.medianRatio)])
@@ -446,13 +442,14 @@ export function summarizePaired(
     .filter((m) => !m.threw)
     .map((m) => m.paired)
     .filter((p): p is PairedEvidence => p !== undefined)
+  const count = (verdict: PairedEvidence["verdict"]) =>
+    paired.filter((p) => p.verdict === verdict).length
   const judged = paired.filter(comparable)
-  let logSum = 0
-  for (const p of judged) logSum += Math.log(ratioEstimate(p))
+  const logSum = judged.reduce((sum, p) => sum + Math.log(ratioEstimate(p)), 0)
   const geomeanPct =
     judged.length > 0 ? (Math.exp(logSum / judged.length) - 1) * 100 : null
-  const regressed = paired.filter((p) => p.verdict === "regressed").length
-  const improved = paired.filter((p) => p.verdict === "improved").length
+  const regressed = count("regressed")
+  const improved = count("improved")
   const threw = measurements.filter((m) => m.threw)
   const candThrew = threw.some((m) => m.threw?.side === "cand")
   return {
@@ -478,10 +475,10 @@ export function summarizePaired(
 /** Paired A/B timing of suite files against a git ref: every task runs on
  * the ref's committed tree (base) and the working tree (candidate) in one
  * process, alternating short batches, and is judged on the per-round time
- * ratio. Drift that makes two runs minutes apart disagree cancels within a
- * round. What pairing can't cancel is how the JIT happened to compile each
- * side in that process, so every flagged workload is measured again in
- * `confirm` fresh processes and only counts when they all agree. */
+ * ratio. Drift between two runs minutes apart cancels within a round. What
+ * pairing can't cancel is how the JIT compiled each side in that process, so
+ * every flagged workload is re-measured in `confirm` fresh processes and only
+ * counts when they all agree. */
 export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const ref = opts.base ?? DEFAULTS.base
   const rounds = opts.rounds ?? DEFAULTS.rounds
@@ -509,11 +506,17 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       throw new RangeError(`ab: ${key} must be >= 0, got ${value}`)
     }
   }
+  assertSamplingOptions("ab", { timeoutMs: opts.timeoutMs })
 
   const cwd = opts.cwd ?? process.cwd()
-  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
-  const absOutDir = isAbsolute(outDir) ? outDir : `${cwd}/${outDir}`
-  const tmpDir = `${absOutDir}/ab-tmp`
+  const absOutDir = absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR)
+  const tmpDir = uniqueTmpDir(absOutDir, "ab")
+
+  // Same path join as `bench()`, so workload ids match `ostia bench`'s.
+  const candSuites = opts.suites.map((file) => absolutePath(cwd, file))
+  for (const [i, suite] of candSuites.entries()) {
+    assertSuiteExists(opts.suites[i]!, suite)
+  }
 
   const toplevel = git(["rev-parse", "--show-toplevel"], cwd)
   if (toplevel === undefined) {
@@ -524,8 +527,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     throw new AbBaseError(`"${ref}" is not a commit in ${toplevel}.`)
   }
   // Under the project's node_modules, so a bare import from the base tree
-  // (a dependency, or `ostia` itself) walks up to the same package the
-  // working tree uses.
+  // resolves to the same packages (and `ostia` itself) as the working tree.
   const setup =
     typeof opts.baseSetup === "string"
       ? [opts.baseSetup]
@@ -546,28 +548,19 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     geomeanThresholdPct,
   }
   if (!extracted) {
-    const doc = newDocument([], [])
+    const doc = createDocument([], [])
     doc.unmatched = { baseOnly: [], candOnly: [] }
     doc.ab = summarizePaired([], settings)
     return doc
   }
 
-  const environment =
-    opts.noiseCheck === false ? undefined : captureEnvironment()
+  const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck)
 
-  // Plain string join, not path.resolve: the suite path is hashed into every
-  // workload id, so these ids match `ostia bench`'s for the same files.
-  const absolute = (file: string) =>
-    isAbsolute(file) ? file : `${cwd}/${file}`
-  const candSuites = opts.suites.map(absolute)
   // "" when the file doesn't exist at the base ref: all its tasks are new.
   const baseSuites = candSuites.map((suite, i) => {
-    if (!existsSync(suite)) {
-      throw new Error(`Suite not found: ${opts.suites[i]}`)
-    }
     const inRepo = relative(toplevel, realpathSync(suite))
     if (inRepo === ".." || inRepo.startsWith(`..${sep}`)) {
-      throw new AbBaseError(`${opts.suites[i]} is outside ${toplevel}.`)
+      throw new OstiaUsageError(`${opts.suites[i]} is outside ${toplevel}.`)
     }
     return existsSync(`${checkout}/${inRepo}`) ? `${checkout}/${inRepo}` : ""
   })
@@ -585,7 +578,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       )
     }),
   )
-  const preload = (opts.preload ?? []).map(absolute)
+  const preload = (opts.preload ?? []).map((file) => absolutePath(cwd, file))
   const bunFlags = opts.bunFlags ?? []
 
   const onProgress = opts.onProgress
@@ -605,8 +598,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       progress: onProgress !== undefined && !extra.workloadIds,
       ...extra,
     }
-    const kill = killSwitch(opts.timeoutMs, opts.signal)
-    const proc = Bun.spawn(
+    const ran = await runRunnerProcess(
       [
         "bun",
         ...bunFlags,
@@ -618,9 +610,12 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       ],
       {
         cwd,
-        stdout: "inherit",
-        stderr: "inherit",
-        stdin: "ignore",
+        label: "A/B suite",
+        name: opts.suites[s]!,
+        timeoutMs: opts.timeoutMs,
+        signal: opts.signal,
+        // The runner names the side that failed to load, when that's why.
+        errorFile: `${outPath}.error`,
         ...(runnerOpts.progress && {
           ipc: (message: AbRunnerProgress) =>
             onProgress?.({
@@ -631,26 +626,9 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
               ...message,
             }),
         }),
-        ...kill.spawn,
       },
     )
-    const exitCode = await proc.exited
-    if (opts.signal?.aborted) return undefined
-    if (kill.timedOut()) {
-      throw new Error(
-        `A/B suite timed out after ${opts.timeoutMs}ms: ${opts.suites[s]}`,
-      )
-    }
-    if (exitCode !== 0) {
-      // The runner names the side that failed to load, when that's why.
-      const reason = Bun.file(`${outPath}.error`)
-      throw new Error(
-        (await reason.exists())
-          ? `A/B suite failed: ${opts.suites[s]}: ${await reason.text()}`
-          : `A/B suite failed: ${opts.suites[s]} (runner exited ${exitCode})`,
-      )
-    }
-    return loadDocument(outPath)
+    return ran ? loadDocument(outPath) : undefined
   }
 
   try {
@@ -710,8 +688,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         if (!repeat) break
         p.repeats.push({
           medianRatio: repeat.medianRatio,
-          p25: repeat.p25,
-          p75: repeat.p75,
+          ratioP25: repeat.ratioP25,
+          ratioP75: repeat.ratioP75,
           ...(repeat.flagged && { flagged: repeat.flagged }),
         })
       }
@@ -722,19 +700,15 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       p.verdict = p.confirmed ? flagged : "unchanged"
     }
 
-    const noiseWarning = environment && noisyMachineWarning(environment)
-    if (noiseWarning && measurements.length > 0) {
-      measurements[0]!.warnings.push(noiseWarning)
-    }
-    if (opts.signal?.aborted && measurements.length > 0) {
-      measurements[measurements.length - 1]!.warnings.push({
-        code: "aborted",
-        message:
-          "Run was cancelled before it finished; this document holds whatever suites had already completed.",
-      })
-    }
+    stampRunWarnings(
+      measurements,
+      noiseWarning,
+      opts.signal?.aborted
+        ? "Run was cancelled before it finished; this document holds whatever suites had already completed."
+        : undefined,
+    )
 
-    const doc = newDocument(workloads, measurements, environment)
+    const doc = createDocument(workloads, measurements, environment)
     doc.unmatched = { baseOnly, candOnly }
     doc.ab = summarizePaired(measurements, {
       ...settings,
@@ -743,6 +717,6 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     await pruneAbTrees(`${absOutDir}/ab`, keepTrees)
     return doc
   } finally {
-    await Bun.spawn(["rm", "-rf", tmpDir]).exited
+    await removeDir(tmpDir)
   }
 }

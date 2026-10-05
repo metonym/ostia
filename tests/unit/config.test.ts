@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test"
+import { describe, expect, spyOn, test } from "bun:test"
 import { mkdtemp } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -7,6 +7,7 @@ import {
   ConfigError,
   DEFAULT_CONFIG,
   loadConfig,
+  type OstiaConfig,
 } from "../../src/config/index.ts"
 
 const INDEX_MODULE = `${import.meta.dir}/../../src/index.ts`
@@ -17,6 +18,14 @@ const CONFIG_MODULE = `${import.meta.dir}/../../src/config/index.ts`
  * than `process.chdir()` (a global mutation that could race other test
  * files sharing this same `bun test` process). */
 async function loadConfigIn(cwd: string): Promise<unknown> {
+  const { config, stderr } = await loadConfigWithStderr(cwd)
+  if (stderr) throw new Error(stderr)
+  return config
+}
+
+async function loadConfigWithStderr(
+  cwd: string,
+): Promise<{ config: unknown; stderr: string }> {
   const proc = Bun.spawn(
     [
       "bun",
@@ -31,8 +40,7 @@ async function loadConfigIn(cwd: string): Promise<unknown> {
     proc.exited,
   ])
   expect(exitCode).toBe(0)
-  if (stderr) throw new Error(stderr)
-  return JSON.parse(stdout.trim())
+  return { config: JSON.parse(stdout.trim()), stderr }
 }
 
 describe("loadConfig", () => {
@@ -73,8 +81,11 @@ describe("loadConfig", () => {
         JSON.stringify({ baseline: "from-json" }),
       )
 
-      const result = (await loadConfigIn(tmpDir)) as { baseline: string }
-      expect(result.baseline).toBe("from-ts")
+      const { config, stderr } = await loadConfigWithStderr(tmpDir)
+      expect((config as { baseline: string }).baseline).toBe("from-ts")
+      expect(stderr).toContain(
+        "ostia.config.ts and ostia.config.json both exist",
+      )
     } finally {
       await Bun.$`rm -rf ${tmpDir}`
     }
@@ -283,6 +294,226 @@ describe("loadConfig - invalid configs", () => {
       await expect(loadConfig(configPath)).rejects.toThrow(configPath)
     } finally {
       await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+})
+
+describe("loadConfig - ostia.config.ts quirks", () => {
+  test("a .ts config with no default export is an error, not an empty config", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-no-default-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.ts")
+      await Bun.write(configPath, "export const config = { baseline: 'x' }\n")
+      await expect(loadConfig(configPath)).rejects.toThrow("no default export")
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+
+  test("an explicit undefined keeps the default instead of overwriting it", async () => {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-undefined-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.ts")
+      await Bun.write(
+        configPath,
+        "export default { warmup: undefined, baseline: undefined, thresholds: { timingPct: undefined, alpha: 0.05 } }\n",
+      )
+      const result = (await loadConfig(configPath))!
+      expect(result.warmup).toBe(DEFAULT_CONFIG.warmup)
+      expect(result.baseline).toBe(DEFAULT_CONFIG.baseline)
+      expect(result.thresholds.timingPct).toBe(
+        DEFAULT_CONFIG.thresholds.timingPct,
+      )
+      expect(result.thresholds.alpha).toBe(0.05)
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  })
+})
+
+describe("loadConfig - shape validation", () => {
+  async function loadJson(config: unknown): Promise<OstiaConfig | undefined> {
+    const tmpDir = await mkdtemp(join(tmpdir(), "config-shape-"))
+    try {
+      const configPath = join(tmpDir, "ostia.config.json")
+      await Bun.write(configPath, JSON.stringify(config))
+      return await loadConfig(configPath)
+    } finally {
+      await Bun.$`rm -rf ${tmpDir}`
+    }
+  }
+
+  const rejects: Array<[string, unknown, string]> = [
+    [
+      "a string samples",
+      { samples: "5" },
+      `"samples" must be a positive integer, got "5"`,
+    ],
+    [
+      "a fractional warmup",
+      { warmup: 1.5 },
+      `"warmup" must be a non-negative integer`,
+    ],
+    [
+      "a non-array workloads",
+      { workloads: "x" },
+      `"workloads" must be an array`,
+    ],
+    [
+      "a non-object workload",
+      { workloads: [1] },
+      `"workloads[0]" must be an object`,
+    ],
+    [
+      "a workload with neither command nor suites",
+      { workloads: [{ label: "x" }] },
+      `"workloads[0]" needs exactly one of "command" or "suites"`,
+    ],
+    [
+      "a workload with both",
+      { workloads: [{ command: ["a"], suites: ["b"] }] },
+      `"workloads[0]" needs exactly one`,
+    ],
+    [
+      "a string command",
+      { workloads: [{ command: "bun x.ts" }] },
+      `"workloads[0].command" must be a non-empty array of strings`,
+    ],
+    [
+      "a non-array inputs",
+      { workloads: [{ command: ["a"], inputs: "src" }] },
+      `"workloads[0].inputs" must be an array of strings`,
+    ],
+    [
+      "an out-of-range exit code",
+      { workloads: [{ command: ["a"], ignoreExitCodes: [256] }] },
+      `"workloads[0].ignoreExitCodes"`,
+    ],
+    [
+      "a bad timeSource regex",
+      { workloads: [{ command: ["a"], timeSource: { pattern: "(" } }] },
+      `"workloads[0].timeSource.pattern" is not a valid regex`,
+    ],
+    [
+      "a bad timeSource unit",
+      {
+        workloads: [
+          { command: ["a"], timeSource: { pattern: "x", unit: "min" } },
+        ],
+      },
+      `"workloads[0].timeSource"`,
+    ],
+    [
+      "a bad onMissingBaseline",
+      { onMissingBaseline: "ignore" },
+      `"onMissingBaseline" must be "warn" or "fail"`,
+    ],
+    [
+      "a string noiseCheck",
+      { noiseCheck: "no" },
+      `"noiseCheck" must be a boolean`,
+    ],
+    [
+      "a non-object thresholds",
+      { thresholds: 5 },
+      `"thresholds" must be an object`,
+    ],
+    [
+      "a negative threshold",
+      { thresholds: { timingPct: -1 } },
+      `"thresholds.timingPct"`,
+    ],
+    ["a non-object bench", { bench: [] }, `"bench" must be an object`],
+    [
+      "a NaN-ish bench.jobs",
+      { bench: { jobs: "many" } },
+      `"bench.jobs" must be a positive integer or "auto", got "many"`,
+    ],
+    ["a zero bench.jobs", { bench: { jobs: 0 } }, `"bench.jobs"`],
+    [
+      "a string bench.suites",
+      { bench: { suites: "bench/*.ts" } },
+      `"bench.suites" must be an array of strings`,
+    ],
+    [
+      "a non-boolean bench.isolate",
+      { bench: { isolate: 1 } },
+      `"bench.isolate" must be a boolean`,
+    ],
+  ]
+  for (const [name, config, message] of rejects) {
+    test(`rejects ${name}, naming the key`, async () => {
+      const err = await loadJson(config).catch((e) => e)
+      expect(err).toBeInstanceOf(ConfigError)
+      expect((err as Error).message).toContain(message)
+    })
+  }
+
+  test("accepts every documented shape", async () => {
+    const config = await loadJson({
+      $schema: "https://example.com/ostia.json",
+      samples: 5,
+      budgetMs: 1000,
+      minSamples: 3,
+      warmup: 0,
+      outDir: "out",
+      baselineDir: "base",
+      baseline: "main",
+      noiseCheck: false,
+      onMissingBaseline: "warn",
+      thresholds: { timingPct: 3, alpha: 0.05, bootstrapIterations: 100 },
+      workloads: [
+        {
+          label: "c",
+          command: ["bun", "x.ts"],
+          inputs: [],
+          prepare: "rm -rf dist",
+          timeSource: { pattern: "in (\\d+)ms", group: 1, unit: "ms" },
+          timeoutMs: 1000,
+          ignoreExitCodes: [1],
+        },
+        { suites: ["bench/*.ts"], timeoutMs: 5000 },
+      ],
+      bench: {
+        jobs: "auto",
+        budgetMs: 100,
+        isolate: true,
+        preload: [],
+        bunFlags: ["--smol"],
+      },
+    })
+    expect(config!.workloads).toHaveLength(2)
+  })
+
+  test("unknown keys warn (naming the key) and are ignored rather than failing", async () => {
+    const warn = spyOn(console, "warn").mockImplementation(() => {})
+    try {
+      const config = await loadJson({
+        baselineDirr: "x",
+        thresholds: { timingPercent: 1 },
+        bench: { job: 2 },
+        workloads: [{ suites: ["a"], inputs: ["b"] }],
+      })
+      expect(config!.baseline).toBe("main")
+      const messages = warn.mock.calls.map((c) => String(c[0]))
+      expect(
+        messages.some((m) => m.includes(`unknown key "baselineDirr"`)),
+      ).toBe(true)
+      expect(
+        messages.some((m) =>
+          m.includes(`unknown key "thresholds.timingPercent"`),
+        ),
+      ).toBe(true)
+      expect(messages.some((m) => m.includes(`unknown key "bench.job"`))).toBe(
+        true,
+      )
+      expect(
+        messages.some((m) =>
+          m.includes(`"workloads[0].inputs" applies to command workloads only`),
+        ),
+      ).toBe(true)
+    } finally {
+      warn.mockRestore()
     }
   })
 })

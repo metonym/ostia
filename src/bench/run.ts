@@ -9,8 +9,7 @@ import {
 import { type MeasureTasksOpts, measureTasks } from "./run-tasks.ts"
 
 export interface RunOptions extends MeasureTasksOpts {
-  /** Regex, matched against "group/name" task ids - same semantics as
-   * `ostia bench --filter` / `bench({ filter })`. */
+  /** Regex matched against "group/name" task ids, as in `bench({ filter })`. */
   filter?: string
   /** Skip printing the report to stdout; still returns the document. */
   quiet?: boolean
@@ -19,17 +18,12 @@ export interface RunOptions extends MeasureTasksOpts {
 }
 
 /** In-file entrypoint: call at the bottom of a suite file run directly with
- * `bun suite.ts` (no `ostia bench` CLI) to execute every `group()`/`task()`
- * registered so far, print a report, and return the document - so cleanup
- * can sit in a natural `try { await run() } finally { ... }` around it
- * instead of a `process.on("exit", ...)` workaround.
+ * `bun suite.ts` to measure every registered `group()`/`task()`, print a
+ * report, and return the document.
  *
- * This trades away the isolation `ostia bench`/`bench()` give each suite
- * file (and each isolated task) its own fresh subprocess: everything here
- * runs in the process that's already warmed up importing the suite, so
- * `TaskOptions.isolate` has nothing to isolate into and is ignored. Prefer
- * `ostia bench`/`bench()` for numbers you'll `compare`/`ci` against; reach
- * for `run()` for a single suite file's inline, no-CLI edit/run loop. */
+ * Everything runs in the current process, so `TaskOptions.isolate` is
+ * ignored. Prefer `ostia bench`/`bench()` for numbers you'll `compare`/`ci`
+ * against. */
 export async function run(opts: RunOptions = {}): Promise<ProfileDocument> {
   const registered = getRegisteredTasks()
   if (registered.length === 0) {

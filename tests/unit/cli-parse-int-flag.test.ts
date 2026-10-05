@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { CliUsageError, parseIntFlag } from "../../src/cli/main.ts"
+import { CliUsageError, parseIntFlag } from "../../src/cli/flags.ts"
 
 describe("parseIntFlag", () => {
   test("parses a valid integer", () => {

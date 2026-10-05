@@ -1,12 +1,10 @@
-import type { ProfileDocument, Workload } from "../../ir/types.ts"
-import { buildDenseTree, selectCpuRuns } from "../cpu-tree.ts"
+import type { ProfileDocument } from "../../ir/types.ts"
+import { buildDenseTree, renderCpuFiles } from "../cpu-tree.ts"
+import { frameName } from "../format.ts"
+import { workloadsById } from "../select.ts"
 import type { Renderer, RenderResult, VizOptions } from "../types.ts"
 
 const SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json"
-
-function workloadLabel(w: Workload | undefined): string {
-  return w?.label ?? w?.command?.join(" ") ?? w?.entry?.task ?? "profile"
-}
 
 export const speedscopeRenderer: Renderer<VizOptions> = {
   name: "speedscope",
@@ -14,11 +12,10 @@ export const speedscopeRenderer: Renderer<VizOptions> = {
     doc: ProfileDocument,
     options: VizOptions = {},
   ): Promise<RenderResult> {
-    const runs = selectCpuRuns(doc, options.measurementId)
-    const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
+    const byWorkload = workloadsById(doc)
 
-    const files = runs.map((run) => {
-      const cpu = run.cpu!
+    return renderCpuFiles(doc, options, "speedscope.json", (run) => {
+      const { cpu } = run
       const { nodes } = cpu
       const tree = buildDenseTree(cpu)
       const nodeIds = cpu.samples?.nodeIds ?? []
@@ -31,22 +28,25 @@ export const speedscopeRenderer: Renderer<VizOptions> = {
         stackOf[i] = p === -1 ? [frameIx] : [...stackOf[p]!, frameIx]
       }
 
-      const samples: number[][] = new Array(nodeIds.length)
-      for (let s = 0; s < nodeIds.length; s++) {
-        const ix = tree.indexOf(nodeIds[s]!)
-        samples[s] = ix === -1 ? [] : stackOf[ix]!
-      }
-      let endValue = 0
-      for (let s = 0; s < weights.length; s++) endValue += weights[s]!
+      const samples = nodeIds.map((id) => {
+        const ix = tree.indexOf(id)
+        return ix === -1 ? [] : stackOf[ix]!
+      })
+      const workload = byWorkload.get(run.workloadId)
+      const name =
+        workload?.label ??
+        workload?.command?.join(" ") ??
+        workload?.entry?.task ??
+        "profile"
 
       const document = {
         $schema: SCHEMA_URL,
         exporter: "ostia",
-        name: workloadLabel(byWorkload.get(run.workloadId)),
+        name,
         activeProfileIndex: 0,
         shared: {
           frames: cpu.frames.map((f) => ({
-            name: f.name || "(anonymous)",
+            name: frameName(f),
             file: f.url,
             line: f.line !== undefined ? f.line + 1 : undefined,
           })),
@@ -54,22 +54,16 @@ export const speedscopeRenderer: Renderer<VizOptions> = {
         profiles: [
           {
             type: "sampled",
-            name: workloadLabel(byWorkload.get(run.workloadId)),
+            name,
             unit: "microseconds",
             startValue: 0,
-            endValue,
+            endValue: weights.reduce((sum, w) => sum + w, 0),
             samples,
             weights,
           },
         ],
       }
-
-      return {
-        path: `${run.id}.speedscope.json`,
-        content: `${JSON.stringify(document, null, 2)}\n`,
-      }
+      return `${JSON.stringify(document, null, 2)}\n`
     })
-
-    return { files }
   },
 }

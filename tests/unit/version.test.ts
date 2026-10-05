@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test"
-import { newDocument } from "../../src/ir/document.ts"
+import { createDocument } from "../../src/ir/document.ts"
 import { TOOL_VERSION } from "../../src/version.ts"
 
 describe("TOOL_VERSION", () => {
@@ -8,7 +8,7 @@ describe("TOOL_VERSION", () => {
     expect(TOOL_VERSION).toBe(pkg.version)
   })
 
-  test("newDocument stamps toolVersion with it", () => {
-    expect(newDocument([], []).toolVersion).toBe(TOOL_VERSION)
+  test("createDocument stamps toolVersion with it", () => {
+    expect(createDocument([], []).toolVersion).toBe(TOOL_VERSION)
   })
 })

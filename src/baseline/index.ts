@@ -1,20 +1,20 @@
 import { measureConfigWorkloads } from "../ci/index.ts"
 import { baselinePath, type OstiaConfig } from "../config/index.ts"
-import { loadDocument, newDocument, saveDocument } from "../ir/document.ts"
+import { createDocument, loadDocument, saveDocument } from "../ir/document.ts"
 import type { GitMetadata } from "../ir/types.ts"
 
-/** Measures every configured workload (the same code path `ostia ci` gates
- * against, no comparison) and writes it to `<baselineDir>/<name>.json`
- * (default name from `config.baseline`). Returns the path written. */
+/** Measures every configured workload and writes it to
+ * `<baselineDir>/<name>.json` (default `config.baseline`); returns the path.
+ * Always measures fresh: a baseline never holds a cached `ci` run. */
 export async function saveBaseline(
   config: OstiaConfig,
   name?: string,
 ): Promise<string> {
   const { results: measured, environment } = await measureConfigWorkloads(
     config,
-    false,
+    true,
   )
-  const doc = newDocument(
+  const doc = createDocument(
     measured.map((m) => m.workload),
     measured.map((m) => m.run),
     environment,
@@ -34,25 +34,20 @@ export interface BaselineInfo {
   git?: GitMetadata
 }
 
-/** Lists every `<baselineDir>/*.json` that parses as a `ProfileDocument`,
- * sorted by name. An empty (or missing) `baselineDir` yields an empty list
- * rather than throwing - "no baselines saved yet" is not an error. */
+/** Every `<baselineDir>/*.json` that parses as a `ProfileDocument`, sorted by
+ * name. A missing `baselineDir` yields an empty list. */
 export async function listBaselines(
   config: OstiaConfig,
 ): Promise<BaselineInfo[]> {
-  const names: string[] = []
+  let names: string[]
   try {
-    const glob = new Bun.Glob("*.json")
-    for await (const entry of glob.scan({
-      cwd: config.baselineDir,
-      absolute: false,
-    })) {
-      names.push(entry.replace(/\.json$/, ""))
-    }
+    const files = await Array.fromAsync(
+      new Bun.Glob("*.json").scan({ cwd: config.baselineDir }),
+    )
+    names = files.map((file) => file.replace(/\.json$/, "")).sort()
   } catch {
     return []
   }
-  names.sort()
 
   const infos = await Promise.all(
     names.map(async (name): Promise<BaselineInfo | undefined> => {
@@ -69,8 +64,6 @@ export async function listBaselines(
           ...(doc.git !== undefined && { git: doc.git }),
         }
       } catch {
-        // Not a valid ProfileDocument (or unreadable): skip it rather than
-        // failing the whole listing over one bad file.
         return undefined
       }
     }),

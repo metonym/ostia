@@ -6,10 +6,10 @@ import type {
   RawStackTraces,
 } from "../../src/capture/jsc/parse.ts"
 import {
+  createDocument,
   makeInstrumentedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
-  newDocument,
 } from "../../src/ir/document.ts"
 import type { CpuEvidence, ProfileDocument, Trial } from "../../src/ir/types.ts"
 import { computeTimingStats } from "../../src/stats/index.ts"
@@ -219,7 +219,7 @@ export function syntheticDocument(
       }),
     )
   }
-  return newDocument([workload], measurements)
+  return createDocument([workload], measurements)
 }
 
 export const SMALL_TREE = buildTree(4, 4)

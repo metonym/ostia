@@ -26,6 +26,9 @@ export function computeCacheKey(input: CacheKeyInput): string {
   )
 }
 
+// Keeps a large glob under the process's open-file limit (EMFILE).
+const READ_CONCURRENCY = 32
+
 export async function computeInputsDigest(
   globs: string[],
   cwd: string = process.cwd(),
@@ -33,13 +36,19 @@ export async function computeInputsDigest(
   if (globs.length === 0) return undefined
 
   const paths = await scanGlobs(globs, cwd)
-  const entries = await Promise.all(
-    paths.map(async (path) => {
-      // An absolute pattern scans to absolute paths, relative ones to paths
-      // under `cwd`.
+  const entries: { path: string; sha256: string }[] = new Array(paths.length)
+  let next = 0
+  const worker = async () => {
+    while (next < paths.length) {
+      const k = next++
+      const path = paths[k]!
+      // Absolute patterns scan to absolute paths; `resolve` handles both.
       const buf = await Bun.file(resolve(cwd, path)).arrayBuffer()
-      return { path, sha256: Bun.CryptoHasher.hash("sha256", buf, "hex") }
-    }),
+      entries[k] = { path, sha256: Bun.CryptoHasher.hash("sha256", buf, "hex") }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(READ_CONCURRENCY, paths.length) }, worker),
   )
 
   return fp("inputs", entries)

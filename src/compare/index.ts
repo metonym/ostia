@@ -4,6 +4,7 @@ import type {
   ComparisonSummary,
   Measurement,
   ProfileDocument,
+  TimingStats,
   Warning,
   Workload,
 } from "../ir/types.ts"
@@ -15,11 +16,9 @@ export interface Thresholds {
   frameSelfPct: number
   heapTypePct: number
   minFrameSelfUs: number
-  /** Significance level for the Mann-Whitney p-value: a `regressed` /
-   * `improved` verdict also requires `pValue < alpha`. */
+  /** A `regressed` / `improved` verdict also requires Mann-Whitney `pValue < alpha`. */
   alpha: number
-  /** Bootstrap resample rounds for the timing CI. Capped work regardless:
-   * see `bootstrapMedianDiffCi`. */
+  /** Bootstrap resample rounds for the timing CI. */
   bootstrapIterations: number
 }
 
@@ -32,9 +31,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   bootstrapIterations: 2000,
 }
 
-/** Below this many samples on either side, a bootstrap CI and Mann-Whitney
- * p-value are too noisy to trust; fall back to the point-estimate rule and
- * say so with a `thin-comparison` warning. */
+/** Below this many samples on either side, fall back to the point-estimate
+ * rule (with a `thin-comparison` warning): CI and p-value are too noisy. */
 const MIN_SAMPLES_FOR_TEST = 5
 
 function pctDelta(base: number, cand: number): number {
@@ -42,26 +40,27 @@ function pctDelta(base: number, cand: number): number {
   return ((cand - base) / base) * 100
 }
 
-/** Everything `compareWorkload` needs from a base/candidate pair, built once
- * per `compareDocuments` call instead of re-scanning both documents' arrays
- * for every workload. */
+type Phase = "timing" | "cpu" | "heap"
+
+type Lookup = (workloadId: string, phase: Phase) => Measurement | undefined
+
+/** Built once per pair instead of re-scanning both documents per workload. */
 interface CompareIndex {
-  base: ProfileDocument
-  cand: ProfileDocument
-  baseByPhase: Map<string, Measurement>
-  candByPhase: Map<string, Measurement>
+  base: Lookup
+  cand: Lookup
   candWorkloads: Map<string, Workload>
   environmentMismatch: Warning | undefined
   effectiveTimingPct: number
 }
 
-function indexMeasurements(doc: ProfileDocument): Map<string, Measurement> {
+function indexMeasurements(doc: ProfileDocument): Lookup {
   const byPhase = new Map<string, Measurement>()
   for (const m of doc.measurements) {
     const key = `${m.workloadId}\u0000${m.phase}`
     if (!byPhase.has(key)) byPhase.set(key, m)
   }
-  return byPhase
+  return (workloadId: string, phase: Phase) =>
+    byPhase.get(`${workloadId}\u0000${phase}`)
 }
 
 function buildIndex(
@@ -70,10 +69,8 @@ function buildIndex(
   thresholds: Thresholds,
 ): CompareIndex {
   return {
-    base,
-    cand,
-    baseByPhase: indexMeasurements(base),
-    candByPhase: indexMeasurements(cand),
+    base: indexMeasurements(base),
+    cand: indexMeasurements(cand),
     candWorkloads: new Map(cand.workloads.map((w) => [w.id, w])),
     environmentMismatch: environmentMismatchWarning(base, cand),
     effectiveTimingPct: Math.max(
@@ -84,60 +81,27 @@ function buildIndex(
   }
 }
 
-interface EnvironmentMismatchField {
-  field: "platform.os" | "platform.arch" | "bunVersion" | "cpuModel" | "cores"
-  base: string | number
-  cand: string | number
-}
-
-/** Same warning for every comparison in a `base`/`cand` pair - the two
- * documents were measured on machines/Bun versions different enough that a
- * timing delta might reflect that instead of the code change under test.
- * Only compares `cpuModel`/`cores` when both sides have `environment` (e.g.
- * `noiseCheck: false` skipped it): missing data isn't a mismatch, it's just
- * unknown. */
+/** Same warning for every comparison in a pair measured on different
+ * machines/Bun versions. `cpuModel`/`cores` are compared only when both sides
+ * have `environment`: missing data is unknown, not a mismatch. */
 function environmentMismatchWarning(
   base: ProfileDocument,
   cand: ProfileDocument,
 ): Warning | undefined {
-  const fields: EnvironmentMismatchField[] = []
-  if (base.platform.os !== cand.platform.os) {
-    fields.push({
-      field: "platform.os",
-      base: base.platform.os,
-      cand: cand.platform.os,
-    })
-  }
-  if (base.platform.arch !== cand.platform.arch) {
-    fields.push({
-      field: "platform.arch",
-      base: base.platform.arch,
-      cand: cand.platform.arch,
-    })
-  }
-  if (base.bunVersion !== cand.bunVersion) {
-    fields.push({
-      field: "bunVersion",
-      base: base.bunVersion,
-      cand: cand.bunVersion,
-    })
-  }
+  const candidates: [string, string | number, string | number][] = [
+    ["platform.os", base.platform.os, cand.platform.os],
+    ["platform.arch", base.platform.arch, cand.platform.arch],
+    ["bunVersion", base.bunVersion, cand.bunVersion],
+  ]
   if (base.environment && cand.environment) {
-    if (base.environment.cpuModel !== cand.environment.cpuModel) {
-      fields.push({
-        field: "cpuModel",
-        base: base.environment.cpuModel,
-        cand: cand.environment.cpuModel,
-      })
-    }
-    if (base.environment.cores !== cand.environment.cores) {
-      fields.push({
-        field: "cores",
-        base: base.environment.cores,
-        cand: cand.environment.cores,
-      })
-    }
+    candidates.push(
+      ["cpuModel", base.environment.cpuModel, cand.environment.cpuModel],
+      ["cores", base.environment.cores, cand.environment.cores],
+    )
   }
+  const fields = candidates
+    .filter(([, b, c]) => b !== c)
+    .map(([field, b, c]) => ({ field, base: b, cand: c }))
   if (fields.length === 0) return undefined
 
   return {
@@ -153,11 +117,9 @@ export interface CompareResult {
   summary: ComparisonSummary
 }
 
-/** Geometric mean of `cand/base` median ratios over `comparisons` with a
- * timing verdict, as a signed percent (e.g. `-4.2` means candidate ran
- * ~4.2% faster on average). `null` when no comparison has a finite ratio -
- * an all-frames-only/all-heap-only document, or every timing delta was
- * `Infinity` (a zero baseline median). */
+/** Geometric mean of `cand/base` median ratios over comparisons with a
+ * timing verdict, as a signed percent (`-4.2` means ~4.2% faster). `null`
+ * when none has a finite ratio. */
 function geomeanTimingPct(comparisons: Comparison[]): number | null {
   const logRatios: number[] = []
   for (const c of comparisons) {
@@ -170,9 +132,8 @@ function geomeanTimingPct(comparisons: Comparison[]): number | null {
   return (Math.exp(meanLog) - 1) * 100
 }
 
-/** A base/candidate pair indexed once, exposing per-workload comparison plus
- * the pair-level facts (`unmatched`, `effectiveTimingPct`) that
- * `compareDocuments` and `ostia ci` both need. */
+/** A base/candidate pair indexed once: per-workload comparison plus the
+ * pair-level facts `compareDocuments` and `ostia ci` both need. */
 export interface Comparer {
   effectiveTimingPct: number
   compare(workloadId: string): Comparison | undefined
@@ -198,8 +159,7 @@ export function createComparer(
   }
 }
 
-/** Timing-verdict tallies, geomean, and the overall pass/fail over a set of
- * comparisons - the `comparisonSummary` stamped on a compared document. */
+/** The `comparisonSummary` stamped on a compared document. */
 export function summarizeComparisons(
   comparisons: Comparison[],
   effectiveTimingPct: number,
@@ -224,11 +184,9 @@ export function summarizeComparisons(
   }
 }
 
-/** Matches `base.workloads` against `cand.workloads` by id, comparing every
- * match and reporting whatever matched only one side instead of silently
- * dropping it - a baseline/candidate pair that share zero workloads (a stale
- * baseline, a totally rewritten config) is visible in `unmatched`, not just
- * an empty `comparisons` array. */
+/** Compares every `cand.workloads` entry that has a match in `base` (in
+ * candidate order, as `ostia ci` does), and reports what matched only one side
+ * in `unmatched` rather than dropping it. */
 export function compareDocuments(
   base: ProfileDocument,
   cand: ProfileDocument,
@@ -236,7 +194,7 @@ export function compareDocuments(
 ): CompareResult {
   const comparer = createComparer(base, cand, thresholds)
   const comparisons: Comparison[] = []
-  for (const workload of base.workloads) {
+  for (const workload of cand.workloads) {
     const comparison = comparer.compare(workload.id)
     if (comparison) comparisons.push(comparison)
   }
@@ -256,25 +214,153 @@ export function compareWorkload(
   return createComparer(base, cand, thresholds).compare(workloadId)
 }
 
+type TimingComparison = NonNullable<Comparison["timing"]>
+
+function compareTiming(
+  baseTiming: TimingStats,
+  candTiming: TimingStats,
+  effectiveTimingPct: number,
+  thresholds: Thresholds,
+): { timing: TimingComparison; warning?: Warning } {
+  const baseSamples = baseTiming.samples
+  const candSamples = candTiming.samples
+  const medianDeltaPct = pctDelta(baseTiming.median, candTiming.median)
+  const meanDeltaPct = pctDelta(baseTiming.mean, candTiming.mean)
+
+  const verdictFor = (
+    low: number,
+    high: number,
+  ): TimingComparison["verdict"] => {
+    if (low > effectiveTimingPct) return "regressed"
+    if (high < -effectiveTimingPct) return "improved"
+    return "unchanged"
+  }
+
+  if (
+    baseSamples.length < MIN_SAMPLES_FOR_TEST ||
+    candSamples.length < MIN_SAMPLES_FOR_TEST
+  ) {
+    return {
+      timing: {
+        medianDeltaPct,
+        meanDeltaPct,
+        verdict: verdictFor(medianDeltaPct, medianDeltaPct),
+      },
+      warning: {
+        code: "thin-comparison",
+        message: `Only ${baseSamples.length} baseline / ${candSamples.length} candidate sample(s); falling back to a point-estimate threshold instead of a bootstrap CI and Mann-Whitney test (needs ${MIN_SAMPLES_FOR_TEST}+ per side).`,
+        data: {
+          baseSamples: baseSamples.length,
+          candSamples: candSamples.length,
+        },
+      },
+    }
+  }
+
+  const bootstrap = bootstrapMedianDiffCi(baseSamples, candSamples, {
+    iterations: thresholds.bootstrapIterations,
+  })
+  const mw = mannWhitneyU(baseSamples, candSamples)
+  return {
+    timing: {
+      medianDeltaPct,
+      meanDeltaPct,
+      ci95: bootstrap.ci95,
+      pValue: mw.pValue,
+      seed: bootstrap.seed,
+      verdict:
+        mw.pValue < thresholds.alpha
+          ? verdictFor(bootstrap.ci95[0], bootstrap.ci95[1])
+          : "unchanged",
+    },
+  }
+}
+
+function compareFrames(
+  baseCpu: NonNullable<Measurement["cpu"]>,
+  candCpu: NonNullable<Measurement["cpu"]>,
+  thresholds: Thresholds,
+): { frames: NonNullable<Comparison["frames"]>; failed: boolean } {
+  const selfUsByKey = (cpu: typeof baseCpu) =>
+    new Map(cpu.totals.map((t) => [cpu.frames[t.frameIx]!.key, t.selfUs]))
+  const nameByKey = (cpu: typeof baseCpu) =>
+    new Map(cpu.frames.map((f) => [f.key, f.name]))
+  const baseSelf = selfUsByKey(baseCpu)
+  const candSelf = selfUsByKey(candCpu)
+  const baseNames = nameByKey(baseCpu)
+  const candNames = nameByKey(candCpu)
+
+  const frames = [...new Set([...baseSelf.keys(), ...candSelf.keys()])]
+    .map((key) => {
+      const baseSelfUs = baseSelf.get(key) ?? 0
+      const candSelfUs = candSelf.get(key) ?? 0
+      return {
+        frameKey: key,
+        name: candNames.get(key) ?? baseNames.get(key) ?? key,
+        baseSelfUs,
+        candSelfUs,
+        deltaPct: pctDelta(baseSelfUs, candSelfUs),
+      }
+    })
+    .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct))
+
+  const failed = frames.some(
+    (f) =>
+      (f.baseSelfUs >= thresholds.minFrameSelfUs ||
+        f.candSelfUs >= thresholds.minFrameSelfUs) &&
+      f.deltaPct > thresholds.frameSelfPct,
+  )
+  return { frames, failed }
+}
+
+// Gated on object count only: `retainedBytes` is carried on each row for
+// display, never compared against a threshold.
+function compareHeapTypes(
+  baseHeap: NonNullable<Measurement["heap"]>,
+  candHeap: NonNullable<Measurement["heap"]>,
+  thresholds: Thresholds,
+): { heapTypes: NonNullable<Comparison["heapTypes"]>; failed: boolean } {
+  const baseByType = new Map(baseHeap.typeCounts.map((t) => [t.type, t]))
+  const candByType = new Map(candHeap.typeCounts.map((t) => [t.type, t]))
+
+  const heapTypes = [...new Set([...baseByType.keys(), ...candByType.keys()])]
+    .map((type) => {
+      const b = baseByType.get(type)
+      const c = candByType.get(type)
+      return {
+        type,
+        baseCount: b?.count ?? 0,
+        candCount: c?.count ?? 0,
+        baseBytes: b?.retainedBytes,
+        candBytes: c?.retainedBytes,
+        deltaPct: pctDelta(b?.count ?? 0, c?.count ?? 0),
+      }
+    })
+    .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct))
+
+  return {
+    heapTypes,
+    failed: heapTypes.some((h) => h.deltaPct > thresholds.heapTypePct),
+  }
+}
+
 function compareIndexed(
   index: CompareIndex,
   workloadId: string,
   thresholds: Thresholds,
 ): Comparison | undefined {
-  const { baseByPhase, candByPhase, effectiveTimingPct } = index
-  const baseTiming = baseByPhase.get(`${workloadId}\u0000timing`)
-  const candTiming = candByPhase.get(`${workloadId}\u0000timing`)
-  const baseCpu = baseByPhase.get(`${workloadId}\u0000cpu`)
-  const candCpu = candByPhase.get(`${workloadId}\u0000cpu`)
-  const baseHeap = baseByPhase.get(`${workloadId}\u0000heap`)
-  const candHeap = candByPhase.get(`${workloadId}\u0000heap`)
+  const { effectiveTimingPct } = index
+  const baseTiming = index.base(workloadId, "timing")
+  const candTiming = index.cand(workloadId, "timing")
+  const baseCpu = index.base(workloadId, "cpu")
+  const candCpu = index.cand(workloadId, "cpu")
+  const baseHeap = index.base(workloadId, "heap")
+  const candHeap = index.cand(workloadId, "heap")
   const candWorkload = index.candWorkloads.get(workloadId)
 
   const baselineMeasurementId = baseTiming?.id ?? baseCpu?.id ?? baseHeap?.id
-  // A task.skip()'d candidate has no measurement at all; fall back to its
-  // workload id so this comparison can still say "skipped" instead of
-  // either vanishing (compareDocuments would otherwise drop it) or being
-  // silently absent.
+  // A task.skip()'d candidate has no measurement; its workload id lets the
+  // comparison say "skipped" instead of vanishing.
   const candidateMeasurementId =
     candTiming?.id ?? candCpu?.id ?? candHeap?.id ?? candWorkload?.id
   if (!baselineMeasurementId || !candidateMeasurementId) return undefined
@@ -285,11 +371,7 @@ function compareIndexed(
 
   let timing: Comparison["timing"]
   if (baseTiming?.timing && candWorkload?.skipped && !candTiming?.timing) {
-    timing = {
-      medianDeltaPct: 0,
-      meanDeltaPct: 0,
-      verdict: "unchanged",
-    }
+    timing = { medianDeltaPct: 0, meanDeltaPct: 0, verdict: "unchanged" }
     warnings.push({
       code: "skipped",
       message:
@@ -297,128 +379,29 @@ function compareIndexed(
       data: { workloadId },
     })
   } else if (baseTiming?.timing && candTiming?.timing) {
-    const baseSamples = baseTiming.timing.samples
-    const candSamples = candTiming.timing.samples
-    const medianDeltaPct = pctDelta(
-      baseTiming.timing.median,
-      candTiming.timing.median,
+    const result = compareTiming(
+      baseTiming.timing,
+      candTiming.timing,
+      effectiveTimingPct,
+      thresholds,
     )
-    const meanDeltaPct = pctDelta(
-      baseTiming.timing.mean,
-      candTiming.timing.mean,
-    )
-
-    const verdictFor = (
-      low: number,
-      high: number,
-    ): NonNullable<Comparison["timing"]>["verdict"] => {
-      if (low > effectiveTimingPct) return "regressed"
-      if (high < -effectiveTimingPct) return "improved"
-      return "unchanged"
-    }
-
-    if (
-      baseSamples.length < MIN_SAMPLES_FOR_TEST ||
-      candSamples.length < MIN_SAMPLES_FOR_TEST
-    ) {
-      const verdict = verdictFor(medianDeltaPct, medianDeltaPct)
-      if (verdict === "regressed") failed = true
-      timing = {
-        medianDeltaPct,
-        meanDeltaPct,
-        verdict,
-      }
-      warnings.push({
-        code: "thin-comparison",
-        message: `Only ${baseSamples.length} baseline / ${candSamples.length} candidate sample(s); falling back to a point-estimate threshold instead of a bootstrap CI and Mann-Whitney test (needs ${MIN_SAMPLES_FOR_TEST}+ per side).`,
-        data: {
-          baseSamples: baseSamples.length,
-          candSamples: candSamples.length,
-        },
-      })
-    } else {
-      const bootstrap = bootstrapMedianDiffCi(baseSamples, candSamples, {
-        iterations: thresholds.bootstrapIterations,
-      })
-      const mw = mannWhitneyU(baseSamples, candSamples)
-      const verdict =
-        mw.pValue < thresholds.alpha
-          ? verdictFor(bootstrap.ci95[0], bootstrap.ci95[1])
-          : "unchanged"
-      if (verdict === "regressed") failed = true
-      timing = {
-        medianDeltaPct,
-        meanDeltaPct,
-        ci95: bootstrap.ci95,
-        pValue: mw.pValue,
-        seed: bootstrap.seed,
-        verdict,
-      }
-    }
+    timing = result.timing
+    if (result.warning) warnings.push(result.warning)
+    if (timing.verdict === "regressed") failed = true
   }
 
   let frames: Comparison["frames"]
   if (baseCpu?.cpu && candCpu?.cpu) {
-    const baseByKey = new Map(
-      baseCpu.cpu.totals.map((t) => [baseCpu.cpu!.frames[t.frameIx]!.key, t]),
-    )
-    const candByKey = new Map(
-      candCpu.cpu.totals.map((t) => [candCpu.cpu!.frames[t.frameIx]!.key, t]),
-    )
-    const baseNameByKey = new Map(
-      baseCpu.cpu.frames.map((f) => [f.key, f.name]),
-    )
-    const candNameByKey = new Map(
-      candCpu.cpu.frames.map((f) => [f.key, f.name]),
-    )
-    const allKeys = new Set([...baseByKey.keys(), ...candByKey.keys()])
-
-    frames = [...allKeys]
-      .map((key) => {
-        const baseSelfUs = baseByKey.get(key)?.selfUs ?? 0
-        const candSelfUs = candByKey.get(key)?.selfUs ?? 0
-        return {
-          frameKey: key,
-          name: candNameByKey.get(key) ?? baseNameByKey.get(key) ?? key,
-          baseSelfUs,
-          candSelfUs,
-          deltaPct: pctDelta(baseSelfUs, candSelfUs),
-        }
-      })
-      .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct))
-
-    for (const f of frames) {
-      const aboveFloor =
-        f.baseSelfUs >= thresholds.minFrameSelfUs ||
-        f.candSelfUs >= thresholds.minFrameSelfUs
-      if (aboveFloor && f.deltaPct > thresholds.frameSelfPct) failed = true
-    }
+    const result = compareFrames(baseCpu.cpu, candCpu.cpu, thresholds)
+    frames = result.frames
+    failed ||= result.failed
   }
 
   let heapTypes: Comparison["heapTypes"]
   if (baseHeap?.heap && candHeap?.heap) {
-    const baseByType = new Map(baseHeap.heap.typeCounts.map((t) => [t.type, t]))
-    const candByType = new Map(candHeap.heap.typeCounts.map((t) => [t.type, t]))
-    const allTypes = new Set([...baseByType.keys(), ...candByType.keys()])
-
-    heapTypes = [...allTypes]
-      .map((type) => {
-        const b = baseByType.get(type)
-        const c = candByType.get(type)
-        return {
-          type,
-          baseCount: b?.count ?? 0,
-          candCount: c?.count ?? 0,
-          baseBytes: b?.retainedBytes,
-          candBytes: c?.retainedBytes,
-          deltaPct: pctDelta(b?.count ?? 0, c?.count ?? 0),
-        }
-      })
-      .sort((a, b) => Math.abs(b.deltaPct) - Math.abs(a.deltaPct))
-
-    for (const h of heapTypes) {
-      if (h.deltaPct > thresholds.heapTypePct) failed = true
-    }
+    const result = compareHeapTypes(baseHeap.heap, candHeap.heap, thresholds)
+    heapTypes = result.heapTypes
+    failed ||= result.failed
   }
 
   return {

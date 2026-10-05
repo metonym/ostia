@@ -3,16 +3,19 @@
 import {
   filterTasks,
   getRegisteredTasks,
+  groupEdges,
   type RegisteredTask,
   resetRegistry,
+  runGroupHooks,
   selectTasks,
   taskId,
 } from "../bench/registry.ts"
 import { taskWorkload } from "../bench/run-tasks.ts"
+import { median } from "../bench/support.ts"
 import {
   configFingerprint,
+  createDocument,
   makePairedMeasurement,
-  newDocument,
   saveDocument,
 } from "../ir/document.ts"
 import { canonicalJSON } from "../ir/fp.ts"
@@ -22,10 +25,10 @@ import {
   PairedSideError,
   ratioStats,
 } from "../measure/paired.ts"
-import { computeTimingStats, percentile } from "../stats/index.ts"
+import { computeTimingStats } from "../stats/index.ts"
 
 export interface AbRunnerOpts {
-  /** Regex, matched against "group/name" task ids (see `filterTasks`). */
+  /** Regex matched against "group/name" task ids. */
   filter?: string
   /** Measure only these workloads (a fresh-process repeat of flagged ones). */
   workloadIds?: string[]
@@ -45,8 +48,7 @@ export interface AbRunnerProgress {
   label: string
 }
 
-/** Tasks pair across the two sides by their "group/name" id plus `params`,
- * the same identity the workload id hashes. */
+/** Tasks pair across sides by "group/name" plus `params`, the workload id's identity. */
 function pairKey(t: RegisteredTask): string {
   return `${taskId(t)}\u0000${canonicalJSON(t.params ?? null)}`
 }
@@ -159,13 +161,11 @@ async function measureTask(
   return { result: result! }
 }
 
-/** Runs one suite file's tasks against the same file at the base checkout,
- * in this one process. The base copy is imported first and the working
- * tree's second, each from its own path, so each side's relative imports
- * (and tsconfig `paths`) resolve within its own tree while bare package
- * imports share the project's `node_modules` - including `ostia` itself, so
- * both register into the same registry. `baseSuite` is "" when the file
- * doesn't exist at the base ref: every task is then candidate-only. */
+/** Pairs one suite file's tasks against the same file at the base checkout,
+ * in this process. Each side is imported from its own path so its relative
+ * imports resolve within its own tree, while bare imports (including `ostia`,
+ * hence the shared registry) share `node_modules`. `baseSuite` is "" when
+ * the file doesn't exist at the base ref: every task is candidate-only. */
 async function main(): Promise<number> {
   const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2)
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {
@@ -209,7 +209,12 @@ async function main(): Promise<number> {
 
   let candTasks: RegisteredTask[]
   try {
-    candTasks = selectTasks(candRegistered, opts.filter, candSuite)
+    candTasks = selectTasks(
+      candRegistered,
+      opts.filter,
+      candSuite,
+      !opts.workloadIds,
+    )
   } catch (err) {
     return fail(outputPath, (err as Error).message)
   }
@@ -235,10 +240,11 @@ async function main(): Promise<number> {
     else candOnly.push(workload.id)
   }
 
-  // A task that only exists at the base ref, keyed by the candidate suite's
-  // path so its id is the one it had before it was removed.
+  // Keyed by the candidate suite's path so the id is the one it had before removal.
+  // A `.only` in the candidate narrows the run, as `--filter` does: tasks
+  // removed from the suite aren't part of it.
   const baseOnly: string[] = []
-  if (!wanted) {
+  if (!wanted && !candRegistered.some((t) => t.only)) {
     for (const base of filterTasks(baseTasks, opts.filter)) {
       if (base.skipped || candKeys.has(pairKey(base))) continue
       const workload = taskWorkload(candSuite, base)
@@ -247,14 +253,7 @@ async function main(): Promise<number> {
     }
   }
 
-  // Group hooks wrap the group's measured tasks, on both sides.
-  const firstInGroup = new Map<string, number>()
-  const lastInGroup = new Map<string, number>()
-  pairs.forEach(({ cand }, i) => {
-    if (cand.groupName === undefined) return
-    if (!firstInGroup.has(cand.groupName)) firstInGroup.set(cand.groupName, i)
-    lastInGroup.set(cand.groupName, i)
-  })
+  const edges = groupEdges(pairs.map((p) => p.cand))
 
   const cfgFp = configFingerprint({
     rounds: opts.rounds,
@@ -263,9 +262,7 @@ async function main(): Promise<number> {
   const measurements: Measurement[] = []
   for (let i = 0; i < pairs.length; i++) {
     const { workload, base, cand } = pairs[i]!
-    const group = cand.groupName
-    const isFirst = group !== undefined && firstInGroup.get(group) === i
-    const isLast = group !== undefined && lastInGroup.get(group) === i
+    const { enter, leave } = edges(i)
     if (opts.progress) {
       process.send?.({
         task: i + 1,
@@ -273,10 +270,8 @@ async function main(): Promise<number> {
         label: taskId(cand),
       } satisfies AbRunnerProgress)
     }
-    if (isFirst) {
-      await base.groupBefore?.()
-      await cand.groupBefore?.()
-    }
+    await runGroupHooks(base, "before", enter)
+    await runGroupHooks(cand, "before", enter)
     const measured = await measureTask(base, cand, opts.rounds)
     if ("threw" in measured) {
       measurements.push(
@@ -304,10 +299,7 @@ async function main(): Promise<number> {
             rounds: result.rounds,
             batch: result.batch,
             baseSamples: result.baseSamples,
-            baseMedianNs: percentile(
-              Float64Array.from(result.baseSamples).sort(),
-              0.5,
-            ),
+            baseMedianNs: median(result.baseSamples),
             ratios: result.ratios,
             ...stats,
             verdict: stats.flagged ?? "unchanged",
@@ -317,13 +309,11 @@ async function main(): Promise<number> {
       )
     }
 
-    if (isLast) {
-      await cand.groupAfter?.()
-      await base.groupAfter?.()
-    }
+    await runGroupHooks(cand, "after", leave)
+    await runGroupHooks(base, "after", leave)
   }
 
-  const doc = newDocument(workloads, measurements)
+  const doc = createDocument(workloads, measurements)
   doc.unmatched = { baseOnly, candOnly }
   await saveDocument(doc, outputPath)
   return 0

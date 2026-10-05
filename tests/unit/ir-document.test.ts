@@ -1,9 +1,12 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtemp, readdir, rm } from "node:fs/promises"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
+  createDocument,
   loadDocument,
   makeEntryWorkload,
   makeSubprocessWorkload,
-  newDocument,
   OstiaDocumentError,
   saveDocument,
 } from "../../src/ir/document.ts"
@@ -65,6 +68,55 @@ describe("loadDocument - schema handling", () => {
       expect(t.p75).toBe(40)
       expect(t.mad).toBe(10)
       expect(t.p99).toBeGreaterThan(49)
+    } finally {
+      await Bun.spawn(["rm", "-f", FIXTURE_PATH]).exited
+    }
+  })
+
+  test("reads the old p25/p75 ratio quartiles of a saved ab document as ratioP25/ratioP75", async () => {
+    const paired = {
+      rounds: 15,
+      batch: 1,
+      baseSamples: [],
+      baseMedianNs: 1,
+      ratios: [],
+      medianRatio: 1.2,
+      p25: 1.1,
+      p75: 1.3,
+      flagged: "regressed",
+      repeats: [{ medianRatio: 1.2, p25: 1.15, p75: 1.25 }],
+      verdict: "unchanged",
+      sameOutput: true,
+    }
+    const old = {
+      schemaVersion: 2,
+      toolVersion: "0.2.9",
+      bunVersion: "1.4.0",
+      platform: { os: "darwin", arch: "arm64" },
+      createdAt: "2026-01-01T00:00:00.000Z",
+      workloads: [],
+      measurements: [
+        {
+          id: "run_a",
+          workloadId: "wl_a",
+          phase: "paired",
+          instrumented: false,
+          configFingerprint: "cfg",
+          trials: [],
+          paired,
+          warnings: [],
+          artifacts: [],
+        },
+      ],
+    }
+    await Bun.write(FIXTURE_PATH, JSON.stringify(old))
+    try {
+      const p = (await loadDocument(FIXTURE_PATH)).measurements[0]!.paired!
+      expect(p.ratioP25).toBe(1.1)
+      expect(p.ratioP75).toBe(1.3)
+      expect(p.repeats![0]!.ratioP25).toBe(1.15)
+      expect(p.repeats![0]!.ratioP75).toBe(1.25)
+      expect("p25" in p).toBe(false)
     } finally {
       await Bun.spawn(["rm", "-f", FIXTURE_PATH]).exited
     }
@@ -171,9 +223,9 @@ describe("makeSubprocessWorkload - id excludes cwd (task 04.1)", () => {
   })
 })
 
-describe("newDocument - git metadata (item 17)", () => {
+describe("createDocument - git metadata (item 17)", () => {
   test("attaches sha/branch/dirty when run inside a git repo, additive alongside environment", () => {
-    const doc = newDocument([], [])
+    const doc = createDocument([], [])
     expect(doc.git).toBeDefined()
     expect(typeof doc.git!.sha).toBe("string")
     expect(doc.git!.sha.length).toBeGreaterThan(0)
@@ -226,24 +278,120 @@ describe("loadDocument - OstiaDocumentError for corrupt/unsupported documents", 
   })
 })
 
+describe("loadDocument - structural validation", () => {
+  const path = `${import.meta.dir}/../../.ostia-test-shape-fixture.json`
+  const base = { schemaVersion: 2, workloads: [], measurements: [] }
+  const measurement = {
+    id: "run_a",
+    workloadId: "wl_a",
+    phase: "timing",
+    trials: [],
+    warnings: [],
+    artifacts: [],
+  }
+
+  async function loadError(doc: unknown): Promise<OstiaDocumentError> {
+    await Bun.write(path, JSON.stringify(doc))
+    try {
+      const err = await loadDocument(path).catch((e) => e)
+      expect(err).toBeInstanceOf(OstiaDocumentError)
+      return err as OstiaDocumentError
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  }
+
+  test("a schemaVersion-2 document without workloads/measurements arrays is not-a-document", async () => {
+    const err = await loadError({ schemaVersion: 2 })
+    expect(err.code).toBe("not-a-document")
+    expect(err.message).toContain(`"workloads" must be an array`)
+    expect((await loadError({ ...base, measurements: {} })).message).toContain(
+      `"measurements" must be an array`,
+    )
+  })
+
+  test("names the offending workload and measurement by index", async () => {
+    expect(
+      (await loadError({ ...base, workloads: [{ id: "wl_a" }, { id: 7 }] }))
+        .message,
+    ).toContain("workloads[1]")
+    expect(
+      (await loadError({ ...base, measurements: [{ ...measurement, id: 1 }] }))
+        .message,
+    ).toContain("measurements[0]")
+    expect(
+      (
+        await loadError({
+          ...base,
+          measurements: [{ ...measurement, warnings: undefined }],
+        })
+      ).message,
+    ).toContain("measurements[0].warnings must be an array")
+  })
+
+  test("accepts a well-formed document", async () => {
+    await Bun.write(
+      path,
+      JSON.stringify({
+        ...base,
+        workloads: [{ id: "wl_a", kind: "subprocess" }],
+        measurements: [measurement],
+      }),
+    )
+    try {
+      expect((await loadDocument(path)).measurements).toHaveLength(1)
+    } finally {
+      await Bun.spawn(["rm", "-f", path]).exited
+    }
+  })
+})
+
 describe("saveDocument - atomic write", () => {
   const path = `${import.meta.dir}/../../.ostia-test-atomic-fixture.json`
 
   test("leaves no target file when serialization throws", async () => {
     await Bun.spawn(["rm", "-f", path]).exited
     try {
-      const doc = { ...newDocument([], []), bogus: 1n } as ProfileDocument
+      const doc = { ...createDocument([], []), bogus: 1n } as ProfileDocument
       await expect(saveDocument(doc, path)).rejects.toThrow()
       expect(await Bun.file(path).exists()).toBe(false)
-      expect(await Bun.file(`${path}.tmp-${process.pid}`).exists()).toBe(false)
     } finally {
       await Bun.spawn(["rm", "-f", path]).exited
     }
   })
 
+  test("concurrent saves of one path all succeed and leave no temp files", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "save-concurrent-"))
+    const target = join(dir, "doc.json")
+    try {
+      const doc = createDocument([], [])
+      await Promise.all(
+        Array.from({ length: 20 }, () => saveDocument(doc, target)),
+      )
+      expect((await loadDocument(target)).toolVersion).toBe(doc.toolVersion)
+      expect(await readdir(dir)).toEqual(["doc.json"])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
+  test("a failed rename removes its temp file", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "save-fail-"))
+    try {
+      // The target is a non-empty directory, so rename can't replace it.
+      await Bun.write(join(dir, "doc.json", "keep"), "x")
+      await expect(
+        saveDocument(createDocument([], []), join(dir, "doc.json")),
+      ).rejects.toThrow()
+      expect(await readdir(dir)).toEqual(["doc.json"])
+    } finally {
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   test("writes the target file on success", async () => {
     try {
-      const doc = newDocument([], [])
+      const doc = createDocument([], [])
       await saveDocument(doc, path)
       expect(await Bun.file(path).exists()).toBe(true)
       const loaded = await loadDocument(path)

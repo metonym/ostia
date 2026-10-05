@@ -189,6 +189,8 @@ describe("measure/inprocess", () => {
       target: 5,
     })
     expect(typeof warning!.data!.trialCostNs).toBe("number")
+    // Same duration style as every other message: a space before the unit.
+    expect(warning!.message).toMatch(/at ~[\d.]+ (ns|µs|ms|s) per trial/)
   })
 
   test("a cheap task never carries low-sample-count, even with a tiny explicit floor", async () => {

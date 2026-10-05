@@ -1,12 +1,10 @@
 import { profile as jscProfile } from "bun:jsc"
 import type { CpuEvidence, JitTierBreakdown } from "../../ir/types.ts"
+import {
+  DEFAULT_SAMPLING_INTERVAL_US,
+  type SamplingOptions,
+} from "../sampling.ts"
 import { parseJscProfile, type RawStackTraces } from "./parse.ts"
-
-// `bun:jsc.profile(fn, intervalUs)` only returns the SamplingProfile, not fn's return value.
-
-export interface JscCaptureOptions {
-  intervalUs?: number
-}
 
 export interface JscCaptureResult<T> {
   result: T
@@ -15,15 +13,15 @@ export interface JscCaptureResult<T> {
   diagnosticWallNs: number
 }
 
-const DEFAULT_INTERVAL_US = 1000
-
 export async function captureJscProfile<T>(
   fn: () => T | Promise<T>,
-  opts: JscCaptureOptions = {},
+  opts: SamplingOptions = {},
 ): Promise<JscCaptureResult<T>> {
-  const intervalUs = opts.intervalUs ?? DEFAULT_INTERVAL_US
-  let result!: T
+  const intervalUs = opts.intervalUs ?? DEFAULT_SAMPLING_INTERVAL_US
+  let result!: T // `bun:jsc.profile` returns only the profile, not fn's value
 
+  // Diagnostic window: profiler start through stop, nothing else. Matches the
+  // inspector capture, whose session setup is outside it.
   const start = Bun.nanoseconds()
   const raw = (await jscProfile(async () => {
     result = await fn()

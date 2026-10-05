@@ -6,7 +6,7 @@ import type {
   Workload,
 } from "../../ir/types.ts"
 import { cpuTimes } from "../format.ts"
-import { pairedRuns } from "../paired.ts"
+import { pairedRuns, threwRuns } from "../paired.ts"
 import { relativeReferences } from "../relative.ts"
 import { memoryReadings, skippedWorkloads, timingRuns } from "../select.ts"
 import type { Renderer, RenderResult } from "../types.ts"
@@ -123,6 +123,11 @@ interface MinimalRunLine {
   delta?: MinimalDelta
   /** `ab` only; see `MinimalPaired`. */
   paired?: MinimalPaired
+  /** `ab` only, instead of stats and `paired`: the task threw on one side
+   * (`"base"`/`"cand"`) or both, so it isn't judged on time. `message` is
+   * the error's first lines; `repeat` (from 1) is set when it threw in a
+   * confirmation repeat. */
+  threw?: { side: "base" | "cand" | "both"; message: string; repeat?: number }
 }
 
 /** One per workload present on only one side of a `compare`/`ci` run - a
@@ -168,6 +173,7 @@ interface MinimalSummaryLine {
    * two sides. Informational. */
   outputDiffers?: number
   notComparable?: number
+  threw?: number
   git?: { base?: GitMetadata; cand?: GitMetadata }
   exportedTo?: string
   verdict: "pass" | "fail"
@@ -368,7 +374,26 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
     return line
   })
 
-  return [...measuredLines, ...skippedLines]
+  const threwLines = threwRuns(doc).map((run): MinimalRunLine => {
+    const workload = byWorkload.get(run.workloadId)
+    const line: MinimalRunLine = {
+      event: "run",
+      protocolVersion: MINIMAL_PROTOCOL_VERSION,
+      schemaVersion: doc.schemaVersion,
+      workloadId: run.workloadId,
+      task: taskLabel(workload, run.workloadId),
+      batch: 1,
+      warnings: run.warnings.map((w) =>
+        w.data ? { code: w.code, data: w.data } : { code: w.code },
+      ),
+    }
+    addWorkloadFields(line, workload)
+    if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
+    line.threw = run.threw
+    return line
+  })
+
+  return [...measuredLines, ...threwLines, ...skippedLines]
 }
 
 function unmatchedLines(
@@ -429,6 +454,7 @@ function summaryLine(
     if (doc.ab.notComparable !== undefined) {
       line.notComparable = doc.ab.notComparable
     }
+    if (doc.ab.threw !== undefined) line.threw = doc.ab.threw
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

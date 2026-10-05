@@ -348,7 +348,9 @@ export function summarizePaired(
     geomeanThresholdPct: number
   },
 ): AbSummary {
+  // A task that threw, even in a confirmation repeat, isn't judged on time.
   const paired = measurements
+    .filter((m) => !m.threw)
     .map((m) => m.paired)
     .filter((p): p is PairedEvidence => p !== undefined)
   const judged = paired.filter(comparable)
@@ -358,6 +360,8 @@ export function summarizePaired(
     judged.length > 0 ? (Math.exp(logSum / judged.length) - 1) * 100 : null
   const regressed = paired.filter((p) => p.verdict === "regressed").length
   const improved = paired.filter((p) => p.verdict === "improved").length
+  const threw = measurements.filter((m) => m.threw)
+  const candThrew = threw.some((m) => m.threw?.side === "cand")
   return {
     ...settings,
     matched: paired.length,
@@ -367,9 +371,11 @@ export function summarizePaired(
     unconfirmed: paired.filter((p) => p.confirmed === false).length,
     outputDiffers: paired.filter((p) => !p.sameOutput).length,
     notComparable: paired.length - judged.length,
+    threw: threw.length,
     geomeanPct,
     verdict:
       regressed > 0 ||
+      candThrew ||
       (geomeanPct !== null && geomeanPct > settings.geomeanThresholdPct)
         ? "fail"
         : "pass",
@@ -522,8 +528,12 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       )
     }
     if (exitCode !== 0) {
+      // The runner names the side that failed to load, when that's why.
+      const reason = Bun.file(`${outPath}.error`)
       throw new Error(
-        `A/B suite failed: ${opts.suites[s]} (runner exited ${exitCode})`,
+        (await reason.exists())
+          ? `A/B suite failed: ${opts.suites[s]}: ${await reason.text()}`
+          : `A/B suite failed: ${opts.suites[s]} (runner exited ${exitCode})`,
       )
     }
     return loadDocument(outPath)
@@ -559,12 +569,20 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     for (const m of measurements) {
       const p = m.paired
       if (!p?.flagged || confirm === 0 || !comparable(p)) continue
+      const flagged = p.flagged
       p.repeats = []
       for (let r = 0; r < confirm && !opts.signal?.aborted; r++) {
         const doc = await runSuite(suiteOf.get(m.workloadId)!, {
           workloadIds: [m.workloadId],
         })
-        const repeat = doc?.measurements[0]?.paired
+        const run = doc?.measurements[0]
+        // A throw in a repeat counts like one in the first process; the
+        // first process's timing stays for the record.
+        if (run?.threw) {
+          m.threw = { ...run.threw, repeat: r + 1 }
+          break
+        }
+        const repeat = run?.paired
         if (!repeat) break
         p.repeats.push({
           medianRatio: repeat.medianRatio,
@@ -574,9 +592,10 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         })
       }
       p.confirmed =
+        !m.threw &&
         p.repeats.length === confirm &&
-        p.repeats.every((r) => r.flagged === p.flagged)
-      p.verdict = p.confirmed ? p.flagged : "unchanged"
+        p.repeats.every((r) => r.flagged === flagged)
+      p.verdict = p.confirmed ? flagged : "unchanged"
     }
 
     const noiseWarning = environment && noisyMachineWarning(environment)

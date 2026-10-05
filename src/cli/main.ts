@@ -399,9 +399,11 @@ Flags:
 The base tree is cached per commit (and --base-setup commands) under --out-dir. Setup runs
 with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR (the
 working tree) set. A flagged task counts only when every fresh-process repeat flags it the
-same way. Exit codes: 0 pass, 1 a confirmed regression or the geomean over its threshold, 2
-nothing paired or a harness error (not a git repo, unknown ref, a failed setup or suite),
-130 Ctrl-C.
+same way. A task that throws isn't timed; one that throws on the candidate side only fails
+the run. A task whose suite file and output both changed reads "not comparable" and stays
+out of the verdict. Exit codes: 0 pass, 1 a confirmed regression, a candidate-only throw or
+the geomean over its threshold, 2 nothing paired or a harness error (not a git repo,
+unknown ref, a failed setup or suite), 130 Ctrl-C.
 
 Examples:
   ostia ab bench/parse.bench.ts
@@ -1091,7 +1093,7 @@ async function abCommand(argv: string[]): Promise<number> {
   // `summary` event needs the real exit code inline.
   const exitCode = aborted
     ? 130
-    : summary.matched === 0
+    : summary.matched === 0 && !summary.threw
       ? 2
       : summary.verdict === "fail"
         ? 1

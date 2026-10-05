@@ -17,7 +17,11 @@ import {
 } from "../ir/document.ts"
 import { canonicalJSON } from "../ir/fp.ts"
 import type { Measurement, Workload } from "../ir/types.ts"
-import { measurePaired, ratioStats } from "../measure/paired.ts"
+import {
+  measurePaired,
+  PairedSideError,
+  ratioStats,
+} from "../measure/paired.ts"
 import { computeTimingStats, percentile } from "../stats/index.ts"
 
 export interface AbRunnerOpts {
@@ -43,6 +47,108 @@ async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
   return [...getRegisteredTasks()]
 }
 
+const ERROR_LINES = 5
+
+/** An error's message, cut to its first few lines. */
+function errorText(err: unknown): string {
+  const text = err instanceof Error ? err.message : String(err)
+  return text.split("\n").slice(0, ERROR_LINES).join("\n")
+}
+
+/** Reports a failure that stops the whole suite: on stderr, and in
+ * `<outputPath>.error` for `ab()` to put in the error it throws. */
+async function fail(outputPath: string, message: string): Promise<number> {
+  process.stderr.write(`ab runner: ${message}\n`)
+  await Bun.write(`${outputPath}.error`, message)
+  return 2
+}
+
+type Side = "base" | "cand"
+
+type MeasureOutcome =
+  | { result: Awaited<ReturnType<typeof measurePaired>> }
+  | { threw: NonNullable<Measurement["threw"]> }
+
+/** One pair's `before` hooks, paired timing and `after` hooks. A throw from
+ * either side's task or hooks doesn't stop the suite; it's reported with
+ * its side instead. Each `before` runs once, and a side whose `before`
+ * threw isn't timed or torn down. Every side that was set up is torn down
+ * exactly once, candidate first, even when a hook throws. When only one
+ * side has thrown, the other side's task is called once more, before
+ * teardown and only if that side is set up, to tell whether it throws too
+ * (`"both"`). */
+async function measureTask(
+  base: RegisteredTask,
+  cand: RegisteredTask,
+  rounds: number,
+): Promise<MeasureOutcome> {
+  const tasks = { base, cand }
+  // The first error from each side.
+  const errors = new Map<Side, unknown>()
+  const record = (side: Side, err: unknown) => {
+    if (!errors.has(side)) errors.set(side, err)
+  }
+  const ready = new Set<Side>()
+  for (const side of ["base", "cand"] as const) {
+    try {
+      await tasks[side].opts?.before?.()
+      ready.add(side)
+    } catch (err) {
+      record(side, err)
+    }
+  }
+
+  let result: Awaited<ReturnType<typeof measurePaired>> | undefined
+  let internal: { err: unknown } | undefined
+  if (ready.size === 2) {
+    try {
+      result = await measurePaired(base.fn, cand.fn, { rounds })
+    } catch (err) {
+      if (err instanceof PairedSideError) record(err.side, err.cause)
+      else internal = { err }
+    }
+  }
+
+  if (errors.size === 1) {
+    const other: Side = errors.has("base") ? "cand" : "base"
+    if (ready.has(other)) {
+      try {
+        await tasks[other].fn()
+      } catch (err) {
+        record(other, err)
+      }
+    }
+  }
+
+  for (const side of ["cand", "base"] as const) {
+    if (!ready.has(side)) continue
+    try {
+      await tasks[side].opts?.after?.()
+    } catch (err) {
+      record(side, err)
+    }
+  }
+
+  if (internal) throw internal.err
+  const baseErr = errors.get("base")
+  const candErr = errors.get("cand")
+  if (errors.size === 2) {
+    return {
+      threw: {
+        side: "both",
+        message: `base: ${errorText(baseErr)}\ncandidate: ${errorText(candErr)}`,
+      },
+    }
+  }
+  if (errors.has("base")) {
+    return { threw: { side: "base", message: errorText(baseErr) } }
+  }
+  if (errors.has("cand")) {
+    return { threw: { side: "cand", message: errorText(candErr) } }
+  }
+  return { result: result! }
+}
+
 /** Runs one suite file's tasks against the same file at the base checkout,
  * in this one process. The base copy is imported first and the working
  * tree's second, each from its own path, so each side's relative imports
@@ -64,21 +170,38 @@ async function main(): Promise<number> {
     await import(preloadFile)
   }
 
-  const baseTasks = baseSuite ? await importTasks(baseSuite) : []
-  const candRegistered = await importTasks(candSuite)
-  if (candRegistered.length === 0) {
-    process.stderr.write(
-      `ab runner: ${candSuite} registered no tasks (no task() calls found).\n`,
+  let baseTasks: RegisteredTask[] = []
+  if (baseSuite) {
+    try {
+      baseTasks = await importTasks(baseSuite)
+    } catch (err) {
+      return fail(
+        outputPath,
+        `the base side failed to load ${baseSuite}: ${errorText(err)}`,
+      )
+    }
+  }
+  let candRegistered: RegisteredTask[]
+  try {
+    candRegistered = await importTasks(candSuite)
+  } catch (err) {
+    return fail(
+      outputPath,
+      `the candidate side failed to load ${candSuite}: ${errorText(err)}`,
     )
-    return 2
+  }
+  if (candRegistered.length === 0) {
+    return fail(
+      outputPath,
+      `${candSuite} registered no tasks (no task() calls found).`,
+    )
   }
 
   let candTasks: RegisteredTask[]
   try {
     candTasks = selectTasks(candRegistered, opts.filter, candSuite)
   } catch (err) {
-    process.stderr.write(`ab runner: ${(err as Error).message}\n`)
-    return 2
+    return fail(outputPath, (err as Error).message)
   }
 
   const wanted = opts.workloadIds && new Set(opts.workloadIds)
@@ -137,40 +260,46 @@ async function main(): Promise<number> {
       await base.groupBefore?.()
       await cand.groupBefore?.()
     }
-    await base.opts?.before?.()
-    await cand.opts?.before?.()
+    const measured = await measureTask(base, cand, opts.rounds)
+    if ("threw" in measured) {
+      measurements.push(
+        makePairedMeasurement({
+          workload,
+          configFingerprint: cfgFp,
+          threw: measured.threw,
+          diagnosticWallNs: 0,
+          warnings: [],
+        }),
+      )
+    } else {
+      const { result } = measured
+      const stats = ratioStats(result.ratios, opts.thresholdPct)
+      const timing = computeTimingStats(result.candSamples)
+      if (result.batch > 1) timing.batch = result.batch
+      measurements.push(
+        makePairedMeasurement({
+          workload,
+          configFingerprint: cfgFp,
+          timing,
+          diagnosticWallNs: result.diagnosticWallNs,
+          warnings: [],
+          paired: {
+            rounds: result.rounds,
+            batch: result.batch,
+            baseSamples: result.baseSamples,
+            baseMedianNs: percentile(
+              Float64Array.from(result.baseSamples).sort(),
+              0.5,
+            ),
+            ratios: result.ratios,
+            ...stats,
+            verdict: stats.flagged ?? "unchanged",
+            sameOutput: result.sameOutput,
+          },
+        }),
+      )
+    }
 
-    const result = await measurePaired(base.fn, cand.fn, {
-      rounds: opts.rounds,
-    })
-    const stats = ratioStats(result.ratios, opts.thresholdPct)
-    const timing = computeTimingStats(result.candSamples)
-    if (result.batch > 1) timing.batch = result.batch
-    measurements.push(
-      makePairedMeasurement({
-        workload,
-        configFingerprint: cfgFp,
-        timing,
-        diagnosticWallNs: result.diagnosticWallNs,
-        warnings: [],
-        paired: {
-          rounds: result.rounds,
-          batch: result.batch,
-          baseSamples: result.baseSamples,
-          baseMedianNs: percentile(
-            Float64Array.from(result.baseSamples).sort(),
-            0.5,
-          ),
-          ratios: result.ratios,
-          ...stats,
-          verdict: stats.flagged ?? "unchanged",
-          sameOutput: result.sameOutput,
-        },
-      }),
-    )
-
-    await cand.opts?.after?.()
-    await base.opts?.after?.()
     if (isLast) {
       await cand.groupAfter?.()
       await base.groupAfter?.()

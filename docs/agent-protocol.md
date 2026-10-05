@@ -42,6 +42,7 @@ digits.
 | `task` | always | Display name: the `group/name` task id, the label, or the command line. |
 | `group`, `description`, `groupDescription`, `params` | when set | From `group()`/`task()`/`sweep()`. |
 | `skipped` | skipped tasks | `true` for `task.skip()`; no stats fields follow. |
+| `threw` | `ab`, a task that threw | `{ side, message, repeat? }`: `side` is `"base"`, `"cand"` or `"both"`, `message` the error's first lines, and `repeat` (from 1) is set when it threw in a confirmation repeat. No stats or `paired` follow. |
 | `unit` | measured | `"ns"`. |
 | `samples` | measured | Number of timing samples. |
 | `batch` | always | Calls per timed trial for batched in-process tasks; 1 otherwise. |
@@ -110,6 +111,7 @@ digits.
 | `unconfirmed` | `ab` only: flagged in the first process, not reproduced by the repeats; counted in `unchanged`. |
 | `outputDiffers` | `ab` only: tasks whose first call returned different values on each side. |
 | `notComparable` | `ab` only: tasks whose suite file and output both changed; counted in `unchanged`, left out of `geomeanPct`. |
+| `threw` | `ab` only: tasks that threw on either side, so weren't timed; not in `matched`. |
 | `noiseFloorPct` | When the candidate document has one. |
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |
@@ -131,7 +133,7 @@ The same across commands:
 | Code | Meaning |
 |---|---|
 | `0` | Pass. |
-| `1` | At least one workload failed its comparison (`compare`, `ci`), or a confirmed regression or the geomean over its threshold (`ab`). `time` and `bench` never return 1. |
+| `1` | At least one workload failed its comparison (`compare`, `ci`), or a confirmed regression, a task that threw on the candidate side only, or the geomean over its threshold (`ab`). `time` and `bench` never return 1. |
 | `2` | Harness error: the numbers couldn't be produced or compared. |
 | `130` | Cancelled with Ctrl-C (`time`, `bench`, `ab`). |
 

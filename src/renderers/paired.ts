@@ -13,12 +13,54 @@ export type PairedRun = Measurement & {
   paired: PairedEvidence
 }
 
-/** The measurements an A/B table is made of (`ab()` documents). */
-export function pairedRuns(doc: ProfileDocument): PairedRun[] {
-  return doc.measurements.filter(
-    (m): m is PairedRun =>
-      m.phase === "paired" && m.timing !== undefined && m.paired !== undefined,
+export type ThrewRun = Measurement & {
+  threw: NonNullable<Measurement["threw"]>
+}
+
+/** A task that threw, on either side, in its first process or a repeat. */
+function isThrewRun(m: Measurement): m is ThrewRun {
+  return m.phase === "paired" && m.threw !== undefined
+}
+
+/** A task judged on its time: measured, and it never threw. */
+function isPairedRun(m: Measurement): m is PairedRun {
+  return (
+    m.phase === "paired" &&
+    m.threw === undefined &&
+    m.timing !== undefined &&
+    m.paired !== undefined
   )
+}
+
+/** The timed measurements an A/B table is made of (`ab()` documents). */
+export function pairedRuns(doc: ProfileDocument): PairedRun[] {
+  return doc.measurements.filter(isPairedRun)
+}
+
+/** An `ab()` document's tasks that threw. */
+export function threwRuns(doc: ProfileDocument): ThrewRun[] {
+  return doc.measurements.filter(isThrewRun)
+}
+
+export type AbRow =
+  | { kind: "timed"; run: PairedRun }
+  | { kind: "threw"; run: ThrewRun }
+
+/** Every row of an A/B table, timed or threw, in document order. */
+export function abRows(doc: ProfileDocument): AbRow[] {
+  const rows: AbRow[] = []
+  for (const m of doc.measurements) {
+    if (isThrewRun(m)) rows.push({ kind: "threw", run: m })
+    else if (isPairedRun(m)) rows.push({ kind: "timed", run: m })
+  }
+  return rows
+}
+
+/** `base threw`, `candidate threw`, `both threw`, with `(repeat 1)` when it
+ * threw in a confirmation repeat. */
+export function formatThrew(threw: ThrewRun["threw"]): string {
+  const side = threw.side === "cand" ? "candidate" : threw.side
+  return `${side} threw${threw.repeat ? ` (repeat ${threw.repeat})` : ""}`
 }
 
 /** A ratio as a signed percent change, e.g. `1.032` → `+3.2%`. */
@@ -55,6 +97,7 @@ export function formatAbSummary(ab: AbSummary): string {
   const notes = [
     ab.unconfirmed > 0 && `${ab.unconfirmed} unconfirmed`,
     ab.notComparable > 0 && `${ab.notComparable} not comparable`,
+    ab.threw > 0 && `${ab.threw} threw`,
   ].filter(Boolean)
   const unconfirmed = notes.length > 0 ? ` (${notes.join(", ")})` : ""
   return `${geomean} · ${ab.regressed} regressed, ${ab.improved} improved, ${ab.unchanged} unchanged of ${ab.matched}${unconfirmed} · ${ab.verdict}`

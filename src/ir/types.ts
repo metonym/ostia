@@ -139,6 +139,12 @@ export interface Measurement {
   /** `phase: "paired"` only: the base side and the per-round ratios. The
    * measurement's `timing` is the candidate side. */
   paired?: PairedEvidence
+  /** `phase: "paired"` only: the task threw on one side or both
+   * (`"both"`). Usually instead of `timing`/`paired`; when it threw in a
+   * confirmation repeat, `repeat` (from 1) says which, and `timing`/`paired`
+   * stay as the first process measured them. Either way the task isn't in
+   * `matched` or the geomean. */
+  threw?: { side: "base" | "cand" | "both"; message: string; repeat?: number }
   warnings: Warning[]
   artifacts: ArtifactRef[]
   /** True when this timing measurement's trials were run round-robin against
@@ -331,13 +337,16 @@ export interface AbSummary {
    * `PairedEvidence.suiteChanged`); counted in `unchanged`, left out of
    * `geomeanPct`. */
   notComparable: number
+  /** Workloads that threw on either side or both, and so weren't timed;
+   * not counted in `matched`. */
+  threw: number
   /** Geometric mean of each workload's median ratio, as a signed percent
    * (negative: candidate faster on average). A flagged workload contributes
    * the median over its main run and repeats. `null` when nothing was
    * paired. */
   geomeanPct: number | null
-  /** `"fail"` when any workload regressed (confirmed) or `geomeanPct`
-   * exceeds `geomeanThresholdPct`. */
+  /** `"fail"` when any workload regressed (confirmed), threw on the
+   * candidate side only, or `geomeanPct` exceeds `geomeanThresholdPct`. */
   verdict: "pass" | "fail"
 }
 

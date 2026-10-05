@@ -20,6 +20,14 @@
   A task whose output differs too reads `not comparable`: its verdict is
   `unchanged`, it isn't re-measured, and it's left out of the geomean.
   Documents and the minimal `summary` line gain `notComparable`.
+- `ostia ab`: a task that throws no longer stops its suite. It isn't timed,
+  reads `base threw`, `candidate threw` or `both threw`, and its measurement
+  and minimal `run` line carry `threw: { side, message }`. A task that throws
+  on the candidate side only fails the run. A throw in a confirmation repeat
+  counts too (`threw.repeat`). `before`/`after` hooks run once each, and a side
+  whose `before` threw isn't torn down. A suite that fails to load names
+  the side and the error. Documents and the minimal `summary` line gain
+  `threw`.
 
 ## 0.2.9 — 2026-09-30
 

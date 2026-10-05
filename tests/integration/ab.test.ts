@@ -1,6 +1,11 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test"
 import { existsSync, readdirSync } from "node:fs"
-import { AbBaseError, AbSetupError, ab } from "../../src/ab/index.ts"
+import {
+  AbBaseError,
+  type AbOptions,
+  AbSetupError,
+  ab,
+} from "../../src/ab/index.ts"
 import { bench } from "../../src/index.ts"
 import type { MinimalEvent } from "../../src/renderers/minimal/index.ts"
 
@@ -205,6 +210,55 @@ describe("ab() - paired A/B against a git ref", () => {
     expect(doc.ab!.notComparable).toBe(0)
   }, 60_000)
 
+  test("a task that throws on one side is reported, not timed, and doesn't stop the suite", async () => {
+    const throwing = (
+      cond: string,
+    ) => `import { group, task } from "${SRC}/index.ts"
+import { spin, work } from "../src/lib.ts"
+
+group("g", () => {
+  task("boom", () => {
+    if (${cond}) throw new TypeError("no such thing")
+    return work(20_000)
+  })
+  task("stable", () => spin(20_000))
+})
+`
+    // `globalThis.__ostia_ab_base__` is only ever read, never set, so the
+    // candidate side tells itself apart by its path instead.
+    const isBase = 'import.meta.path.includes("/node_modules/")'
+    const run = async (cond: string) => {
+      await Bun.write(`${REPO}/bench/t.bench.ts`, throwing(cond))
+      await commit("throwing suite")
+      const doc = await ab({
+        ...QUICK,
+        suites: ["bench/t.bench.ts"],
+        thresholdPct: 25,
+        geomeanThresholdPct: 25,
+      })
+      const boom = doc.measurements.find(
+        (m) =>
+          doc.workloads.find((w) => w.id === m.workloadId)!.entry!.task ===
+          "g/boom",
+      )!
+      return { doc, boom }
+    }
+
+    const cand = await run(`!${isBase}`)
+    expect(cand.boom.threw).toEqual({ side: "cand", message: "no such thing" })
+    expect(cand.boom.timing).toBeUndefined()
+    expect(cand.doc.ab!.threw).toBe(1)
+    expect(cand.doc.ab!.matched).toBe(1)
+    expect(cand.doc.ab!.verdict).toBe("fail")
+
+    const base = await run(isBase)
+    expect(base.boom.threw!.side).toBe("base")
+    expect(base.doc.ab!.verdict).toBe("pass")
+
+    const both = await run("true")
+    expect(both.boom.threw!.side).toBe("both")
+  }, 60_000)
+
   test("workload ids match bench()'s for the same suite, and the base tree is cached per commit", async () => {
     const paired = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
     const timed = await bench({
@@ -270,7 +324,7 @@ task("gen", () => spin(N))
     // Without setup, the base tree has no src/gen.ts to import.
     await expect(
       ab({ ...QUICK, suites: ["bench/gen.bench.ts"], confirm: 0 }),
-    ).rejects.toThrow(/A\/B suite failed/)
+    ).rejects.toThrow(/the base side failed to load .*Cannot find module/)
 
     // Relative ./node_modules reads work while setup runs.
     const setup = [
@@ -403,6 +457,58 @@ describe("ostia ab", () => {
     expect(exitCode).toBe(0)
   }, 60_000)
 
+  test("a task that throws on the candidate side fails the run and says so", async () => {
+    await Bun.write(
+      `${REPO}/src/lib.ts`,
+      LIB.replace("  return spin(n)", '  throw new Error("work is broken")'),
+    )
+    const minimal = await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "5",
+      "--no-noise-check",
+      "--geomean-threshold",
+      "25",
+      "--format",
+      "minimal",
+    ])
+    expect(minimal.exitCode).toBe(1)
+    const events = minimal.stdout
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as MinimalEvent)
+    const work = events.find((e) => e.event === "run" && e.task === "g/work")
+    expect(work?.event === "run" && work.threw).toEqual({
+      side: "cand",
+      message: "work is broken",
+    })
+    const summary = events.at(-1)!
+    expect(summary.event === "summary" && summary.threw).toBe(1)
+
+    const table = await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "5",
+      "--no-noise-check",
+    ])
+    expect(table.stdout).toMatch(/work .* candidate threw/)
+    expect(table.stdout).toContain("candidate threw: work is broken")
+  }, 60_000)
+
+  test("names the side whose suite failed to load", async () => {
+    await Bun.write(
+      `${REPO}/bench/s.bench.ts`,
+      `import "./missing.ts"\n${SUITE}`,
+    )
+    const { exitCode, stderr } = await runCli([
+      "bench/s.bench.ts",
+      "--no-noise-check",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("the candidate side failed to load")
+    expect(stderr).toContain('"code":"spawn-failed"')
+  }, 20_000)
+
   test("exits 2 when nothing pairs, and on an unknown ref", async () => {
     await Bun.write(`${REPO}/bench/new.bench.ts`, SUITE)
     const none = await runCli(["bench/new.bench.ts", "--no-noise-check"])
@@ -434,6 +540,165 @@ describe("ostia ab", () => {
     expect(threshold.exitCode).toBe(2)
     expect(threshold.stderr).toContain("expected a number")
   }, 20_000)
+})
+
+describe("ab() - exceptions and teardown", () => {
+  beforeEach(initRepo)
+  afterAll(async () => {
+    await Bun.spawn(["rm", "-rf", REPO]).exited
+  })
+
+  // Each copy of a suite tells its side by path: the base copy lives in the
+  // cached tree under node_modules.
+  const SIDE = `const side = import.meta.path.includes("/node_modules/") ? "base" : "cand"`
+
+  /** Runs `suite` (committed, so both sides have it) as the only suite. */
+  async function runSuite(suite: string, opts: Partial<AbOptions> = {}) {
+    await Bun.write(`${REPO}/bench/x.bench.ts`, suite)
+    await commit("suite")
+    const doc = await ab({
+      ...QUICK,
+      rounds: 3,
+      confirm: 0,
+      thresholdPct: 25,
+      geomeanThresholdPct: 10_000,
+      suites: ["bench/x.bench.ts"],
+      ...opts,
+    })
+    const byTask = (name: string) =>
+      doc.measurements.find(
+        (m) =>
+          doc.workloads.find((w) => w.id === m.workloadId)!.entry!.task ===
+          name,
+      )!
+    return { doc, byTask }
+  }
+
+  for (const [throws, side, verdict] of [
+    [["cand"], "cand", "fail"],
+    [["base"], "base", "pass"],
+    [["base", "cand"], "both", "pass"],
+  ] as const) {
+    test(`a throw on ${side === "both" ? "both sides" : `the ${side} side`} in a confirmation repeat is reported (${verdict})`, async () => {
+      // The first process records that it ran; every later process (the
+      // repeat) throws on the given sides. The candidate is ~10x slower, so
+      // the first process always flags it.
+      const { doc, byTask } = await runSuite(
+        `import { existsSync, writeFileSync } from "node:fs"
+import { task } from "${SRC}/index.ts"
+${SIDE}
+const state = process.cwd() + "/first-ran"
+const repeat = existsSync(state)
+if (side === "cand") writeFileSync(state, "")
+const throws = repeat && ${JSON.stringify(throws)}.includes(side)
+task("t", () => {
+  if (throws) throw new Error(side + " broke in a repeat")
+  const end = Bun.nanoseconds() + (side === "cand" ? 1_000_000 : 100_000)
+  while (Bun.nanoseconds() < end) {}
+  return 1
+})
+`,
+        { confirm: 1 },
+      )
+      const t = byTask("t")
+      expect(t.threw).toMatchObject({ side, repeat: 1 })
+      // The first process's timing stays, but nothing is judged on it.
+      expect(t.paired!.flagged).toBe("regressed")
+      expect(t.paired!.confirmed).toBe(false)
+      expect(t.paired!.verdict).toBe("unchanged")
+      expect(doc.ab!.threw).toBe(1)
+      expect(doc.ab!.matched).toBe(0)
+      expect(doc.ab!.geomeanPct).toBeNull()
+      expect(doc.ab!.verdict).toBe(verdict)
+    }, 60_000)
+  }
+
+  /** A suite whose task `t` logs each hook (and any call of its body after
+   * teardown) to hooks.log, and throws at each `side:step` in `fails`. A
+   * second task, `next`, shows whether the suite went on. */
+  const hookSuite = (
+    fails: string[],
+  ) => `import { appendFileSync } from "node:fs"
+import { task } from "${SRC}/index.ts"
+${SIDE}
+const fails = new Set(${JSON.stringify(fails)})
+const log = (event) => appendFileSync(process.cwd() + "/hooks.log", side + ":" + event + "\\n")
+const maybeThrow = (step) => {
+  if (fails.has(side + ":" + step)) throw new Error(side + " " + step + " broke")
+}
+let torn = false
+task("t", () => {
+  if (torn) log("body-after-teardown")
+  maybeThrow("body")
+  return 1
+}, {
+  before() { log("before"); maybeThrow("before") },
+  after() { log("after"); torn = true; maybeThrow("after") },
+})
+task("next", () => 1)
+`
+  const hookLog = async () =>
+    (await Bun.file(`${REPO}/hooks.log`).text()).trim().split("\n")
+
+  test("a throwing base teardown runs each teardown once and the suite goes on", async () => {
+    const { byTask } = await runSuite(hookSuite(["base:after"]))
+    expect(byTask("t").threw).toEqual({
+      side: "base",
+      message: "base after broke",
+    })
+    expect(await hookLog()).toEqual([
+      "base:before",
+      "cand:before",
+      "cand:after",
+      "base:after",
+    ])
+    expect(byTask("next").paired).toBeDefined()
+  }, 60_000)
+
+  test("a side whose setup threw isn't torn down; the other side is, once", async () => {
+    const { byTask } = await runSuite(hookSuite(["cand:before"]))
+    expect(byTask("t").threw).toEqual({
+      side: "cand",
+      message: "cand before broke",
+    })
+    expect(await hookLog()).toEqual([
+      "base:before",
+      "cand:before",
+      "base:after",
+    ])
+    expect(byTask("next").paired).toBeDefined()
+  }, 60_000)
+
+  test("setup throwing on both sides is `both`, with no teardown", async () => {
+    const { byTask } = await runSuite(hookSuite(["base:before", "cand:before"]))
+    expect(byTask("t").threw!.side).toBe("both")
+    expect(await hookLog()).toEqual(["base:before", "cand:before"])
+  }, 60_000)
+
+  test("a teardown error is reported alongside the other side's body error", async () => {
+    const { byTask } = await runSuite(hookSuite(["base:body", "cand:after"]))
+    expect(byTask("t").threw).toEqual({
+      side: "both",
+      message: "base: base body broke\ncandidate: cand after broke",
+    })
+    // The other side was probed while still set up.
+    expect(await hookLog()).toEqual([
+      "base:before",
+      "cand:before",
+      "cand:after",
+      "base:after",
+    ])
+  }, 60_000)
+
+  test("the other side is probed before teardown, never after", async () => {
+    const { byTask } = await runSuite(hookSuite(["cand:body"]))
+    expect(byTask("t").threw).toEqual({
+      side: "cand",
+      message: "cand body broke",
+    })
+    expect(await hookLog()).not.toContain("base:body-after-teardown")
+    expect(byTask("next").paired).toBeDefined()
+  }, 60_000)
 })
 
 describe("ab() - setup timeout and cancellation", () => {

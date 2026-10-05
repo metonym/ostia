@@ -35,7 +35,7 @@ recomputes them from the stored samples, so every loaded `TimingStats` has them.
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
-| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, geomeanPct, verdict }`. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict }`. |
 
 ## Workloads
 
@@ -82,6 +82,7 @@ affect the id.
 | `trials` | `Trial[]`. |
 | `timing?` | `TimingStats`, on timing measurements with at least one sample; on a paired measurement, the candidate side's per-call times, one sample per round. |
 | `paired?` | Paired measurements only; see below. |
+| `threw?` | Paired measurements only: `{ side: "base" \| "cand" \| "both", message, repeat? }` for a task that threw. Usually instead of `timing` and `paired`; when it threw in a confirmation repeat, `repeat` (from 1) says which, and `timing`/`paired` keep the first process's numbers. Either way it's left out of `matched` and the geomean. |
 | `interleaved?` | Trials were round-robined with other commands. |
 | `diagnosticWallNs?` | Wall time of an instrumented run. |
 | `cpu?`, `jit?` | CPU evidence (frames, call tree, per-frame totals, samples) and JIT tier counts (`llint`, `baseline`, `dfg`, `ftl`). |

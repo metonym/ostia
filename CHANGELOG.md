@@ -28,6 +28,12 @@
   whose `before` threw isn't torn down. A suite that fails to load names
   the side and the error. Documents and the minimal `summary` line gain
   `threw`.
+- `ostia ab` shows progress on stderr: setup commands, each task
+  (`[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex`) and each
+  confirmation repeat. On by default when stderr is a terminal (one line,
+  replaced as it goes); `--progress` turns it on for logs and agents, one line
+  per step, and `--no-progress` off. stdout is untouched. `ab()` takes the
+  same events through `onProgress`.
 
 ## 0.2.9 — 2026-09-30
 

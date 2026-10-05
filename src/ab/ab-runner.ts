@@ -33,6 +33,16 @@ export interface AbRunnerOpts {
   thresholdPct: number
   /** Scripts imported, in order, before either suite. */
   preload?: string[]
+  /** Send an `AbRunnerProgress` message over IPC before each task. */
+  progress?: boolean
+}
+
+/** Sent to the parent before each task is measured, when `progress` is
+ * set. `task` counts from 1. */
+export interface AbRunnerProgress {
+  task: number
+  tasks: number
+  label: string
 }
 
 /** Tasks pair across the two sides by their "group/name" id plus `params`,
@@ -256,6 +266,13 @@ async function main(): Promise<number> {
     const group = cand.groupName
     const isFirst = group !== undefined && firstInGroup.get(group) === i
     const isLast = group !== undefined && lastInGroup.get(group) === i
+    if (opts.progress) {
+      process.send?.({
+        task: i + 1,
+        tasks: pairs.length,
+        label: taskId(cand),
+      } satisfies AbRunnerProgress)
+    }
     if (isFirst) {
       await base.groupBefore?.()
       await cand.groupBefore?.()

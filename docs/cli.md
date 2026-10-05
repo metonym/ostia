@@ -370,6 +370,7 @@ ostia ab [flags] <suite.ts...>
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal and `--quiet` isn't given. |
 | `--quiet` | Don't print the report. |
 
 `ostia ab` answers "did my change make this slower?" on a machine too noisy for two runs
@@ -499,6 +500,19 @@ the suite file itself is checked, not the files it imports.
 
 The noise floor is measured and reported as usual but doesn't widen the threshold:
 pairing already cancels the drift it measures.
+
+**Progress.** A run over many suites, with confirmations, can take many minutes. On a
+terminal, `ostia ab` shows one progress line on stderr, replaced as it goes and cleared
+before the report. `--progress` turns it on anywhere else too, as one line per step, which
+is how a script or agent can tell a long run from a stuck one:
+
+```
+[ab] base setup: bun scripts/generate.ts
+[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex
+[ab] confirming flagged tasks · repeat 1/6 search/regex
+```
+
+Progress never goes to stdout, so `--format minimal` output stays clean.
 
 Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
 only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git repository or an unknown ref

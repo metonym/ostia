@@ -251,6 +251,7 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
   and stays out of the verdict. A task that throws reads `base threw`, `candidate threw` or
   `both threw` and isn't timed; one that throws on the candidate side only fails the run.
   Exit: `0` pass, `1` regression, `2` nothing paired or a harness error.
+- Progress goes to stderr on a terminal; `--progress` turns it on in logs and pipes too.
 
 ### `ostia compare`
 

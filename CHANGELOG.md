@@ -39,6 +39,14 @@
   recently used trees and removes the rest, except trees used in the last
   hour. `ostia ab --clean` removes them all.
 
+**Changes**
+
+- The `table` output of `bench` and `ab` shows only the task name under a
+  group header, instead of repeating the group (`dedupe/naive` under
+  `dedupe:` is now `naive`). Long group names pushed the Verdict column past
+  170 characters. Warnings, `json`, `markdown` and `minimal` output keep the
+  full `group/name`.
+
 ## 0.2.9 — 2026-09-30
 
 **Fixes**

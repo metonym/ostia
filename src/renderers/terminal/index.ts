@@ -20,7 +20,7 @@ import {
   formatThrew,
   pairedVerdict,
 } from "../paired.ts"
-import { groupOf, relativeReferences } from "../relative.ts"
+import { groupOf, labelInGroup, relativeReferences } from "../relative.ts"
 import {
   environmentMismatch,
   memoryReadings,
@@ -113,6 +113,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
     // its first row, and its rows indent under it. Ungrouped rows (and
     // subprocess commands, which never carry entry.group) print flat.
     const indents = new Map<TableRow, string>()
+    const shown = new Map<TableRow, string>()
     const groupHeaderBefore = new Map<TableRow, string>()
     let lastGroup: string | undefined
     for (const row of rows) {
@@ -122,11 +123,12 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
         lastGroup = group
       }
       indents.set(row, group !== undefined ? "  " : "")
+      shown.set(row, labelInGroup(row.label, group))
     }
 
     const labelWidth = Math.max(
       4,
-      ...rows.map((r) => indents.get(r)!.length + r.label.length),
+      ...rows.map((r) => indents.get(r)!.length + shown.get(r)!.length),
     )
     const medianWidth = 10
     const spreadWidth = 18
@@ -151,13 +153,14 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       const groupHeader = groupHeaderBefore.get(row)
       if (groupHeader !== undefined) lines.push(`${groupHeader}:`)
       const indent = indents.get(row)!
+      const label = shown.get(row)!
 
       if (row.kind === "skipped") {
-        lines.push(`${(indent + row.label).padEnd(labelWidth)}   - skipped`)
+        lines.push(`${(indent + label).padEnd(labelWidth)}   - skipped`)
         continue
       }
 
-      const { run, label, workload } = row
+      const { run, workload } = row
       const t = run.timing
       const unit = pickDurationUnit(t.median)
       const medianCell = formatDuration(t.median, unit)
@@ -259,9 +262,10 @@ function renderPaired(doc: ProfileDocument, envLine: string[]): string {
   })
 
   if (rows.length > 0) {
+    const shown = (r: (typeof rows)[number]) => labelInGroup(r.label, r.group)
     const labelWidth = Math.max(
       4,
-      ...rows.map((r) => (r.group !== undefined ? 2 : 0) + r.label.length),
+      ...rows.map((r) => (r.group !== undefined ? 2 : 0) + shown(r).length),
     )
     const widths = [10, 10, 9, 18]
     const header = `${"Task".padEnd(labelWidth)}   ${["Base", "Candidate", "Change", "p25…p75"].map((h, i) => h.padEnd(widths[i]!)).join(" ")} Verdict`
@@ -274,7 +278,7 @@ function renderPaired(doc: ProfileDocument, envLine: string[]): string {
       lastGroup = row.group
       const indent = row.group !== undefined ? "  " : ""
       lines.push(
-        `${(indent + row.label).padEnd(labelWidth)}   ${row.cells.map((c, i) => c.padEnd(widths[i]!)).join(" ")} ${row.verdict}`,
+        `${(indent + shown(row)).padEnd(labelWidth)}   ${row.cells.map((c, i) => c.padEnd(widths[i]!)).join(" ")} ${row.verdict}`,
       )
       if (row.run.warnings.length > 0) {
         lines.push(

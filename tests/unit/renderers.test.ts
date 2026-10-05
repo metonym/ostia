@@ -116,8 +116,8 @@ describe("renderers - golden output on fixed fake data", () => {
     const doc = newDocument([wSlow, wFast, wTiny], [runSlow, runFast, runTiny])
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
-    const slowLine = lines.find((l) => l.includes("css/optimizeCssWithReport"))
-    const tinyLine = lines.find((l) => l.includes("strings/noSubstring"))
+    const slowLine = lines.find((l) => l.includes("  optimizeCssWithReport"))
+    const tinyLine = lines.find((l) => l.includes("  noSubstring"))
 
     // ~41ms is ~2.05x its group sibling (~20ms), not ~40000x the unrelated
     // near-zero task in the other group.
@@ -167,8 +167,8 @@ describe("renderers - golden output on fixed fake data", () => {
     const doc = newDocument([wOld, wNew], [runOld, runNew])
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
-    const oldLine = lines.find((l) => l.includes("impl/old"))
-    const newLine = lines.find((l) => l.includes("impl/new"))
+    const oldLine = lines.find((l) => l.startsWith("  old "))
+    const newLine = lines.find((l) => l.startsWith("  new "))
 
     expect(oldLine).toContain("1.00× (baseline)")
     expect(newLine).toContain("2.00× faster")
@@ -307,7 +307,9 @@ describe("renderers - golden output on fixed fake data", () => {
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     expect(lines.some((l) => l.trim() === "parse:")).toBe(true)
-    expect(lines.some((l) => l.startsWith("  parse/small"))).toBe(true)
+    // Under its group's header, a task shows its name alone.
+    expect(lines.some((l) => l.startsWith("  small "))).toBe(true)
+    expect(lines.some((l) => l.includes("parse/small"))).toBe(false)
     expect(lines.some((l) => l.startsWith("bun x.ts"))).toBe(true)
   })
 
@@ -354,7 +356,7 @@ describe("renderers - golden output on fixed fake data", () => {
     const result = await renderers.table.render(doc, {})
     const lines = result.text!.split("\n")
     expect(lines.some((l) => l.trim() === "g:")).toBe(true)
-    const skippedLine = lines.find((l) => l.includes("g/skipped"))
+    const skippedLine = lines.find((l) => l.startsWith("  skipped "))
     expect(skippedLine).toContain("- skipped")
   })
 

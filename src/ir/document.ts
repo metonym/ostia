@@ -242,15 +242,22 @@ export function makeInstrumentedMeasurement(
   }
 }
 
-export interface PairedMeasurementInput {
+export type PairedMeasurementInput = {
   workload: Workload
   configFingerprint: string
-  /** The candidate side's per-call timing over the rounds. */
-  timing: TimingStats
-  paired: PairedEvidence
   diagnosticWallNs: number
   warnings: Warning[]
-}
+} & (
+  | {
+      /** The candidate side's per-call timing over the rounds. */
+      timing: TimingStats
+      paired: PairedEvidence
+    }
+  | {
+      /** A task that threw, so wasn't timed. */
+      threw: NonNullable<Measurement["threw"]>
+    }
+)
 
 /** A `phase: "paired"` measurement: `timing` is the candidate side, `paired`
  * the base side and the per-round ratios. Not instrumented - both sides ran
@@ -273,9 +280,10 @@ export function makePairedMeasurement(
     instrumented: false,
     configFingerprint: input.configFingerprint,
     trials: [],
-    timing: input.timing,
+    ...("threw" in input
+      ? { threw: input.threw }
+      : { timing: input.timing, paired: input.paired }),
     diagnosticWallNs: input.diagnosticWallNs,
-    paired: input.paired,
     warnings: input.warnings,
     artifacts: [],
   }

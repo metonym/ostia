@@ -3,6 +3,30 @@ import { compileLoop, isPromiseLike, SINK_SIZE } from "./inprocess.ts"
 
 type TaskBody = () => unknown | Promise<unknown>
 
+/** What `measurePaired` throws when one side's task throws, naming the
+ * side; the task's own error is `cause`. */
+export class PairedSideError extends Error {
+  constructor(
+    readonly side: "base" | "cand",
+    cause: unknown,
+  ) {
+    super(cause instanceof Error ? cause.message : String(cause), { cause })
+  }
+}
+
+/** Runs `fn`, rethrowing anything it throws as a `PairedSideError` for
+ * `side`. */
+async function onSide<T>(
+  side: "base" | "cand",
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  try {
+    return await fn()
+  } catch (err) {
+    throw err instanceof PairedSideError ? err : new PairedSideError(side, err)
+  }
+}
+
 export interface PairedTimingOptions {
   /** Rounds of one base batch and one candidate batch (default: 15). */
   rounds?: number
@@ -45,7 +69,8 @@ const WARM_ROUNDS = 3
  * the run (load from other processes, thermal throttling) lands on both
  * halves of a round alike and cancels in that round's ratio, which a
  * baseline measured minutes earlier can't do. Each side is timed through its
- * own compiled loop (see `compileLoop`). */
+ * own compiled loop (see `compileLoop`). A throw from either side rejects
+ * with a `PairedSideError` naming it. */
 export async function measurePaired(
   base: TaskBody,
   cand: TaskBody,
@@ -61,17 +86,17 @@ export async function measurePaired(
     const result = isAsync ? await value : value
     return { isAsync, result, ns: Math.max(1, Bun.nanoseconds() - t0) }
   }
-  const baseFirst = await first(base)
-  const candFirst = await first(cand)
+  const baseFirst = await onSide("base", () => first(base))
+  const candFirst = await onSide("cand", () => first(cand))
   const sameOutput = Bun.deepEquals(baseFirst.result, candFirst.result)
 
-  const side = (fn: TaskBody, isAsync: boolean) => {
+  const side = (name: "base" | "cand", fn: TaskBody, isAsync: boolean) => {
     const loop = compileLoop(isAsync)
     const sink: unknown[] = new Array(SINK_SIZE)
-    return (n: number): number | Promise<number> => loop(fn, sink, n)
+    return (n: number): Promise<number> => onSide(name, () => loop(fn, sink, n))
   }
-  const timeBase = side(base, baseFirst.isAsync)
-  const timeCand = side(cand, candFirst.isAsync)
+  const timeBase = side("base", base, baseFirst.isAsync)
+  const timeCand = side("cand", cand, candFirst.isAsync)
 
   let baseCallNs = baseFirst.ns
   let candCallNs = candFirst.ns

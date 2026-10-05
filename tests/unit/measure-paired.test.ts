@@ -1,7 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import { summarizePaired } from "../../src/ab/index"
 import type { Measurement, PairedEvidence } from "../../src/ir/types"
-import { measurePaired, ratioStats } from "../../src/measure/paired"
+import {
+  measurePaired,
+  PairedSideError,
+  ratioStats,
+} from "../../src/measure/paired"
 
 function spin(n: number): number {
   let acc = 0
@@ -86,6 +90,49 @@ describe("measurePaired", () => {
     expect(result.sameOutput).toBe(true)
   }, 20_000)
 })
+
+describe("measurePaired - a side that throws", () => {
+  test("rejects with a PairedSideError naming the side", async () => {
+    const err = await measurePaired(
+      () => spin(100),
+      () => {
+        throw new TypeError("boom")
+      },
+      { rounds: 3 },
+    ).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(PairedSideError)
+    expect((err as PairedSideError).side).toBe("cand")
+    expect((err as PairedSideError).message).toBe("boom")
+    expect((err as PairedSideError).cause).toBeInstanceOf(TypeError)
+  })
+
+  test("names the side when it throws only after warmup", async () => {
+    let calls = 0
+    const err = await measurePaired(
+      () => {
+        if (++calls > 10) throw new Error("late")
+        return spin(100)
+      },
+      () => spin(100),
+      { rounds: 3 },
+    ).catch((e: unknown) => e)
+    expect((err as PairedSideError).side).toBe("base")
+  })
+})
+
+function threwMeasurement(side: "base" | "cand" | "both"): Measurement {
+  return {
+    id: "t",
+    workloadId: "t",
+    phase: "paired",
+    instrumented: false,
+    configFingerprint: "cfg",
+    trials: [],
+    warnings: [],
+    artifacts: [],
+    threw: { side, message: "boom" },
+  }
+}
 
 function pairedMeasurement(p: Partial<PairedEvidence>): Measurement {
   return {
@@ -193,6 +240,40 @@ describe("summarizePaired", () => {
       settings,
     )
     expect(summary.geomeanPct).toBeCloseTo(1, 5)
+  })
+
+  test("fails when a task threw on the candidate side only", () => {
+    for (const [side, verdict] of [
+      ["cand", "fail"],
+      ["base", "pass"],
+      ["both", "pass"],
+    ] as const) {
+      const summary = summarizePaired(
+        [pairedMeasurement({}), threwMeasurement(side)],
+        settings,
+      )
+      expect(summary.threw).toBe(1)
+      expect(summary.matched).toBe(1)
+      expect(summary.verdict).toBe(verdict)
+    }
+  })
+
+  test("leaves a changed suite with changed output out of the geomean", () => {
+    const summary = summarizePaired(
+      [
+        pairedMeasurement({ medianRatio: 1 }),
+        pairedMeasurement({
+          medianRatio: 30,
+          suiteChanged: true,
+          sameOutput: false,
+        }),
+        pairedMeasurement({ medianRatio: 1, suiteChanged: true }),
+      ],
+      settings,
+    )
+    expect(summary.notComparable).toBe(1)
+    expect(summary.geomeanPct).toBeCloseTo(0, 5)
+    expect(summary.verdict).toBe("pass")
   })
 
   test("geomean is null when nothing was paired", () => {

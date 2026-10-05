@@ -18,8 +18,10 @@ import {
   formatAbHeader,
   formatAbSummary,
   formatRatio,
+  formatThrew,
   pairedRuns,
   pairedVerdict,
+  threwRuns,
 } from "../paired.ts"
 import { relativeReferences } from "../relative.ts"
 import {
@@ -136,6 +138,17 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
           const verdict = pairedVerdict(p)
           lines.push(
             `| ${cell(workloadLabel(workload) + paramsSuffix(workload))} | ${formatDuration(p.baseMedianNs, unit)} | ${formatDuration(run.timing.median, unit)} | ${formatRatio(p.medianRatio)} | ${formatRatio(p.p25)}…${formatRatio(p.p75)} | ${verdict ? `**${cell(verdict)}**` : ""} |`,
+          )
+        }
+        lines.push("")
+      }
+      const threw = threwRuns(doc)
+      if (threw.length > 0) {
+        lines.push(`Threw (${threw.length}):`, "")
+        for (const run of threw) {
+          const workload = byWorkload.get(run.workloadId)
+          lines.push(
+            `- **${cell(workloadLabel(workload) + paramsSuffix(workload))}**: ${formatThrew(run.threw)}: \`${run.threw.message.split("\n")[0]!.replaceAll("`", "'")}\``,
           )
         }
         lines.push("")

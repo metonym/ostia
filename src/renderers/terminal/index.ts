@@ -13,11 +13,11 @@ import {
 } from "../format.ts"
 import {
   abNotes,
+  abRows,
   formatAbHeader,
   formatAbSummary,
   formatRatio,
-  type PairedRun,
-  pairedRuns,
+  formatThrew,
   pairedVerdict,
 } from "../paired.ts"
 import { groupOf, relativeReferences } from "../relative.ts"
@@ -59,7 +59,7 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
       : []
 
     // Only `ab()` writes paired measurements, and it always stamps `ab`.
-    if (doc.ab) return { text: renderPaired(doc, pairedRuns(doc), envLine) }
+    if (doc.ab) return { text: renderPaired(doc, envLine) }
 
     const skipped = skippedWorkloads(doc, runs)
     if (runs.length === 0 && skipped.length === 0) {
@@ -222,26 +222,35 @@ export const terminalRenderer: Renderer<Record<string, never>> = {
 
 /** An `ab()` document: one row per paired workload, base and candidate side
  * by side, then what differed and the run's verdict. */
-function renderPaired(
-  doc: ProfileDocument,
-  runs: PairedRun[],
-  envLine: string[],
-): string {
+function renderPaired(doc: ProfileDocument, envLine: string[]): string {
   const byWorkload = new Map(doc.workloads.map((w) => [w.id, w]))
   const lines = [...envLine]
   if (doc.ab) lines.push(`A/B: ${formatAbHeader(doc.ab)}`, "")
 
-  const rows = runs.map((run) => {
+  const rows = abRows(doc).map((row) => {
+    const { run } = row
     const workload = byWorkload.get(run.workloadId)
-    const p = run.paired
-    const unit = pickDurationUnit(Math.min(p.baseMedianNs, run.timing.median))
+    const group = groupOf(workload)
+    const label = workloadLabel(workload)
+    if (row.kind === "threw") {
+      return {
+        run,
+        group,
+        label,
+        cells: ["-", "-", "", ""],
+        verdict: formatThrew(row.run.threw),
+        threwMessage: row.run.threw.message,
+      }
+    }
+    const { paired: p, timing } = row.run
+    const unit = pickDurationUnit(Math.min(p.baseMedianNs, timing.median))
     return {
       run,
-      group: groupOf(workload),
-      label: workloadLabel(workload),
+      group,
+      label,
       cells: [
         formatDuration(p.baseMedianNs, unit),
-        formatDuration(run.timing.median, unit),
+        formatDuration(timing.median, unit),
         formatRatio(p.medianRatio),
         `${formatRatio(p.p25)}…${formatRatio(p.p75)}`,
       ],
@@ -276,6 +285,15 @@ function renderPaired(
   }
 
   const notes = abNotes(doc)
+  const threwRows = rows.filter((r) => r.threwMessage !== undefined)
+  if (threwRows.length > 0) {
+    lines.push("", `Threw (${threwRows.length}):`)
+    for (const row of threwRows) {
+      const [first, ...rest] = row.threwMessage!.split("\n")
+      lines.push(`  ${row.label}: ${row.verdict}: ${first}`)
+      for (const more of rest) lines.push(`    ${more}`)
+    }
+  }
   if (notes.outputDiffers.length > 0) {
     lines.push(
       "",

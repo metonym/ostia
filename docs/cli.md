@@ -478,6 +478,18 @@ only as steady as those few tasks, so raise `--geomean-threshold` accordingly.
 expected for a change in behavior, and never fails the run. Return the result from the
 task (`task("x", () => parse(input))`) for it to mean anything.
 
+**Errors.** A task that throws, on either side, doesn't stop the suite. It isn't timed,
+reads `base threw`, `candidate threw` or `both threw` in the table, and the error's first
+line is listed under "Threw". A throw from a task's `before` or `after` hook counts for
+that hook's side. Each hook runs once: a side whose `before` threw isn't timed or torn
+down, and every side that was set up is torn down once, even when a hook throws. When only
+one side has thrown, the other side's task is called once more, before teardown, to tell
+whether it throws too. A task that throws on the candidate side only fails the run, the
+same as a regression; one that throws on the base side only (a fix) or both sides doesn't.
+A throw in a confirmation repeat counts the same way, reads `(repeat N)`, and the task
+keeps the first process's numbers in the document but isn't judged on them. A suite file
+that fails to load on either side stops the run with exit 2, naming the side and the error.
+
 **Changed suites.** The base side runs the base tree's copy of each suite file. When the
 suite itself changed, the two sides may time different things: a fixed fixture, a new
 input size. So when a suite file's text differs from the base's copy, its tasks carry a
@@ -488,8 +500,8 @@ the suite file itself is checked, not the files it imports.
 The noise floor is measured and reported as usual but doesn't widen the threshold:
 pairing already cancels the drift it measures.
 
-Exit codes: `0` pass, `1` a confirmed regression or the geomean over its threshold, `2`
-nothing paired (`no-matches`), not in a git repository or an unknown ref
+Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
+only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git repository or an unknown ref
 (`invalid-flag`), a setup command failed (`command-failed`), or a suite failed
 (`spawn-failed`); `130` Ctrl-C.
 

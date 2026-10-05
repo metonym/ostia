@@ -238,6 +238,9 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
 - The same suite files as `ostia bench`, unchanged. The ref's tree is extracted once per
   commit under `node_modules/.cache/ostia/ab/`; relative imports resolve within each tree,
   package imports to the project's `node_modules`.
+- Files git doesn't hold (generated or gitignored sources) aren't in the base tree.
+  `--base-setup "bun scripts/generate.ts"` (or `ab.setup` in the config) builds them once
+  per tree, with the project's `node_modules` linked in.
 - A task is flagged when its median ratio moves past `--threshold` (default 10%) in at
   least three quarters of rounds, and counts only if `--confirm` (default 2) fresh
   processes agree. The run also fails when the geometric mean of all ratios is more than

@@ -357,6 +357,7 @@ ostia ab [flags] <suite.ts...>
 | Flag | Meaning |
 |---|---|
 | `--base REF` | Git ref whose committed tree is the base side (default: `HEAD`). |
+| `--base-setup CMD` | Shell command run once in a freshly extracted base tree (repeatable, in order). See "The base tree". |
 | `--rounds N` | Rounds per task, each one base batch and one candidate batch (default: 15, at least 3). |
 | `--threshold PCT` | Flag a task whose median candidate/base ratio moves more than `PCT` percent (default: 10). |
 | `--geomean-threshold PCT` | Fail when the geometric mean of all tasks' ratios is more than `PCT` percent slower (default: 1.5). |
@@ -364,7 +365,7 @@ ostia ab [flags] <suite.ts...>
 | `--filter REGEX` | Only tasks whose `group/name` id matches. |
 | `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
-| `--timeout MS` | SIGKILL a suite (or repeat) process after `MS`. No default. |
+| `--timeout MS` | SIGKILL a suite (or repeat) process, or a setup command, after `MS`. No default. |
 | `--out-dir PATH` | Scratch directory and base-tree cache (default: `node_modules/.cache/ostia`). |
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the document to `PATH`. |
@@ -409,8 +410,35 @@ a package importing itself by name, resolve within each tree; bare package impor
 (dependencies, and `ostia` itself) resolve to the project's own `node_modules` from both,
 which is why `--out-dir` should stay inside the project. The consequences: a change to a
 dependency's version isn't what's being compared, files that aren't committed (generated
-fixtures, gitignored inputs) don't exist in the base tree, and git submodules aren't
-extracted. A suite file that doesn't exist at the ref has nothing to pair with.
+fixtures, gitignored inputs) don't exist in the base tree until `--base-setup` builds them,
+and git submodules aren't extracted. A suite file that doesn't exist at the ref has nothing
+to pair with.
+
+**Setup.** `--base-setup CMD` (or the config's `ab.setup`) runs `CMD` with `sh -c` once in
+each freshly extracted tree, before the salt pass, so the files it writes are salted too.
+Use it when the suites import generated or gitignored files:
+
+```sh
+ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
+```
+
+Each command runs in the tree's counterpart of the current directory, with:
+
+- the project's `node_modules` linked into the tree, so build scripts that read
+  `./node_modules/...` by relative path work. The link is removed when setup ends, so
+  don't install packages in setup: they would land in the project's `node_modules`.
+- `OSTIA_AB_SHA`, the base commit, and `OSTIA_AB_CANDIDATE_DIR`, the current directory in
+  the working tree. When the generated files don't depend on the base's code, copying them
+  is cheaper than building them: `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
+
+The tree is cached under `<out-dir>/ab/<sha>-<hash>/`, where the hash covers the commands,
+so changing them builds a new tree. Setup runs in a temporary directory that is renamed
+into place only when every command succeeds, so a failed or interrupted setup never
+leaves a half-built tree for a later run to reuse. Each command runs in its own process
+group, and the whole group is killed when the command ends, times out or is cancelled, so
+nothing it started in the background keeps running. A command that exits non-zero (or runs
+past `--timeout`) stops the run with exit 2 (`command-failed`) and the last 20 lines of its
+stderr.
 
 Every script in the extracted tree gets one inert line appended,
 `;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to its working-tree
@@ -455,11 +483,12 @@ pairing already cancels the drift it measures.
 
 Exit codes: `0` pass, `1` a confirmed regression or the geomean over its threshold, `2`
 nothing paired (`no-matches`), not in a git repository or an unknown ref
-(`invalid-flag`), or a suite failed (`spawn-failed`); `130` Ctrl-C.
+(`invalid-flag`), a setup command failed (`command-failed`), or a suite failed
+(`spawn-failed`); `130` Ctrl-C.
 
 With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
-`preload`, `bunFlags`, `outDir` and `timeoutMs`. The sampling settings (`budgetMs`,
-`samples`, `isolate`, ...) don't apply.
+`preload`, `bunFlags`, `outDir` and `timeoutMs`, and its setup commands from `ab.setup`.
+The sampling settings (`budgetMs`, `samples`, `isolate`, ...) don't apply.
 
 ## `ostia compare`
 

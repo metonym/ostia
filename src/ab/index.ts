@@ -4,6 +4,8 @@ import {
   lstatSync,
   realpathSync,
   renameSync,
+  symlinkSync,
+  unlinkSync,
 } from "node:fs"
 import { isAbsolute, relative, sep } from "node:path"
 import { DEFAULT_OUT_DIR } from "../config/index.ts"
@@ -49,8 +51,15 @@ export interface AbOptions {
   outDir?: string
   cwd?: string
   noiseCheck?: boolean
-  /** Kills a runner process (one suite file, or one repeat) after this many
-   * ms. No default. */
+  /** Shell commands run once, in order, in a freshly extracted base tree
+   * before it's used: to build what the suites import but git doesn't hold
+   * (generated or gitignored files). Each runs with its cwd at the tree's
+   * counterpart of `cwd`, the project's `node_modules` linked in, and
+   * `OSTIA_AB_SHA` / `OSTIA_AB_CANDIDATE_DIR` (the working tree's `cwd`) in
+   * its environment. The tree is cached per commit and command list. */
+  baseSetup?: string | string[]
+  /** Kills a runner process (one suite file, or one repeat), or a
+   * `baseSetup` command, after this many ms. No default. */
   timeoutMs?: number
   /** Aborting kills the running process and resolves with the suites that
    * had finished, plus an `aborted` warning; repeats not yet run leave their
@@ -60,6 +69,10 @@ export interface AbOptions {
 
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
 export class AbBaseError extends Error {}
+
+/** A `baseSetup` command exited non-zero or timed out. The message names
+ * the command and ends with the tail of its output. */
+export class AbSetupError extends Error {}
 
 const RUNNER_PATH = new URL("./ab-runner.ts", import.meta.url).pathname
 
@@ -104,17 +117,181 @@ async function saltScripts(dir: string): Promise<void> {
   }
 }
 
+interface TreeSetup {
+  commands: string[]
+  /** The project root and the directory `ab()` runs from, in the working
+   * tree. */
+  toplevel: string
+  cwd: string
+  timeoutMs?: number
+  signal?: AbortSignal
+}
+
+/** Where the base tree for `sha` lives: `<sha>`, or with setup commands,
+ * `<sha>-<hash of the commands>`, so changing them builds a new tree. */
+function treeDir(abDir: string, sha: string, commands: string[]): string {
+  if (commands.length === 0) return `${abDir}/${sha}`
+  return `${abDir}/${sha}-${fp("ab-setup", commands).slice(-8)}`
+}
+
+const SETUP_OUTPUT_LINES = 20
+// A failed command shows only the tail of its output, so no more is kept.
+const SETUP_OUTPUT_BYTES = 64 * 1024
+// How long a command's output may stay open once its process group is
+// killed. Only a descendant that left the group can hold it open longer.
+const SETUP_DRAIN_MS = 1000
+
+/** Reads `stream` as text in the background, keeping its last
+ * `SETUP_OUTPUT_BYTES`. `stop()` cancels the read and returns the text. */
+function readTail(stream: ReadableStream<Uint8Array>): {
+  done: Promise<void>
+  stop: () => Promise<string>
+} {
+  const reader = stream.getReader()
+  const decoder = new TextDecoder()
+  let text = ""
+  const done = (async () => {
+    try {
+      for (;;) {
+        const chunk = await reader.read()
+        if (chunk.done) return
+        text = (text + decoder.decode(chunk.value, { stream: true })).slice(
+          -SETUP_OUTPUT_BYTES,
+        )
+      }
+    } catch {
+      // Cancelled by `stop()`.
+    }
+  })()
+  return {
+    done,
+    stop: async () => {
+      await reader.cancel().catch(() => {})
+      await done
+      return text
+    },
+  }
+}
+
+/** Runs one setup command in its own process group. A timeout, a cancel,
+ * or the command's own exit kills the whole group, so no child it started
+ * can hold the output pipes open or write into the tree later. */
+async function runSetupCommand(
+  command: string,
+  dir: string,
+  env: Record<string, string | undefined>,
+  setup: TreeSetup,
+): Promise<{ exitCode: number; timedOut: boolean; output: string }> {
+  const proc = Bun.spawn(["sh", "-c", command], {
+    cwd: dir,
+    env,
+    stdout: "pipe",
+    stderr: "pipe",
+    stdin: "ignore",
+    detached: true,
+  })
+  const killGroup = () => {
+    try {
+      process.kill(-proc.pid, "SIGKILL")
+    } catch {
+      // The whole group has exited already.
+    }
+  }
+  let timedOut = false
+  const timer =
+    setup.timeoutMs === undefined
+      ? undefined
+      : setTimeout(() => {
+          timedOut = true
+          killGroup()
+        }, setup.timeoutMs)
+  setup.signal?.addEventListener("abort", killGroup)
+  if (setup.signal?.aborted) killGroup()
+  const stdout = readTail(proc.stdout)
+  const stderr = readTail(proc.stderr)
+  let drainTimer: ReturnType<typeof setTimeout> | undefined
+  try {
+    const exitCode = await proc.exited
+    killGroup()
+    await Promise.race([
+      Promise.all([stdout.done, stderr.done]),
+      new Promise((resolve) => {
+        drainTimer = setTimeout(resolve, SETUP_DRAIN_MS)
+      }),
+    ])
+    const [out, err] = await Promise.all([stdout.stop(), stderr.stop()])
+    return { exitCode, timedOut, output: err.trim() || out.trim() }
+  } finally {
+    clearTimeout(timer)
+    clearTimeout(drainTimer)
+    setup.signal?.removeEventListener("abort", killGroup)
+  }
+}
+
+/** Runs `setup.commands` in the extracted tree at `tree`. Build scripts
+ * often read `./node_modules/...` by relative path, which walking up to the
+ * project's `node_modules` doesn't satisfy, so the project's is linked into
+ * the tree while they run and unlinked before the salt pass. Returns false
+ * when `signal` aborted a command. */
+async function runSetup(
+  tree: string,
+  sha: string,
+  setup: TreeSetup,
+): Promise<boolean> {
+  const toplevel = realpathSync(setup.toplevel)
+  const cwd = realpathSync(setup.cwd)
+  const sub = relative(toplevel, cwd)
+  const dir = sub && existsSync(`${tree}/${sub}`) ? `${tree}/${sub}` : tree
+  const links: string[] = []
+  for (const [from, to] of [
+    [`${toplevel}/node_modules`, `${tree}/node_modules`],
+    [`${cwd}/node_modules`, `${dir}/node_modules`],
+  ] as const) {
+    if (!existsSync(from) || existsSync(to)) continue
+    symlinkSync(from, to)
+    links.push(to)
+  }
+  try {
+    for (const command of setup.commands) {
+      const { exitCode, timedOut, output } = await runSetupCommand(
+        command,
+        dir,
+        { ...process.env, OSTIA_AB_SHA: sha, OSTIA_AB_CANDIDATE_DIR: cwd },
+        setup,
+      )
+      if (setup.signal?.aborted) return false
+      if (exitCode === 0 && !timedOut) continue
+      const excerpt = output.split("\n").slice(-SETUP_OUTPUT_LINES).join("\n")
+      const why = timedOut
+        ? `timed out after ${setup.timeoutMs}ms`
+        : `exited ${exitCode}`
+      throw new AbSetupError(
+        `Base setup ${why}: ${command}${excerpt ? `\n${excerpt}` : ""}`,
+      )
+    }
+    return true
+  } finally {
+    for (const link of links) unlinkSync(link)
+  }
+}
+
 /** The committed tree at `sha`, extracted once under `dir` and reused by
- * every later run against the same commit, with each script salted (see
- * `BASE_SALT`). Extracted into a temp directory and renamed into place, so a
- * directory at `dir` is always complete. */
-async function extractTree(sha: string, dir: string, cwd: string) {
-  if (existsSync(dir)) return
+ * every later run against the same commit (and setup commands), with each
+ * script salted (see `BASE_SALT`). Extracted and set up in a temp directory
+ * and renamed into place, so a directory at `dir` is always complete; a
+ * failed or cancelled setup leaves nothing behind. Returns false when
+ * `setup.signal` aborted a setup command. */
+async function extractTree(
+  sha: string,
+  dir: string,
+  setup: TreeSetup,
+): Promise<boolean> {
+  if (existsSync(dir)) return true
   const tmp = `${dir}.tmp-${process.pid}`
   await Bun.spawn(["rm", "-rf", tmp]).exited
   await Bun.spawn(["mkdir", "-p", tmp]).exited
   const archive = Bun.spawn(["git", "archive", "--format=tar", sha], {
-    cwd,
+    cwd: setup.cwd,
     stdout: "pipe",
     stderr: "pipe",
   })
@@ -130,6 +307,15 @@ async function extractTree(sha: string, dir: string, cwd: string) {
     await Bun.spawn(["rm", "-rf", tmp]).exited
     throw new Error(`Could not extract ${sha}: ${stderr.trim()}`)
   }
+  try {
+    if (!(await runSetup(tmp, sha, setup))) {
+      await Bun.spawn(["rm", "-rf", tmp]).exited
+      return false
+    }
+  } catch (err) {
+    await Bun.spawn(["rm", "-rf", tmp]).exited
+    throw err
+  }
   await saltScripts(tmp)
   try {
     renameSync(tmp, dir)
@@ -137,6 +323,7 @@ async function extractTree(sha: string, dir: string, cwd: string) {
     // Another run extracted the same commit first; its copy is complete.
     await Bun.spawn(["rm", "-rf", tmp]).exited
   }
+  return true
 }
 
 function median(values: number[]): number {
@@ -231,8 +418,30 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   // Under the project's node_modules, so a bare import from the base tree
   // (a dependency, or `ostia` itself) walks up to the same package the
   // working tree uses.
-  const checkout = `${absOutDir}/ab/${sha}`
-  await extractTree(sha, checkout, cwd)
+  const setup =
+    typeof opts.baseSetup === "string"
+      ? [opts.baseSetup]
+      : (opts.baseSetup ?? [])
+  const checkout = treeDir(`${absOutDir}/ab`, sha, setup)
+  const extracted = await extractTree(sha, checkout, {
+    commands: setup,
+    toplevel,
+    cwd,
+    timeoutMs: opts.timeoutMs,
+    signal: opts.signal,
+  })
+  const settings = {
+    base: { ref, sha },
+    rounds,
+    thresholdPct,
+    geomeanThresholdPct,
+  }
+  if (!extracted) {
+    const doc = newDocument([], [])
+    doc.unmatched = { baseOnly: [], candOnly: [] }
+    doc.ab = summarizePaired([], settings)
+    return doc
+  }
 
   const environment =
     opts.noiseCheck === false ? undefined : captureEnvironment()
@@ -356,12 +565,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
     const doc = newDocument(workloads, measurements, environment)
     doc.unmatched = { baseOnly, candOnly }
-    doc.ab = summarizePaired(measurements, {
-      base: { ref, sha },
-      rounds,
-      thresholdPct,
-      geomeanThresholdPct,
-    })
+    doc.ab = summarizePaired(measurements, settings)
     return doc
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited

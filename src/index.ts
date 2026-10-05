@@ -37,7 +37,8 @@ import {
   type TimeSource,
 } from "./spawn/index.ts"
 
-export { ab } from "./ab/index.ts"
+export type { AbOptions } from "./ab/index.ts"
+export { AbBaseError, AbSetupError, ab } from "./ab/index.ts"
 export { bench } from "./bench/index.ts"
 export { range } from "./bench/range.ts"
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts"
@@ -48,6 +49,7 @@ export { sweep } from "./bench/sweep.ts"
 export type { CompareResult, Thresholds } from "./compare/index.ts"
 export { compareDocuments, DEFAULT_THRESHOLDS } from "./compare/index.ts"
 export type {
+  AbConfig,
   OstiaConfig,
   OstiaConfigInput,
   WorkloadConfig,

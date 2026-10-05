@@ -17,6 +17,7 @@ import {
   abNotes,
   formatAbHeader,
   formatAbSummary,
+  formatNewSuites,
   formatRatio,
   formatThrew,
   pairedRuns,
@@ -160,6 +161,8 @@ export const markdownRenderer: Renderer<Record<string, never>> = {
           "",
         )
       }
+      const newSuites = formatNewSuites(doc.ab)
+      if (newSuites) lines.push(newSuites, "")
       if (notes.baseOnly.length > 0) {
         lines.push(`Base only: ${notes.baseOnly.map(cell).join(", ")}`, "")
       }

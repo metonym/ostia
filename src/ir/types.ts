@@ -319,6 +319,9 @@ export interface PairedEvidence {
 /** Run-level result of `ab()`, stamped on the document as `ab`. */
 export interface AbSummary {
   base: { ref: string; sha: string }
+  /** Suite files, as given, that don't exist at the base ref: their tasks
+   * are all candidate-only. */
+  newSuites?: string[]
   rounds: number
   thresholdPct: number
   geomeanThresholdPct: number

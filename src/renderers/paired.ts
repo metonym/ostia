@@ -83,6 +83,12 @@ export function pairedVerdict(p: PairedEvidence): string {
   return `${p.confirmed ? `${p.flagged}, confirmed` : `${p.flagged}? unconfirmed`}${repeats}`
 }
 
+/** `New suites, not at HEAD: bench/new.bench.ts`, or nothing. */
+export function formatNewSuites(ab: AbSummary): string | undefined {
+  if (!ab.newSuites?.length) return undefined
+  return `New suite${ab.newSuites.length > 1 ? "s" : ""}, not at ${ab.base.ref}: ${ab.newSuites.join(", ")}`
+}
+
 /** `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%` */
 export function formatAbHeader(ab: AbSummary): string {
   return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%`

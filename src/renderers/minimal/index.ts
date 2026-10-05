@@ -174,6 +174,7 @@ interface MinimalSummaryLine {
   outputDiffers?: number
   notComparable?: number
   threw?: number
+  newSuites?: string[]
   git?: { base?: GitMetadata; cand?: GitMetadata }
   exportedTo?: string
   verdict: "pass" | "fail"
@@ -455,6 +456,7 @@ function summaryLine(
       line.notComparable = doc.ab.notComparable
     }
     if (doc.ab.threw !== undefined) line.threw = doc.ab.threw
+    if (doc.ab.newSuites?.length) line.newSuites = doc.ab.newSuites
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

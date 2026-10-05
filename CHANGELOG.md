@@ -38,6 +38,9 @@
   `--keep-trees` (default 5; `ab.keepTrees`, `keepTrees` on `ab()`) most
   recently used trees and removes the rest, except trees used in the last
   hour. `ostia ab --clean` removes them all.
+- `ostia ab` names suite files that don't exist at the base ref ("New suite,
+  not at HEAD: ..."), in the table, the document (`ab.newSuites`) and the
+  minimal `summary` line. Their tasks stay candidate-only and the run goes on.
 
 **Changes**
 

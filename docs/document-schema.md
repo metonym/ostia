@@ -35,7 +35,7 @@ recomputes them from the stored samples, so every loaded `TimingStats` has them.
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
-| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict }`. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict }`. |
 
 ## Workloads
 

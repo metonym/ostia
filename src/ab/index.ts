@@ -435,6 +435,7 @@ export function summarizePaired(
   measurements: Measurement[],
   settings: {
     base: AbSummary["base"]
+    newSuites?: string[]
     rounds: number
     thresholdPct: number
     geomeanThresholdPct: number
@@ -735,7 +736,10 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
     const doc = newDocument(workloads, measurements, environment)
     doc.unmatched = { baseOnly, candOnly }
-    doc.ab = summarizePaired(measurements, settings)
+    doc.ab = summarizePaired(measurements, {
+      ...settings,
+      newSuites: opts.suites.filter((_, s) => !baseSuites[s]),
+    })
     await pruneAbTrees(`${absOutDir}/ab`, keepTrees)
     return doc
   } finally {

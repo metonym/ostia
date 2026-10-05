@@ -60,6 +60,15 @@ export interface BenchConfig {
   timeoutMs?: number
 }
 
+/** Settings for `ostia ab` only; it reads the rest (suites, filter,
+ * preload, ...) from `bench`. */
+export interface AbConfig {
+  /** Shell command(s) run once in a freshly extracted base tree, e.g. to
+   * build gitignored files the suites import; see `AbOptions.baseSetup`.
+   * `--base-setup` replaces this list. */
+  setup?: string | string[]
+}
+
 export interface OstiaConfig {
   /** `command` workloads: exact trial count, same as `time()`'s `samples`.
    * Unset, the `budgetMs`/`minSamples` loop decides. */
@@ -75,6 +84,7 @@ export interface OstiaConfig {
   thresholds: Thresholds
   workloads: WorkloadConfig[]
   bench?: BenchConfig
+  ab?: AbConfig
   /** `ostia ci`'s policy when a configured workload has no matching row in
    * the baseline (by workload id): `"fail"` exits 2 naming the baseline
    * file, `"warn"` lists it in the report without affecting the exit code.

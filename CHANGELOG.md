@@ -1,5 +1,20 @@
 # Changelog
 
+## Unreleased
+
+**Features**
+
+- `ostia ab --base-setup CMD` (repeatable; `ab.setup` in the config,
+  `baseSetup` on `ab()`): shell commands run once in a freshly extracted base
+  tree, before the salt pass, to build files the suites import that git
+  doesn't hold (generated or gitignored sources). They run with the project's
+  `node_modules` linked into the tree and `OSTIA_AB_SHA` and
+  `OSTIA_AB_CANDIDATE_DIR` set. The tree is cached as `<sha>-<hash>`, keyed on
+  the commands, and only renamed into place once every command succeeds. A
+  failed command exits 2 (`command-failed`) with the tail of its stderr. Each
+  command runs in its own process group, killed when it ends, times out or is
+  cancelled.
+
 ## 0.2.9 — 2026-09-30
 
 **Fixes**

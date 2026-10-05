@@ -1,5 +1,5 @@
 #!/usr/bin/env bun
-import { AbBaseError, ab } from "../ab/index.ts"
+import { AbBaseError, AbSetupError, ab } from "../ab/index.ts"
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import {
   availableJobs,
@@ -378,6 +378,8 @@ the two sides cancels within a round. With no files, uses ostia.config's "bench"
 
 Flags:
   --base REF           git ref for the base side (default: HEAD)
+  --base-setup CMD     shell command run once in a freshly extracted base tree, e.g. to build
+                       gitignored files the suites import (repeatable, in order)
   --rounds N           base/candidate rounds per task (default: 15)
   --threshold PCT      flag a task whose median ratio moves past PCT (default: 10)
   --geomean-threshold PCT  fail when the geometric mean of all ratios is slower than PCT
@@ -394,14 +396,18 @@ Flags:
   --quiet              don't print the report
   --help               show this message
 
-A flagged task counts only when every fresh-process repeat flags it the same way. Exit codes:
-0 pass, 1 a confirmed regression or the geomean over its threshold, 2 nothing paired or a
-harness error (not a git repo, unknown ref, a suite failed), 130 Ctrl-C.
+The base tree is cached per commit (and --base-setup commands) under --out-dir. Setup runs
+with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR (the
+working tree) set. A flagged task counts only when every fresh-process repeat flags it the
+same way. Exit codes: 0 pass, 1 a confirmed regression or the geomean over its threshold, 2
+nothing paired or a harness error (not a git repo, unknown ref, a failed setup or suite),
+130 Ctrl-C.
 
 Examples:
   ostia ab bench/parse.bench.ts
   ostia ab bench/*.ts --base origin/main --rounds 21
   ostia ab bench/*.ts --filter parse --format minimal
+  ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
 `
 
 const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
@@ -956,6 +962,7 @@ async function benchCommand(argv: string[]): Promise<number> {
 interface AbArgs {
   suites: string[]
   base?: string
+  baseSetup: string[]
   rounds?: number
   thresholdPct?: number
   geomeanThresholdPct?: number
@@ -974,6 +981,7 @@ interface AbArgs {
 
 const AB_FLAGS: Record<string, FlagDef> = {
   "--base": { dest: "base", spec: { kind: "string" } },
+  "--base-setup": { dest: "baseSetup", spec: { kind: "list" } },
   "--rounds": { dest: "rounds", spec: { kind: "int", min: 3 } },
   "--threshold": { dest: "thresholdPct", spec: { kind: "number", min: 0 } },
   "--geomean-threshold": {
@@ -1002,6 +1010,7 @@ const AB_FLAGS: Record<string, FlagDef> = {
 function parseAbArgs(argv: string[]): AbArgs {
   const args: AbArgs = {
     suites: [],
+    baseSetup: [],
     preload: [],
     bunFlags: [],
     noiseCheck: true,
@@ -1026,7 +1035,8 @@ async function abCommand(argv: string[]): Promise<number> {
   // The suite-level settings `ostia bench` reads from the config's `bench`
   // section apply here the same way; the sampling ones don't (pairing has
   // its own rounds).
-  const config = (await loadConfig())?.bench
+  const fullConfig = await loadConfig()
+  const config = fullConfig?.bench
   const suites =
     parsed.suites.length > 0
       ? parsed.suites
@@ -1042,6 +1052,10 @@ async function abCommand(argv: string[]): Promise<number> {
       ab({
         suites,
         base: parsed.base,
+        baseSetup:
+          parsed.baseSetup.length > 0
+            ? parsed.baseSetup
+            : fullConfig?.ab?.setup,
         rounds: parsed.rounds,
         thresholdPct: parsed.thresholdPct,
         geomeanThresholdPct: parsed.geomeanThresholdPct,
@@ -1062,6 +1076,10 @@ async function abCommand(argv: string[]): Promise<number> {
   } catch (err) {
     if (err instanceof AbBaseError) {
       await writeCliError("invalid-flag", `--base: ${err.message}`)
+      return 2
+    }
+    if (err instanceof AbSetupError) {
+      await writeCliError("command-failed", err.message)
       return 2
     }
     await writeCliError("spawn-failed", `A/B run failed: ${errorMessage(err)}`)

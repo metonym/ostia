@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync } from "node:fs"
-import { AbBaseError, ab } from "../../src/ab/index.ts"
+import { existsSync, readdirSync } from "node:fs"
+import { AbBaseError, AbSetupError, ab } from "../../src/ab/index.ts"
 import { bench } from "../../src/index.ts"
 import type { MinimalEvent } from "../../src/renderers/minimal/index.ts"
 
@@ -60,6 +60,20 @@ async function initRepo(): Promise<void> {
     "commit",
     "-qm",
     "base",
+  ])
+}
+
+async function commit(message: string): Promise<void> {
+  await sh(["git", "add", "-A"])
+  await sh([
+    "git",
+    "-c",
+    "user.name=ostia",
+    "-c",
+    "user.email=ostia@example.com",
+    "commit",
+    "-qm",
+    message,
   ])
 }
 
@@ -200,6 +214,62 @@ describe("ab() - paired A/B against a git ref", () => {
     await Bun.spawn(["rm", "-f", outside]).exited
   }, 60_000)
 
+  test("builds gitignored files in the base tree with baseSetup, cached per command", async () => {
+    await Bun.write(`${REPO}/.gitignore`, "node_modules\nsrc/gen.ts\n")
+    await Bun.write(
+      `${REPO}/bench/gen.bench.ts`,
+      `import { task } from "${SRC}/index.ts"
+import { N } from "../src/gen.ts"
+import { spin } from "../src/lib.ts"
+task("gen", () => spin(N))
+`,
+    )
+    await commit("generated input")
+    await Bun.write(`${REPO}/src/gen.ts`, "export const N = 20_000\n")
+
+    // Without setup, the base tree has no src/gen.ts to import.
+    await expect(
+      ab({ ...QUICK, suites: ["bench/gen.bench.ts"], confirm: 0 }),
+    ).rejects.toThrow(/A\/B suite failed/)
+
+    // Relative ./node_modules reads work while setup runs.
+    const setup = [
+      "test -d node_modules/.cache",
+      'cp "$OSTIA_AB_CANDIDATE_DIR/src/gen.ts" src/gen.ts',
+    ]
+    const doc = await ab({
+      ...QUICK,
+      suites: ["bench/gen.bench.ts"],
+      baseSetup: setup,
+      confirm: 0,
+    })
+    expect(doc.ab!.matched).toBe(1)
+
+    const sha = await sh(["git", "rev-parse", "HEAD"])
+    const trees = (await sh(["ls", `${REPO}/node_modules/.cache/ostia/ab`]))
+      .split("\n")
+      .filter((d) => d.startsWith(`${sha}-`))
+    expect(trees).toHaveLength(1)
+    const tree = `${REPO}/node_modules/.cache/ostia/ab/${trees[0]}`
+    expect(await Bun.file(`${tree}/src/gen.ts`).text()).toBe(
+      "export const N = 20_000\n\n;globalThis.__ostia_ab_base__;\n",
+    )
+    expect(existsSync(`${tree}/node_modules`)).toBe(false)
+  }, 60_000)
+
+  test("a failed baseSetup rejects with its output and leaves no tree behind", async () => {
+    const err = await ab({
+      ...QUICK,
+      suites: ["bench/s.bench.ts"],
+      baseSetup: "echo generating; echo 'no such script' >&2; exit 3",
+    }).catch((e: unknown) => e)
+    expect(err).toBeInstanceOf(AbSetupError)
+    expect((err as Error).message).toContain("exited 3")
+    expect((err as Error).message).toContain("no such script")
+    const left = await sh(["ls", `${REPO}/node_modules/.cache/ostia/ab`])
+    expect(left).toBe("")
+  }, 20_000)
+
   test("rejects a ref that isn't a commit", async () => {
     await expect(
       ab({ ...QUICK, suites: ["bench/s.bench.ts"], base: "no-such-ref" }),
@@ -281,11 +351,77 @@ describe("ostia ab", () => {
     expect(badRef.stderr).toContain('"code":"invalid-flag"')
   }, 60_000)
 
+  test("exits 2 with the command's stderr when --base-setup fails", async () => {
+    const { exitCode, stderr } = await runCli([
+      "bench/s.bench.ts",
+      "--no-noise-check",
+      "--base-setup",
+      "echo 'build broke' >&2; exit 1",
+    ])
+    expect(exitCode).toBe(2)
+    expect(stderr).toContain("Base setup exited 1")
+    expect(stderr).toContain("build broke")
+    expect(stderr).toContain('"code":"command-failed"')
+  }, 20_000)
+
   test("rejects fewer than 3 rounds and a non-numeric threshold", async () => {
     const rounds = await runCli(["bench/s.bench.ts", "--rounds", "2"])
     expect(rounds.exitCode).toBe(2)
     const threshold = await runCli(["bench/s.bench.ts", "--threshold", "x"])
     expect(threshold.exitCode).toBe(2)
     expect(threshold.stderr).toContain("expected a number")
+  }, 20_000)
+})
+
+describe("ab() - setup timeout and cancellation", () => {
+  beforeEach(initRepo)
+  afterAll(async () => {
+    await Bun.spawn(["rm", "-rf", REPO]).exited
+  })
+
+  // A child of the setup shell that writes a file if it outlives the
+  // shell. The odd duration makes it findable by pkill.
+  const LATE = 'sleep 1.37; echo late > "$OSTIA_AB_CANDIDATE_DIR/late"'
+  const killLate = () => Bun.spawn(["pkill", "-f", "sleep 1.37"]).exited
+
+  test("a timeout kills the setup command's children and rejects promptly", async () => {
+    try {
+      const start = performance.now()
+      const err = await ab({
+        ...QUICK,
+        suites: ["bench/s.bench.ts"],
+        baseSetup: LATE,
+        timeoutMs: 200,
+      }).catch((e: unknown) => e)
+      expect(err).toBeInstanceOf(AbSetupError)
+      expect((err as Error).message).toContain("timed out after 200ms")
+      expect(performance.now() - start).toBeLessThan(1300)
+      await Bun.sleep(1600)
+      expect(existsSync(`${REPO}/late`)).toBe(false)
+      expect(readdirSync(`${REPO}/node_modules/.cache/ostia/ab`)).toEqual([])
+    } finally {
+      await killLate()
+    }
+  }, 20_000)
+
+  test("cancelling kills the setup command's children and resolves promptly", async () => {
+    try {
+      const controller = new AbortController()
+      setTimeout(() => controller.abort(), 200)
+      const start = performance.now()
+      const doc = await ab({
+        ...QUICK,
+        suites: ["bench/s.bench.ts"],
+        baseSetup: LATE,
+        signal: controller.signal,
+      })
+      expect(performance.now() - start).toBeLessThan(1300)
+      expect(doc.ab!.matched).toBe(0)
+      await Bun.sleep(1600)
+      expect(existsSync(`${REPO}/late`)).toBe(false)
+      expect(readdirSync(`${REPO}/node_modules/.cache/ostia/ab`)).toEqual([])
+    } finally {
+      await killLate()
+    }
   }, 20_000)
 })

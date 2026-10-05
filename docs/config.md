@@ -62,6 +62,7 @@ with error code `config-invalid` (exit 2). The top-level `runs` field was rename
 | `onMissingBaseline` | unset | `"warn"` or `"fail"`; see [cli.md](cli.md#failures-and-missing-baselines). |
 | `noiseCheck` | `true` | Measure the noise floor once per `ci` run. `--no-noise-check` overrides. |
 | `bench` | unset | Settings for in-process suites. See below. |
+| `ab` | unset | Settings for `ostia ab` only. See below. |
 
 ## `thresholds`
 
@@ -123,3 +124,21 @@ and `timeoutMs` from it.
 | `timeoutMs` | none (`ci`: 10 minutes) | `--timeout` |
 
 Suite globs resolve against the current directory.
+
+## `ab`
+
+`ostia ab` takes everything else from `bench`.
+
+| Field | Default | CLI flag |
+|---|---|---|
+| `setup` | unset | `--base-setup` (CLI list replaces config list) |
+
+`setup` is a shell command, or a list run in order, that runs once in each freshly
+extracted base tree, before it's used. Use it to build files the suites import that git
+doesn't hold, such as generated or gitignored sources:
+
+```json
+{ "ab": { "setup": "bun scripts/generate.ts" } }
+```
+
+See [cli.md](cli.md#ostia-ab) for what the command can rely on.

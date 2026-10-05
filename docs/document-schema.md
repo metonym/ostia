@@ -147,8 +147,8 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 ## Files on disk
 
 - `outDir` (default `node_modules/.cache/ostia`): the `ci` cache, `artifacts/`, `bench`
-  and `ab` scratch files, and `ab/<sha>/`, the base trees `ab` extracts (one per commit,
-  reused).
+  and `ab` scratch files, and `ab/<sha>/` (or `ab/<sha>-<hash>/` with setup commands),
+  the base trees `ab` extracts (one per commit and setup, reused).
 - `baselineDir` (default `.ostia/baselines`): `<name>.json` baselines.
 
 Documents are written atomically (temp file, then rename), so an interrupted write never

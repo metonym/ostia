@@ -252,6 +252,8 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
   `both threw` and isn't timed; one that throws on the candidate side only fails the run.
   Exit: `0` pass, `1` regression, `2` nothing paired or a harness error.
 - Progress goes to stderr on a terminal; `--progress` turns it on in logs and pipes too.
+- The 5 most recently used base trees stay cached (`--keep-trees`); `ostia ab --clean`
+  removes them all.
 
 ### `ostia compare`
 

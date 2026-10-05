@@ -34,6 +34,10 @@
   replaced as it goes); `--progress` turns it on for logs and agents, one line
   per step, and `--no-progress` off. stdout is untouched. `ab()` takes the
   same events through `onProgress`.
+- `ostia ab` prunes its base-tree cache: after each run it keeps the
+  `--keep-trees` (default 5; `ab.keepTrees`, `keepTrees` on `ab()`) most
+  recently used trees and removes the rest, except trees used in the last
+  hour. `ostia ab --clean` removes them all.
 
 ## 0.2.9 — 2026-09-30
 

@@ -367,6 +367,8 @@ ostia ab [flags] <suite.ts...>
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
 | `--timeout MS` | SIGKILL a suite (or repeat) process, or a setup command, after `MS`. No default. |
 | `--out-dir PATH` | Scratch directory and base-tree cache (default: `node_modules/.cache/ostia`). |
+| `--keep-trees N` | Base trees to keep cached (default: 5). See "The base tree". |
+| `--clean` | Remove every cached base tree, then exit. |
 | `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
@@ -440,6 +442,12 @@ group, and the whole group is killed when the command ends, times out or is canc
 nothing it started in the background keeps running. A command that exits non-zero (or runs
 past `--timeout`) stops the run with exit 2 (`command-failed`) and the last 20 lines of its
 stderr.
+
+Trees pile up as `HEAD` moves, so after each run `ostia ab` keeps only the
+`--keep-trees` (default 5) most recently used, this run's included, and removes the rest.
+A tree used in the last hour is never removed, since another run may still be using it,
+and neither is a temporary directory whose process is still alive. `ostia ab --clean`
+removes them all.
 
 Every script in the extracted tree gets one inert line appended,
 `;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to its working-tree

@@ -132,6 +132,7 @@ Suite globs resolve against the current directory.
 | Field | Default | CLI flag |
 |---|---|---|
 | `setup` | unset | `--base-setup` (CLI list replaces config list) |
+| `keepTrees` | 5 | `--keep-trees` |
 
 `setup` is a shell command, or a list run in order, that runs once in each freshly
 extracted base tree, before it's used. Use it to build files the suites import that git

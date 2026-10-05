@@ -415,7 +415,8 @@ which is why `--out-dir` should stay inside the project. The consequences: a cha
 dependency's version isn't what's being compared, files that aren't committed (generated
 fixtures, gitignored inputs) don't exist in the base tree until `--base-setup` builds them,
 and git submodules aren't extracted. A suite file that doesn't exist at the ref has nothing
-to pair with.
+to pair with: it's listed as a new suite, its tasks are candidate-only and aren't timed,
+and the run goes on with the other suites. Use `ostia bench` to time it.
 
 **Setup.** `--base-setup CMD` (or the config's `ab.setup`) runs `CMD` with `sh -c` once in
 each freshly extracted tree, before the salt pass, so the files it writes are salted too.

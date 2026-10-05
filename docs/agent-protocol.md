@@ -117,6 +117,7 @@ digits.
 | `outputDiffers` | `ab` only: tasks whose first call returned different values on each side. |
 | `notComparable` | `ab` only: tasks whose suite file and output both changed; counted in `unchanged`, left out of `geomeanPct`. |
 | `threw` | `ab` only: tasks that threw on either side, so weren't timed; not in `matched`. |
+| `newSuites` | `ab` only, when any: suite files that don't exist at the base ref. Their tasks are `unmatched` with `side: "cand"`. |
 | `noiseFloorPct` | When the candidate document has one. |
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |

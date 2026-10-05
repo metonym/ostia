@@ -169,6 +169,22 @@ describe("ab() - paired A/B against a git ref", () => {
     const doc = await ab({ ...QUICK, suites: ["bench/new.bench.ts"] })
     expect(doc.ab!.matched).toBe(0)
     expect(doc.unmatched!.candOnly).toHaveLength(2)
+    expect(doc.ab!.newSuites).toEqual(["bench/new.bench.ts"])
+  }, 60_000)
+
+  test("a new suite next to existing ones is listed and doesn't fail the run", async () => {
+    await Bun.write(`${REPO}/bench/new.bench.ts`, SUITE)
+    const doc = await ab({
+      ...QUICK,
+      suites: ["bench/s.bench.ts", "bench/new.bench.ts"],
+      thresholdPct: 25,
+      geomeanThresholdPct: 25,
+      confirm: 0,
+    })
+    expect(doc.ab!.matched).toBe(2)
+    expect(doc.ab!.newSuites).toEqual(["bench/new.bench.ts"])
+    expect(doc.unmatched!.candOnly).toHaveLength(2)
+    expect(doc.ab!.verdict).toBe("pass")
   }, 60_000)
 
   test("a changed suite with changed output is not comparable and stays out of the verdict", async () => {
@@ -624,6 +640,8 @@ describe("ostia ab", () => {
     await Bun.write(`${REPO}/bench/new.bench.ts`, SUITE)
     const none = await runCli(["bench/new.bench.ts", "--no-noise-check"])
     expect(none.exitCode).toBe(2)
+    expect(none.stdout).toContain("New suite, not at HEAD: bench/new.bench.ts")
+    expect(none.stderr).toContain("No suite exists at HEAD")
     expect(none.stderr).toContain('"code":"no-matches"')
 
     const badRef = await runCli(["bench/s.bench.ts", "--base", "nope"])

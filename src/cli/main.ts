@@ -1189,9 +1189,12 @@ async function abCommand(argv: string[]): Promise<number> {
   })
   if (emitCode !== 0) return emitCode
   if (exitCode === 2) {
+    const allNew = summary.newSuites?.length === suites.length
     await writeCliError(
       "no-matches",
-      `No task exists both at ${summary.base.ref} and in the working tree; nothing was paired.`,
+      allNew
+        ? `No suite exists at ${summary.base.ref}; nothing was paired. Use "ostia bench" to time new suites.`
+        : `No task exists both at ${summary.base.ref} and in the working tree; nothing was paired.`,
     )
   }
   return exitCode

@@ -16,6 +16,7 @@ import {
   abRows,
   formatAbHeader,
   formatAbSummary,
+  formatNewSuites,
   formatRatio,
   formatThrew,
   pairedVerdict,
@@ -305,6 +306,8 @@ function renderPaired(doc: ProfileDocument, envLine: string[]): string {
     )
     for (const label of notes.outputDiffers) lines.push(`  ${label}`)
   }
+  const newSuites = doc.ab && formatNewSuites(doc.ab)
+  if (newSuites) lines.push("", newSuites)
   if (notes.baseOnly.length > 0 || notes.candOnly.length > 0) {
     lines.push("", "Unmatched:")
     if (notes.baseOnly.length > 0)

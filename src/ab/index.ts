@@ -2,10 +2,13 @@ import {
   appendFileSync,
   existsSync,
   lstatSync,
+  readdirSync,
   realpathSync,
   renameSync,
+  statSync,
   symlinkSync,
   unlinkSync,
+  utimesSync,
 } from "node:fs"
 import { isAbsolute, relative, sep } from "node:path"
 import { DEFAULT_OUT_DIR } from "../config/index.ts"
@@ -73,6 +76,10 @@ export interface AbOptions {
    * `OSTIA_AB_SHA` / `OSTIA_AB_CANDIDATE_DIR` (the working tree's `cwd`) in
    * its environment. The tree is cached per commit and command list. */
   baseSetup?: string | string[]
+  /** Base trees to keep under `<outDir>/ab`, counting this run's: after a
+   * run, older ones go, least recently used first, unless one was used in
+   * the last hour (another run may still need it). Default: 5. */
+  keepTrees?: number
   /** Kills a runner process (one suite file, or one repeat), or a
    * `baseSetup` command, after this many ms. No default. */
   timeoutMs?: number
@@ -94,6 +101,7 @@ export class AbSetupError extends Error {}
 const RUNNER_PATH = new URL("./ab-runner.ts", import.meta.url).pathname
 
 const DEFAULTS = {
+  keepTrees: 5,
   base: "HEAD",
   rounds: 15,
   thresholdPct: 10,
@@ -345,6 +353,72 @@ async function extractTree(
   return true
 }
 
+// A tree used this recently may belong to a run still going.
+const PRUNE_GRACE_MS = 60 * 60 * 1000
+
+function pidAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0)
+    return true
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === "EPERM"
+  }
+}
+
+/** Marks a base tree as just used: pruning goes by modification time,
+ * which, unlike access time, every filesystem keeps. */
+function touchTree(dir: string): void {
+  const now = new Date()
+  try {
+    utimesSync(dir, now, now)
+  } catch {
+    // Gone already: nothing to keep fresh.
+  }
+}
+
+/** Removes base trees under `abDir` past the `keep` most recently used,
+ * except any used in the last hour, and temp directories whose process has
+ * exited. Returns how many it removed. */
+async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
+  if (!existsSync(abDir)) return 0
+  const now = Date.now()
+  const doomed: string[] = []
+  const trees: { path: string; mtimeMs: number }[] = []
+  for (const name of readdirSync(abDir)) {
+    const path = `${abDir}/${name}`
+    const tmp = /\.tmp-(\d+)$/.exec(name)
+    if (tmp) {
+      if (!pidAlive(Number(tmp[1]))) doomed.push(path)
+      continue
+    }
+    try {
+      trees.push({ path, mtimeMs: statSync(path).mtimeMs })
+    } catch {
+      // Removed by another run in the meantime.
+    }
+  }
+  trees.sort((a, b) => b.mtimeMs - a.mtimeMs)
+  for (const tree of trees.slice(keep)) {
+    if (now - tree.mtimeMs > PRUNE_GRACE_MS) doomed.push(tree.path)
+  }
+  for (const path of doomed) await Bun.spawn(["rm", "-rf", path]).exited
+  return doomed.length
+}
+
+/** Removes every base tree `ab()` has cached under `<outDir>/ab`. Returns
+ * how many there were. */
+export async function cleanAbTrees(
+  opts: { outDir?: string; cwd?: string } = {},
+): Promise<number> {
+  const cwd = opts.cwd ?? process.cwd()
+  const outDir = opts.outDir ?? DEFAULT_OUT_DIR
+  const abDir = `${isAbsolute(outDir) ? outDir : `${cwd}/${outDir}`}/ab`
+  if (!existsSync(abDir)) return 0
+  const count = readdirSync(abDir).length
+  await Bun.spawn(["rm", "-rf", abDir]).exited
+  return count
+}
+
 function median(values: number[]): number {
   return percentile(Float64Array.from(values).sort(), 0.5)
 }
@@ -414,6 +488,12 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const geomeanThresholdPct =
     opts.geomeanThresholdPct ?? DEFAULTS.geomeanThresholdPct
   const confirm = opts.confirm ?? DEFAULTS.confirm
+  const keepTrees = opts.keepTrees ?? DEFAULTS.keepTrees
+  if (!Number.isInteger(keepTrees) || keepTrees < 1) {
+    throw new RangeError(
+      `ab: keepTrees must be an integer >= 1, got ${keepTrees}`,
+    )
+  }
   if (!Number.isInteger(rounds) || rounds < 3) {
     throw new RangeError(`ab: rounds must be an integer >= 3, got ${rounds}`)
   }
@@ -513,6 +593,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     s: number,
     extra: Partial<AbRunnerOpts> = {},
   ): Promise<ProfileDocument | undefined> => {
+    touchTree(checkout)
     const outPath = `${tmpDir}/${fp("ab-run", candSuites[s]!, spawned++)}.json`
     const runnerOpts: AbRunnerOpts = {
       filter: opts.filter,
@@ -655,6 +736,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     const doc = newDocument(workloads, measurements, environment)
     doc.unmatched = { baseOnly, candOnly }
     doc.ab = summarizePaired(measurements, settings)
+    await pruneAbTrees(`${absOutDir}/ab`, keepTrees)
     return doc
   } finally {
     await Bun.spawn(["rm", "-rf", tmpDir]).exited

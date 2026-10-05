@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test"
-import { existsSync, readdirSync } from "node:fs"
+import { existsSync, mkdirSync, readdirSync, utimesSync } from "node:fs"
 import {
   AbBaseError,
   type AbOptions,
@@ -294,6 +294,30 @@ group("g", () => {
     expect(confirms.at(-1)).toMatchObject({ repeat: 2, label: "g/work" })
   }, 60_000)
 
+  test("prunes base trees past keepTrees, least recently used first, but not ones used in the last hour", async () => {
+    const abDir = `${REPO}/node_modules/.cache/ostia/ab`
+    const fake = (name: string, ageMs: number) => {
+      mkdirSync(`${abDir}/${name}`, { recursive: true })
+      const t = new Date(Date.now() - ageMs)
+      utimesSync(`${abDir}/${name}`, t, t)
+    }
+    const hour = 60 * 60 * 1000
+    fake("old-1", 3 * hour)
+    fake("old-2", 2 * hour)
+    fake("recent", hour / 6)
+    // A temp directory left by a process that's gone.
+    fake("dead.tmp-99999999", 0)
+
+    await ab({
+      ...QUICK,
+      suites: ["bench/s.bench.ts"],
+      confirm: 0,
+      keepTrees: 1,
+    })
+    const sha = await sh(["git", "rev-parse", "HEAD"])
+    expect(readdirSync(abDir).sort()).toEqual([sha, "recent"].sort())
+  }, 60_000)
+
   test("workload ids match bench()'s for the same suite, and the base tree is cached per commit", async () => {
     const paired = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
     const timed = await bench({
@@ -576,6 +600,23 @@ describe("ostia ab", () => {
       "[ab] suite 1/1 bench/s.bench.ts · task 2/2 g/stable\n",
     )
     for (const line of stdout.trim().split("\n")) JSON.parse(line)
+  }, 60_000)
+
+  test("--clean removes every cached base tree", async () => {
+    await runCli([
+      "bench/s.bench.ts",
+      "--rounds",
+      "3",
+      "--confirm",
+      "0",
+      "--no-noise-check",
+    ])
+    const abDir = `${REPO}/node_modules/.cache/ostia/ab`
+    expect(readdirSync(abDir)).toHaveLength(1)
+    const { exitCode, stderr } = await runCli(["--clean"])
+    expect(exitCode).toBe(0)
+    expect(stderr).toContain("Removed 1 cached base tree(s).")
+    expect(existsSync(abDir)).toBe(false)
   }, 60_000)
 
   test("exits 2 when nothing pairs, and on an unknown ref", async () => {

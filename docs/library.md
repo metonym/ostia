@@ -244,6 +244,7 @@ const doc = await ab({
   suites: ["bench/parse.bench.ts"],
   base: "origin/main",        // default "HEAD"; the candidate is the working tree
   baseSetup: ["bun scripts/generate.ts"], // run once in a freshly extracted base tree
+  keepTrees: 5,               // cached base trees to keep; default
   rounds: 15,                 // default
   thresholdPct: 10,           // default
   geomeanThresholdPct: 1.5,   // default

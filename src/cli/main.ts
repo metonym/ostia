@@ -1,6 +1,12 @@
 #!/usr/bin/env bun
 import { writeSync } from "node:fs"
-import { AbBaseError, type AbProgress, AbSetupError, ab } from "../ab/index.ts"
+import {
+  AbBaseError,
+  type AbProgress,
+  AbSetupError,
+  ab,
+  cleanAbTrees,
+} from "../ab/index.ts"
 import { listBaselines, saveBaseline } from "../baseline/index.ts"
 import {
   availableJobs,
@@ -391,6 +397,8 @@ Flags:
   --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
   --timeout MS         kill a suite (or repeat) process after MS
   --out-dir PATH       scratch directory and base-tree cache (default: node_modules/.cache/ostia)
+  --keep-trees N       base trees to keep cached, least recently used go first (default: 5)
+  --clean              remove every cached base tree, then exit
   --no-noise-check     skip the ~200ms noise-floor measurement
   --export-json PATH   write the ProfileDocument to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
@@ -977,6 +985,8 @@ interface AbArgs {
   bunFlags: string[]
   timeoutMs?: number
   outDir?: string
+  keepTrees?: number
+  clean: boolean
   noiseCheck: boolean
   exportJson?: string
   format: FormatName
@@ -995,6 +1005,8 @@ const AB_FLAGS: Record<string, FlagDef> = {
     spec: { kind: "number", min: 0 },
   },
   "--confirm": { dest: "confirm", spec: { kind: "int", min: 0 } },
+  "--keep-trees": { dest: "keepTrees", spec: { kind: "int", min: 1 } },
+  "--clean": { dest: "clean", spec: { kind: "bool", value: true } },
   "--filter": { dest: "filter", spec: { kind: "string" } },
   "--preload": { dest: "preload", spec: { kind: "list" } },
   "--timeout": { dest: "timeoutMs", spec: { kind: "int", min: 1 } },
@@ -1060,6 +1072,7 @@ function parseAbArgs(argv: string[]): AbArgs {
     baseSetup: [],
     preload: [],
     bunFlags: [],
+    clean: false,
     noiseCheck: true,
     format: "table",
     quiet: false,
@@ -1084,6 +1097,12 @@ async function abCommand(argv: string[]): Promise<number> {
   // its own rounds).
   const fullConfig = await loadConfig()
   const config = fullConfig?.bench
+  if (parsed.clean) {
+    const outDir = parsed.outDir ?? config?.outDir
+    const removed = await cleanAbTrees({ outDir })
+    if (!parsed.quiet) await err(`Removed ${removed} cached base tree(s).\n`)
+    return 0
+  }
   const suites =
     parsed.suites.length > 0
       ? parsed.suites
@@ -1123,6 +1142,7 @@ async function abCommand(argv: string[]): Promise<number> {
             : (config?.bunFlags ?? []),
         timeoutMs: parsed.timeoutMs ?? config?.timeoutMs,
         outDir: parsed.outDir ?? config?.outDir,
+        keepTrees: parsed.keepTrees ?? fullConfig?.ab?.keepTrees,
         noiseCheck: parsed.noiseCheck,
         signal,
         onProgress: progress?.onProgress,

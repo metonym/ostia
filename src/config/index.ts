@@ -67,6 +67,9 @@ export interface AbConfig {
    * build gitignored files the suites import; see `AbOptions.baseSetup`.
    * `--base-setup` replaces this list. */
   setup?: string | string[]
+  /** Base trees to keep cached; see `AbOptions.keepTrees`. `--keep-trees`
+   * overrides. Default: 5. */
+  keepTrees?: number
 }
 
 export interface OstiaConfig {

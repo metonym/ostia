@@ -39,6 +39,9 @@ export interface PairedTimingOptions {
   /** Aborting rejects `measurePaired` with the signal's reason at the next
    * batch boundary; partial rounds are discarded. */
   signal?: AbortSignal
+  /** Give the candidate what the base gets first by default: the first
+   * call, warmup, the warm rounds and the first batch of even rounds. */
+  candFirst?: boolean
 }
 
 export interface PairedTimingResult {
@@ -86,16 +89,20 @@ export async function measurePaired(
   signal?.throwIfAborted()
   const start = Bun.nanoseconds()
 
-  const baseFirst = await onSide("base", () => probeFirstCall(base))
-  const candFirst = await onSide("cand", () => probeFirstCall(cand))
-  const sameOutput = Bun.deepEquals(baseFirst.result, candFirst.result)
+  const order: Side[] = opts.candFirst ? ["cand", "base"] : ["base", "cand"]
+  const reversed = order.toReversed()
+  const fns = { base, cand }
+  const probes = {} as Record<Side, Awaited<ReturnType<typeof probeFirstCall>>>
+  for (const name of order) {
+    probes[name] = await onSide(name, () => probeFirstCall(fns[name]))
+  }
+  const sameOutput = Bun.deepEquals(probes.base.result, probes.cand.result)
 
-  const side = (name: "base" | "cand", fn: TaskBody, isAsync: boolean) => {
-    const time = batchTimer(fn, isAsync)
+  const side = (name: Side) => {
+    const time = batchTimer(fns[name], probes[name].isAsync)
     return (n: number): Promise<number> => onSide(name, () => time(n))
   }
-  const timeBase = side("base", base, baseFirst.isAsync)
-  const timeCand = side("cand", cand, candFirst.isAsync)
+  const timers = { base: side("base"), cand: side("cand") }
 
   // Each side warms alone: sharing one doubling would run a slow side
   // thousands of times just to get a fast side's batch past the chunk.
@@ -106,17 +113,16 @@ export async function measurePaired(
       if (ns >= WARMUP_CHUNK_NS) return Math.max(1, ns / n)
     }
   }
-  const baseCallNs = await warmUp(timeBase)
-  const candCallNs = await warmUp(timeCand)
+  const callNs = { base: 0, cand: 0 }
+  for (const name of order) callNs[name] = await warmUp(timers[name])
 
   const batch = Math.max(
     1,
-    Math.round(ROUND_BATCH_NS / Math.max(baseCallNs, candCallNs)),
+    Math.round(ROUND_BATCH_NS / Math.max(callNs.base, callNs.cand)),
   )
   for (let r = 0; r < WARM_ROUNDS; r++) {
     signal?.throwIfAborted()
-    await timeBase(batch)
-    await timeCand(batch)
+    for (const name of order) await timers[name](batch)
   }
 
   const baseSamples: number[] = []
@@ -124,17 +130,12 @@ export async function measurePaired(
   const ratios: number[] = []
   for (let r = 0; r < rounds; r++) {
     signal?.throwIfAborted()
-    let b: number
-    let c: number
-    if (r % 2 === 0) {
-      b = await timeBase(batch)
-      c = await timeCand(batch)
-    } else {
-      c = await timeCand(batch)
-      b = await timeBase(batch)
+    const ns = { base: 0, cand: 0 }
+    for (const name of r % 2 === 0 ? order : reversed) {
+      ns[name] = await timers[name](batch)
     }
-    b = Math.max(1, b)
-    c = Math.max(1, c)
+    const b = Math.max(1, ns.base)
+    const c = Math.max(1, ns.cand)
     baseSamples.push(b / batch)
     candSamples.push(c / batch)
     ratios.push(c / b)

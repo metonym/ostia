@@ -243,7 +243,8 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
   per tree, with the project's `node_modules` linked in.
 - A task is flagged when its median ratio moves past `--threshold` (default 10%) in at
   least three quarters of rounds, and counts only if `--confirm` (default 2) fresh
-  processes agree. The run also fails when the geometric mean of all ratios is more than
+  processes agree. Each suite runs once with each side first, since the side that goes
+  first can run faster. The run also fails when the geometric mean of all ratios is more than
   `--geomean-threshold` (default 1.5%) slower.
 - Tasks whose first call returns different values on each side are listed (not a
   failure). The base side runs the base's copy of each suite, so a task whose suite file

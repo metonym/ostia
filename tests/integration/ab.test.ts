@@ -331,25 +331,22 @@ group("g", () => {
       onProgress: (p) => events.push(p),
     })
     expect(events[0]).toEqual({ phase: "setup", command: "true" })
+    const measure = (pass: number, task: number, label: string) => ({
+      phase: "measure" as const,
+      suite: 1,
+      suites: 1,
+      file: "bench/s.bench.ts",
+      pass,
+      passes: 2,
+      task,
+      tasks: 2,
+      label,
+    })
     expect(events.filter((e) => e.phase === "measure")).toEqual([
-      {
-        phase: "measure",
-        suite: 1,
-        suites: 1,
-        file: "bench/s.bench.ts",
-        task: 1,
-        tasks: 2,
-        label: "g/work",
-      },
-      {
-        phase: "measure",
-        suite: 1,
-        suites: 1,
-        file: "bench/s.bench.ts",
-        task: 2,
-        tasks: 2,
-        label: "g/stable",
-      },
+      measure(1, 1, "g/work"),
+      measure(1, 2, "g/stable"),
+      measure(2, 1, "g/work"),
+      measure(2, 2, "g/stable"),
     ])
     const confirms = events.filter((e) => e.phase === "confirm")
     expect(confirms.at(-1)).toMatchObject({ repeat: 2, label: "g/work" })
@@ -483,6 +480,28 @@ task("gen", () => spin(N))
     const left = await sh(["ls", `${REPO}/node_modules/.cache/ostia/ab`])
     expect(left).toBe("")
   }, 20_000)
+
+  test("runs each suite once with each side imported first, and pools the rounds", async () => {
+    // Module scope runs at import, so the log is the import order.
+    await Bun.write(
+      `${REPO}/bench/order.bench.ts`,
+      `import { appendFileSync } from "node:fs"
+import { task } from "${SRC}/index.ts"
+appendFileSync("${REPO}/order.log", import.meta.path.includes("/.cache/") ? "base\\n" : "cand\\n")
+task("t", () => 1)
+`,
+    )
+    await commit("order")
+    const doc = await ab({
+      ...QUICK,
+      suites: ["bench/order.bench.ts"],
+      confirm: 0,
+    })
+    expect(doc.measurements[0]!.paired!.rounds).toBe(7)
+    expect(doc.measurements[0]!.timing!.samples).toHaveLength(7)
+    const log = await Bun.file(`${REPO}/order.log`).text()
+    expect(log.trim().split("\n")).toEqual(["base", "cand", "cand", "base"])
+  }, 60_000)
 
   test("a suite file that doesn't exist is a usage error", async () => {
     const err = await ab({ ...QUICK, suites: ["bench/nope.bench.ts"] }).catch(
@@ -763,10 +782,10 @@ describe("ostia ab", () => {
       "--progress",
     ])
     expect(stderr).toContain(
-      "[ab] suite 1/1 bench/s.bench.ts · task 1/2 g/work\n",
+      "[ab] suite 1/1 bench/s.bench.ts · pass 1/2 · task 1/2 g/work\n",
     )
     expect(stderr).toContain(
-      "[ab] suite 1/1 bench/s.bench.ts · task 2/2 g/stable\n",
+      "[ab] suite 1/1 bench/s.bench.ts · pass 2/2 · task 2/2 g/stable\n",
     )
     for (const line of stdout.trim().split("\n")) JSON.parse(line)
   }, 60_000)
@@ -911,16 +930,21 @@ describe("ab() - exceptions and teardown", () => {
     [["base", "cand"], "both", "pass"],
   ] as const) {
     test(`a throw on ${side === "both" ? "both sides" : `the ${side} side`} in a confirmation repeat is reported (${verdict})`, async () => {
-      // The first process records that it ran; every later process (the
-      // repeat) throws on the given sides. The candidate is ~10x slower, so
-      // the first process always flags it.
+      // Each process counts itself once (both copies of the suite share
+      // globalThis); the main run is two processes, one per order, and
+      // every later one (the repeat) throws on the given sides. The
+      // candidate is ~10x slower, so the main run always flags it.
       const { doc, byTask } = await runSuite(
-        `import { existsSync, writeFileSync } from "node:fs"
+        `import { existsSync, readFileSync, writeFileSync } from "node:fs"
 import { task } from "${SRC}/index.ts"
 ${SIDE}
-const state = process.cwd() + "/first-ran"
-const repeat = existsSync(state)
-if (side === "cand") writeFileSync(state, "")
+const state = process.cwd() + "/runs"
+globalThis.__runs ??= (() => {
+  const n = existsSync(state) ? Number(readFileSync(state, "utf8")) : 0
+  writeFileSync(state, String(n + 1))
+  return n
+})()
+const repeat = globalThis.__runs >= 2
 const throws = repeat && ${JSON.stringify(throws)}.includes(side)
 task("t", () => {
   if (throws) throw new Error(side + " broke in a repeat")
@@ -977,11 +1001,16 @@ task("next", () => 1)
       side: "base",
       message: "base after broke",
     })
+    // Twice: base first, then candidate first.
     expect(await hookLog()).toEqual([
       "base:before",
       "cand:before",
       "cand:after",
       "base:after",
+      "cand:before",
+      "base:before",
+      "base:after",
+      "cand:after",
     ])
     expect(byTask("next").paired).toBeDefined()
   }, 60_000)
@@ -996,6 +1025,9 @@ task("next", () => 1)
       "base:before",
       "cand:before",
       "base:after",
+      "cand:before",
+      "base:before",
+      "base:after",
     ])
     expect(byTask("next").paired).toBeDefined()
   }, 60_000)
@@ -1003,7 +1035,12 @@ task("next", () => 1)
   test("setup throwing on both sides is `both`, with no teardown", async () => {
     const { byTask } = await runSuite(hookSuite(["base:before", "cand:before"]))
     expect(byTask("t").threw!.side).toBe("both")
-    expect(await hookLog()).toEqual(["base:before", "cand:before"])
+    expect(await hookLog()).toEqual([
+      "base:before",
+      "cand:before",
+      "cand:before",
+      "base:before",
+    ])
   }, 60_000)
 
   test("a teardown error is reported alongside the other side's body error", async () => {
@@ -1018,6 +1055,10 @@ task("next", () => 1)
       "cand:before",
       "cand:after",
       "base:after",
+      "cand:before",
+      "base:before",
+      "base:after",
+      "cand:after",
     ])
   }, 60_000)
 

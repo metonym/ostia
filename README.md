@@ -165,7 +165,7 @@ Exit codes, the same for every command:
 On exit 2, stderr's last line is `{"event":"error","protocolVersion":2,"code":...,"message":...,"data"?:...}`
 when stderr is not a TTY or a machine format (`minimal`/`json`/`jsonl`) was requested.
 A person at a terminal sees only the prose message. `code` is one of `invalid-flag`,
-`config-missing`, `config-invalid`, `baseline-missing`, `no-matches`, `spawn-failed`,
+`config-missing`, `config-invalid`, `baseline-missing`, `no-matches`, `spawn-failed`, `suite-failed`,
 `command-failed`, `timeout`, `time-source-no-match`, `document-load-failed`,
 `no-cpu-evidence`, `internal`. Full reference: [docs/agent-protocol.md](docs/agent-protocol.md).
 

@@ -129,6 +129,17 @@ export interface AbOptions {
 /** `ab()` can't run: not in a git repository, or `base` isn't a commit. */
 export class AbBaseError extends OstiaUsageError {}
 
+/** One side's suite failed outside any task: on import, with no tasks, or
+ * while a task's memory was measured. */
+export class AbSuiteError extends Error {
+  constructor(
+    message: string,
+    readonly side: Side,
+  ) {
+    super(message)
+  }
+}
+
 /** A `baseSetup` command exited non-zero or timed out. The message names
  * the command and ends with the tail of its output. */
 export class AbSetupError extends Error {}
@@ -753,39 +764,49 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         onProgress !== undefined && !extra.workloadIds && !extra.memoryFor,
       ...extra,
     }
-    const ran = await runRunnerProcess(
-      [
-        "bun",
-        ...bunFlags,
-        RUNNER_PATH,
-        candSuites[s]!,
-        baseSuites[s]!,
-        outPath,
-        JSON.stringify(runnerOpts),
-      ],
-      {
-        cwd,
-        label: "A/B suite",
-        name: opts.suites[s]!,
-        timeoutMs: opts.timeoutMs,
-        signal: opts.signal,
-        env,
-        // The runner names the side that failed to load, when that's why.
-        errorFile: `${outPath}.error`,
-        ...(runnerOpts.progress && {
-          ipc: (message: AbRunnerProgress) =>
-            onProgress?.({
-              phase: "measure",
-              suite: s + 1,
-              suites: candSuites.length,
-              file: opts.suites[s]!,
-              pass: extra.candFirst ? 2 : 1,
-              passes: 2,
-              ...message,
-            }),
-        }),
-      },
-    )
+    let ran: boolean
+    try {
+      ran = await runRunnerProcess(
+        [
+          "bun",
+          ...bunFlags,
+          RUNNER_PATH,
+          candSuites[s]!,
+          baseSuites[s]!,
+          outPath,
+          JSON.stringify(runnerOpts),
+        ],
+        {
+          cwd,
+          label: "A/B suite",
+          name: opts.suites[s]!,
+          timeoutMs: opts.timeoutMs,
+          signal: opts.signal,
+          env,
+          // The runner names the side that failed to load, when that's why.
+          errorFile: `${outPath}.error`,
+          ...(runnerOpts.progress && {
+            ipc: (message: AbRunnerProgress) =>
+              onProgress?.({
+                phase: "measure",
+                suite: s + 1,
+                suites: candSuites.length,
+                file: opts.suites[s]!,
+                pass: extra.candFirst ? 2 : 1,
+                passes: 2,
+                ...message,
+              }),
+          }),
+        },
+      )
+    } catch (err) {
+      const side = Bun.file(`${outPath}.side`)
+      if (!(await side.exists())) throw err
+      throw new AbSuiteError(
+        (err as Error).message,
+        (await side.text()) as Side,
+      )
+    }
     return ran ? outPath : undefined
   }
   /** Runs suite `s` twice, base first and then candidate first, splitting

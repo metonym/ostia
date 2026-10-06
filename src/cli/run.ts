@@ -3,6 +3,7 @@ import {
   AbBaseError,
   type AbProgress,
   AbSetupError,
+  AbSuiteError,
   ab,
   cleanAbTrees,
 } from "../ab/index.ts"
@@ -527,6 +528,9 @@ async function abCommand(argv: string[]): Promise<number> {
         if (err instanceof AbSetupError) {
           throw new CliError("command-failed", err.message)
         }
+        if (err instanceof AbSuiteError) {
+          throw new CliError("suite-failed", err.message, { side: err.side })
+        }
         throw err
       } finally {
         progress?.done()
@@ -1034,7 +1038,7 @@ async function dispatchSubcommand(
     return await handler(rest)
   } catch (err) {
     if (err instanceof CliError) {
-      await writeCliError(err.code, err.message)
+      await writeCliError(err.code, err.message, err.data)
     } else if (err instanceof ConfigError) {
       await writeCliError("config-invalid", err.message)
     } else if (err instanceof CliUsageError) {

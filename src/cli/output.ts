@@ -24,6 +24,7 @@ export type CliErrorCode =
   | "baseline-missing"
   | "no-matches"
   | "spawn-failed"
+  | "suite-failed"
   | "command-failed"
   | "timeout"
   | "time-source-no-match"
@@ -36,6 +37,8 @@ export class CliError extends Error {
   constructor(
     readonly code: CliErrorCode,
     message: string,
+    /** Structured detail for the `error` event's `data`. */
+    readonly data?: Record<string, unknown>,
   ) {
     super(message)
   }
@@ -78,6 +81,7 @@ async function wantsMachineErrors(): Promise<boolean> {
 export async function writeCliError(
   code: CliErrorCode,
   message: string,
+  data?: Record<string, unknown>,
 ): Promise<void> {
   await errOut(message.endsWith("\n") ? message : `${message}\n`)
   if (!(await wantsMachineErrors())) return
@@ -87,6 +91,7 @@ export async function writeCliError(
       protocolVersion: MINIMAL_PROTOCOL_VERSION,
       code,
       message: message.split("\n")[0],
+      ...(data && { data }),
     })}\n`,
   )
 }

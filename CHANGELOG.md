@@ -36,6 +36,11 @@
   `"fail"` for exit 1 (a regression) and the new `"error"` for any other code
   (2, a harness error; 130, cancelled); it was `"fail"` for every non-zero code.
   Folded into `protocolVersion: 2`, which is unreleased.
+- `ostia ab`: a suite that fails on one side outside any task (it throws on
+  import, registers no tasks, or a task throws while its memory is measured)
+  is a `suite-failed` error with `data: { side }`, instead of `spawn-failed`.
+  `ab()` rejects with an `AbSuiteError` carrying `side`. Crashes and timeouts
+  stay `spawn-failed`. Folded into `protocolVersion: 2`, which is unreleased.
 - Byte counts are labelled `KiB`/`MiB` (they were always 1024-based, but
   printed `KB`/`MB`), in the `Retained/op` and `Peak mem` columns, the
   `peak-hidden` warning and heap snapshot summaries. The heap summary used

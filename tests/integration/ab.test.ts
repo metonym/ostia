@@ -5,6 +5,7 @@ import {
   type AbOptions,
   type AbProgress,
   AbSetupError,
+  AbSuiteError,
   ab,
 } from "../../src/ab/index.ts"
 import { OstiaUsageError } from "../../src/errors.ts"
@@ -753,7 +754,26 @@ describe("ostia ab", () => {
     ])
     expect(exitCode).toBe(2)
     expect(stderr).toContain("the candidate side failed to load")
-    expect(stderr).toContain('"code":"spawn-failed"')
+    const event = JSON.parse(stderr.trim().split("\n").at(-1)!)
+    expect(event).toMatchObject({
+      event: "error",
+      code: "suite-failed",
+      data: { side: "cand" },
+    })
+  }, 20_000)
+
+  test("a base suite that fails to load is a suite-failed error naming the base", async () => {
+    // The suite imports a gitignored file the base tree doesn't have.
+    await Bun.write(`${REPO}/.gitignore`, "node_modules\nbench/gen.ts\n")
+    await Bun.write(`${REPO}/bench/gen.ts`, "export const n = 1\n")
+    await Bun.write(`${REPO}/bench/s.bench.ts`, `import "./gen.ts"\n${SUITE}`)
+    await commit("needs gen")
+    const err = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] }).catch(
+      (e) => e,
+    )
+    expect(err).toBeInstanceOf(AbSuiteError)
+    expect((err as AbSuiteError).side).toBe("base")
+    expect((err as Error).message).toContain("the base side failed to load")
   }, 20_000)
 
   test("--progress writes progress to stderr and keeps stdout to the protocol", async () => {

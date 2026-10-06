@@ -6,15 +6,9 @@ import {
   makeInstrumentedMeasurement,
 } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
-import type {
-  Measurement,
-  ProfileDocument,
-  Warning,
-  Workload,
-} from "../ir/types.ts"
+import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
 import type { PeakMemResult } from "../measure/peak.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
-import { formatBytes } from "../renderers/format.ts"
 import type { RunnerOpts } from "./runner.ts"
 import {
   absolutePath,
@@ -22,6 +16,8 @@ import {
   captureRunEnvironment,
   loadIfExists,
   median,
+  PEAK_MEM_PROCESSES,
+  peakHiddenWarning,
   removeDir,
   runRunnerProcess,
   stampRunWarnings,
@@ -160,29 +156,13 @@ interface PlannedTask {
   peakMem: boolean
 }
 
-/** Fresh processes per `--peak-mem` reading; the median is reported. */
-const PEAK_MEM_PROCESSES = 3
-// Below this, slack is what any suite that loads fixtures leaves behind
-// (8MB for caligula's) and too common to warn about.
-const PEAK_SLACK_NOISE_BYTES = 16 * 1024 * 1024
-
 function peakMeasurement(
   workload: Workload,
   readings: PeakMemResult[] | undefined,
 ): Measurement[] {
   if (!readings?.length) return []
   const peak = median(readings.map((r) => r.peakBytes))
-  const slack = Math.max(...readings.map((r) => r.slackBytes))
-  const understated = slack >= PEAK_SLACK_NOISE_BYTES && slack > peak / 4
-  const warnings: Warning[] = understated
-    ? [
-        {
-          code: "peak-hidden",
-          message: `Before the call, earlier work in the process had freed up to ${formatBytes(slack)} the allocator still held (module-scope setup or before hooks that allocate), which the call could reuse without RSS rising: this reading can be low by up to that much. Skip that work when process.env.OSTIA_PEAK_MEM is set.`,
-          data: { slackBytes: slack, processes: readings.length },
-        },
-      ]
-    : []
+  const warning = peakHiddenWarning(readings)
   return [
     makeInstrumentedMeasurement({
       workload,
@@ -190,7 +170,7 @@ function peakMeasurement(
       configFingerprint: configFingerprint({ peakMem: true }),
       diagnosticWallNs: median(readings.map((r) => r.wallNs)),
       memory: { origin: "resourceUsage", kind: "peak", peakBytes: peak },
-      warnings,
+      warnings: warning ? [warning] : [],
       artifacts: [],
     }),
   ]

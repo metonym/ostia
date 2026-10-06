@@ -2,11 +2,12 @@ import { formatDuration, pickDurationUnit } from "../format.ts"
 import type {
   AbSummary,
   Measurement,
+  MemoryChange,
   PairedEvidence,
   ProfileDocument,
 } from "../ir/types.ts"
-import { comparable } from "../measure/paired.ts"
-import { formatSignedPct, labelOrId } from "./format.ts"
+import { comparable, sideLabel } from "../measure/paired.ts"
+import { formatBytes, formatSignedPct, labelOrId } from "./format.ts"
 import { workloadsById } from "./select.ts"
 
 export type PairedRun = Measurement & {
@@ -59,8 +60,7 @@ export function abRows(doc: ProfileDocument): AbRow[] {
 /** `base threw`, `candidate threw`, `both threw`, with `(repeat 1)` when it
  * threw in a confirmation repeat. */
 export function formatThrew(threw: ThrewRun["threw"]): string {
-  const side = threw.side === "cand" ? "candidate" : threw.side
-  return `${side} threw${threw.repeat ? ` (repeat ${threw.repeat})` : ""}`
+  return `${sideLabel(threw.side)} threw${threw.repeat ? ` (repeat ${threw.repeat})` : ""}`
 }
 
 /** A candidate/base ratio as a signed percent change: `1.032` is `+3.2%`. */
@@ -100,12 +100,54 @@ export function pairedCells(run: PairedRun) {
   }
 }
 
-/** `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%` */
-export function formatAbHeader(ab: AbSummary): string {
-  return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%`
+export interface MemoryRow {
+  run: PairedRun
+  reading: "retained/op" | "peak"
+  change: MemoryChange
 }
 
-/** `Geomean +2.1% (threshold 1.5%) · 1 regressed, 0 improved, 47 unchanged of 48 (1 unconfirmed) · fail` */
+/** Each timed task's memory readings, retained before peak. */
+export function memoryRows(doc: ProfileDocument): MemoryRow[] {
+  return pairedRuns(doc).flatMap((run) => {
+    const rows: MemoryRow[] = []
+    const { retained, peak } = run.paired
+    if (retained) rows.push({ run, reading: "retained/op", change: retained })
+    if (peak) rows.push({ run, reading: "peak", change: peak })
+    return rows
+  })
+}
+
+/** `+1.50MiB (+87.4%)`, in whole bytes; no percent when the base is under
+ * the noise floor, where it would be huge and meaningless. */
+function formatByteChange(c: MemoryChange): string {
+  const base = Math.round(c.baseBytes)
+  const diff = Math.round(c.candBytes) - base
+  if (diff === 0) return "0B"
+  const bytes = `${diff > 0 ? "+" : "-"}${formatBytes(Math.abs(diff))}`
+  if (base === 0 || c.baseBytes < c.floorBytes) return bytes
+  return `${bytes} (${formatSignedPct((diff / base) * 100)})`
+}
+
+/** The text of one memory row's table cells. */
+export function memoryCells({ reading, change: c }: MemoryRow) {
+  return {
+    reading,
+    base: formatBytes(c.baseBytes),
+    candidate: formatBytes(c.candBytes),
+    change: formatByteChange(c),
+    verdict: c.verdict === "unchanged" ? "" : c.verdict,
+  }
+}
+
+/** `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%` */
+export function formatAbHeader(ab: AbSummary): string {
+  const memory = ab.memory
+    ? ` · memory threshold ${ab.memory.thresholdPct}%`
+    : ""
+  return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%${memory}`
+}
+
+/** `Geomean +2.1% (threshold 1.5%) · 1 regressed, 0 improved, 47 unchanged of 48 (1 unconfirmed) · memory: 0 regressed, 1 improved · fail` */
 export function formatAbSummary(ab: AbSummary): string {
   const geomean =
     ab.geomeanPct === null
@@ -117,7 +159,10 @@ export function formatAbSummary(ab: AbSummary): string {
     ab.threw > 0 && `${ab.threw} threw`,
   ].filter(Boolean)
   const unconfirmed = notes.length > 0 ? ` (${notes.join(", ")})` : ""
-  return `${geomean} · ${ab.regressed} regressed, ${ab.improved} improved, ${ab.unchanged} unchanged of ${ab.matched}${unconfirmed} · ${ab.verdict}`
+  const memory = ab.memory
+    ? ` · memory: ${ab.memory.regressed} regressed, ${ab.memory.improved} improved`
+    : ""
+  return `${geomean} · ${ab.regressed} regressed, ${ab.improved} improved, ${ab.unchanged} unchanged of ${ab.matched}${unconfirmed}${memory} · ${ab.verdict}`
 }
 
 /** Labels of workloads whose output differed between sides, and of those

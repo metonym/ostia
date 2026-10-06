@@ -69,6 +69,16 @@ export interface AbConfig {
   /** Base trees to keep cached; see `AbOptions.keepTrees`. `--keep-trees`
    * overrides. Default: 5. */
   keepTrees?: number
+  /** Compare retained heap per call; see `AbOptions.alloc`. `--alloc` /
+   * `--no-alloc` override. `bench.alloc` doesn't apply to `ab`. */
+  alloc?: boolean
+  /** Compare peak RSS of the first call; see `AbOptions.peakMem`.
+   * `--peak-mem` / `--no-peak-mem` override. `bench.peakMem` doesn't apply
+   * to `ab`. */
+  peakMem?: boolean
+  /** Memory verdict threshold, percent; see `AbOptions.memThresholdPct`.
+   * `--mem-threshold` overrides. Default: 10. */
+  memThresholdPct?: number
 }
 
 export interface OstiaConfig {

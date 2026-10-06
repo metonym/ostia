@@ -31,6 +31,7 @@ import {
   saveDocument,
 } from "../ir/document.ts"
 import type { ProfileDocument, Workload } from "../ir/types.ts"
+import { sideLabel } from "../measure/paired.ts"
 import { isHarnessFailure } from "../measure/timing.ts"
 import { formatGit, workloadLabel } from "../renderers/format.ts"
 import { type FormatName, renderers } from "../renderers/index.ts"
@@ -381,6 +382,9 @@ interface AbArgs extends SuiteArgs {
   thresholdPct?: number
   geomeanThresholdPct?: number
   confirm?: number
+  alloc?: boolean
+  peakMem?: boolean
+  memThresholdPct?: number
   keepTrees?: number
   clean: boolean
   progress?: boolean
@@ -394,6 +398,11 @@ const AB_FLAGS = {
   "--threshold": flag.num("thresholdPct", 0),
   "--geomean-threshold": flag.num("geomeanThresholdPct", 0),
   "--confirm": flag.int("confirm", 0),
+  "--alloc": flag.on("alloc"),
+  "--no-alloc": flag.off("alloc"),
+  "--peak-mem": flag.on("peakMem"),
+  "--no-peak-mem": flag.off("peakMem"),
+  "--mem-threshold": flag.num("memThresholdPct", 0),
   "--keep-trees": flag.int("keepTrees"),
   "--clean": flag.on("clean"),
   "--progress": flag.on("progress"),
@@ -409,6 +418,8 @@ function formatAbProgress(p: AbProgress): string {
       return `[ab] suite ${p.suite}/${p.suites} ${p.file} · task ${p.task}/${p.tasks} ${p.label}`
     case "confirm":
       return `[ab] confirming flagged tasks · repeat ${p.repeat}/${p.repeats} ${p.label}`
+    case "memory":
+      return `[ab] memory · process ${p.run}/${p.runs} ${sideLabel(p.side)} ${p.label}`
   }
 }
 
@@ -495,6 +506,10 @@ async function abCommand(argv: string[]): Promise<number> {
           thresholdPct: parsed.thresholdPct,
           geomeanThresholdPct: parsed.geomeanThresholdPct,
           confirm: parsed.confirm,
+          alloc: parsed.alloc ?? config?.ab?.alloc,
+          peakMem: parsed.peakMem ?? config?.ab?.peakMem,
+          memThresholdPct:
+            parsed.memThresholdPct ?? config?.ab?.memThresholdPct,
           filter,
           preload,
           bunFlags,

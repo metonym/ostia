@@ -41,7 +41,7 @@ objects) or `"unsupported-schema"`.
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
-| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict }`. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, memory?, geomeanPct, verdict }`. `memory` (`{ thresholdPct, regressed, improved }`) is there when any task has a memory reading. |
 
 ## Workloads
 
@@ -110,12 +110,14 @@ calls per trial.
 
 `PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
 medianRatio, ratioP25, ratioP75, flagged?, repeats?, confirmed?, verdict, sameOutput,
-suiteChanged? }`. `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
+suiteChanged?, retained?, peak? }`. `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
 times in round `i`, and `ratios[i]` is candidate over base. `flagged` is what the first
 process saw; `repeats` are the fresh-process re-measurements of a flagged task
 (`{ medianRatio, ratioP25, ratioP75, flagged? }`), and `verdict` is `flagged` only when
 `confirmed`. `suiteChanged` is `true` when the suite file differs from the base's copy;
-with `sameOutput: false` too, `verdict` is `unchanged`. See
+with `sameOutput: false` too, `verdict` is `unchanged`. `retained` (`--alloc`) and `peak`
+(`--peak-mem`) are `MemoryChange`s: `{ baseBytes, candBytes, verdict, floorBytes }`, where
+`verdict` counts only a change past both the memory threshold and `floorBytes`. See
 [cli.md](cli.md#ostia-ab).
 
 ## Comparisons

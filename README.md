@@ -142,9 +142,9 @@ ostia ci --format minimal; echo $?
 
 | `event` | When | Key fields |
 |---|---|---|
-| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples` (0 when no trial produced one), `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `retainedBytesPerOp?`/`peakBytes?` (`--alloc`/`--peak-mem`), `relative?`, `noiseFloorPct?`, `warnings[]`, `threw?` (`ab`, a task that threw), on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }`, and on `ab`: `paired: { baseMedian, medianRatio, ratioP25, ratioP75, rounds, verdict, flagged?, confirmed?, repeats?, sameOutput, suiteChanged? }` |
+| `run` | One per timing measurement, every command | `workloadId`, `task`, `group?`, `params?`, `skipped?`, `unit`, `samples` (0 when no trial produced one), `batch`, `mean`/`median`/`stddev`/`stddevPct`/`min`/`max`/`p75`/`p99`/`mad`, `userNs`/`systemNs` (subprocess only), `retainedBytesPerOp?`/`peakBytes?` (`--alloc`/`--peak-mem`), `relative?`, `noiseFloorPct?`, `warnings[]`, `threw?` (`ab`, a task that threw), on `compare`/`ci`: `delta: { medianPct, meanPct, verdict, pass, ci95?, pValue?, effectiveTimingPct, matched }`, and on `ab`: `paired: { baseMedian, medianRatio, ratioP25, ratioP75, rounds, verdict, flagged?, confirmed?, repeats?, sameOutput, suiteChanged?, retained?, peak? }` |
 | `unmatched` | One per workload on only one side of `compare`/`ci`/`ab` | `workloadId`, `task`, `side: "base" \| "cand"` |
-| `summary` | Last line of `compare`/`ci`/`ab` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `base?`/`geomeanThresholdPct?`/`unconfirmed?`/`outputDiffers?`/`notComparable?`/`threw?`/`newSuites?` (`ab`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
+| `summary` | Last line of `compare`/`ci`/`ab` only | `command`, `matched`/`regressed`/`improved`/`unchanged`/`unmatched`, `cached`/`executed`/`failed`/`missingBaseline` (`ci`), `geomeanPct`, `effectiveTimingPct`, `noiseFloorPct?`, `baseline?` (`ci`), `base?`/`geomeanThresholdPct?`/`unconfirmed?`/`outputDiffers?`/`notComparable?`/`threw?`/`newSuites?`/`memory?` (`ab`), `git?`, `exportedTo?`, `verdict`, `exitCode` |
 
 ```
 {"event":"run","protocolVersion":2,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
@@ -250,7 +250,10 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
   changed is marked `suite-changed`; if its output changed too, it reads `not comparable`
   and stays out of the verdict. A task that throws reads `base threw`, `candidate threw` or
   `both threw` and isn't timed; one that throws on the candidate side only fails the run.
-  Exit: `0` pass, `1` regression, `2` nothing paired or a harness error.
+  Exit: `0` pass, `1` regression (time or memory), `2` nothing paired or a harness error.
+- `--alloc` and `--peak-mem` compare memory too: retained heap per call, and how far the
+  first call raises RSS. A reading that grows past `--mem-threshold` (default 10%) and
+  past its noise floor fails the run.
 - Progress goes to stderr on a terminal; `--progress` turns it on in logs and pipes too.
 - The 5 most recently used base trees stay cached (`--keep-trees`); `ostia ab --clean`
   removes them all.

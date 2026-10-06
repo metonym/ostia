@@ -92,6 +92,8 @@ digits.
 | `repeats` | With `flagged`: each repeat's median ratio. |
 | `sameOutput` | Whether the first call returned deep-equal values on both sides. |
 | `suiteChanged` | `true` when the suite file differs from the base's copy. With `sameOutput: false`, the task is not comparable: `verdict` is `"unchanged"` and it's left out of `geomeanPct`. |
+| `retained` | `--alloc`: `{ base, cand, verdict, floor }`, retained heap per call on each side, bytes, each the median of 3 fresh processes. `verdict` is `"regressed"`, `"improved"` or `"unchanged"`; `floor` is the smallest change that counts. The `run` line's `retainedBytesPerOp` is `cand`. |
+| `peak` | `--peak-mem`: the same shape, for each side's first-call RSS rise. The `run` line's `peakBytes` is `cand`. |
 
 ### `unmatched`
 
@@ -121,6 +123,7 @@ digits.
 | `notComparable` | `ab` only: tasks whose suite file and output both changed; counted in `unchanged`, left out of `geomeanPct`. |
 | `threw` | `ab` only: tasks that threw on either side, so weren't timed; not in `matched`. |
 | `newSuites` | `ab` only, when any: suite files that don't exist at the base ref. Their tasks are `unmatched` with `side: "cand"`. |
+| `memory` | `ab` only, with `--alloc` or `--peak-mem`: `{ thresholdPct, regressed, improved }`, tasks whose memory regressed (on either reading) or improved. A memory regression makes `verdict` `"fail"`. |
 | `noiseFloorPct` | When the candidate document has one. |
 | `baseline` | `ci` only: `{ name, path }`. |
 | `git` | `{ base?, cand? }`, each `{ sha, branch, dirty }`, when available. |

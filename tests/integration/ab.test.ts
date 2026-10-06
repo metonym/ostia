@@ -86,6 +86,47 @@ async function commit(message: string): Promise<void> {
 
 const QUICK = { noiseCheck: false, rounds: 7, cwd: REPO }
 
+const MEM_LIB = `const kept: unknown[] = []
+export function paint(n: number): number {
+  return new Array(n).fill(0).map((_, i) => ({ i })).length
+}
+export function remember(): number {
+  return kept.length
+}
+`
+// \`paint\` builds a tenth of the objects; \`remember\` keeps 1,000 numbers
+// alive per call.
+const LEAKY_LIB = MEM_LIB.replace("new Array(n)", "new Array(n / 10)").replace(
+  "return kept.length",
+  "kept.push(new Array(1000).fill(1))\n  return 0",
+)
+
+const MEM_SUITE = `import { group, task } from "${SRC}/index.ts"
+import { paint, remember } from "../src/mem.ts"
+
+group("mem", () => {
+  task("paint", () => paint(300_000))
+  task("remember", () => remember())
+  task("own alloc", () => remember(), { alloc: true })
+})
+`
+
+// Only memory decides: the timing changes are as large as the memory ones.
+const MEMORY_ONLY = {
+  ...QUICK,
+  suites: ["bench/m.bench.ts"],
+  confirm: 0,
+  thresholdPct: 1e9,
+  geomeanThresholdPct: 1e9,
+}
+
+async function initMemRepo(): Promise<void> {
+  await Bun.write(`${REPO}/src/mem.ts`, MEM_LIB)
+  await Bun.write(`${REPO}/bench/m.bench.ts`, MEM_SUITE)
+  await commit("mem")
+  await Bun.write(`${REPO}/src/mem.ts`, LEAKY_LIB)
+}
+
 describe("ab() - paired A/B against a git ref", () => {
   beforeEach(initRepo)
   afterAll(async () => {
@@ -478,6 +519,84 @@ task("gen", () => spin(N))
   }, 20_000)
 })
 
+describe("ab() - memory", () => {
+  beforeEach(async () => {
+    await initRepo()
+    await initMemRepo()
+  })
+  afterAll(async () => {
+    await Bun.spawn(["rm", "-rf", REPO]).exited
+  })
+
+  const pairedOf = (doc: Awaited<ReturnType<typeof ab>>, task: string) => {
+    const id = doc.workloads.find((w) => w.entry?.task === task)!.id
+    return doc.measurements.find((m) => m.workloadId === id)!.paired!
+  }
+
+  test("alloc and peakMem compare both sides: a leak fails the run, a smaller peak improves", async () => {
+    const events: AbProgress[] = []
+    const doc = await ab({
+      ...MEMORY_ONLY,
+      alloc: true,
+      peakMem: true,
+      onProgress: (p) => events.push(p),
+    })
+
+    const remember = pairedOf(doc, "mem/remember")
+    expect(remember.retained!.baseBytes).toBeLessThan(1024)
+    expect(remember.retained!.candBytes).toBeGreaterThan(4000)
+    expect(remember.retained!.verdict).toBe("regressed")
+    expect(remember.retained!.floorBytes).toBeGreaterThan(0)
+
+    const paint = pairedOf(doc, "mem/paint")
+    expect(paint.peak!.baseBytes).toBeGreaterThan(4 * paint.peak!.candBytes)
+    expect(paint.peak!.verdict).toBe("improved")
+    expect(paint.retained!.verdict).toBe("unchanged")
+
+    expect(doc.ab!.regressed).toBe(0)
+    expect(doc.ab!.memory).toMatchObject({ thresholdPct: 10, regressed: 2 })
+    expect(doc.ab!.verdict).toBe("fail")
+
+    // Three fresh processes per side per task, alternating sides.
+    const peaks = events.filter((e) => e.phase === "memory")
+    expect(peaks).toHaveLength(18)
+    expect(peaks.slice(0, 2)).toEqual([
+      { phase: "memory", run: 1, runs: 18, side: "base", label: "mem/paint" },
+      { phase: "memory", run: 2, runs: 18, side: "cand", label: "mem/paint" },
+    ])
+  }, 120_000)
+
+  test("without the options, only a task's own alloc measures memory", async () => {
+    const doc = await ab(MEMORY_ONLY)
+    expect(pairedOf(doc, "mem/paint").retained).toBeUndefined()
+    expect(pairedOf(doc, "mem/paint").peak).toBeUndefined()
+    expect(pairedOf(doc, "mem/own alloc").retained!.verdict).toBe("regressed")
+    expect(doc.ab!.memory?.regressed).toBe(1)
+  }, 60_000)
+
+  test("a memory change inside the threshold passes", async () => {
+    const doc = await ab({
+      ...MEMORY_ONLY,
+      filter: "paint",
+      peakMem: true,
+      memThresholdPct: 95,
+    })
+    expect(pairedOf(doc, "mem/paint").peak!.verdict).toBe("unchanged")
+    expect(doc.ab!.memory).toEqual({
+      thresholdPct: 95,
+      regressed: 0,
+      improved: 0,
+    })
+    expect(doc.ab!.verdict).toBe("pass")
+  }, 60_000)
+
+  test("rejects a negative memThresholdPct", async () => {
+    await expect(ab({ ...MEMORY_ONLY, memThresholdPct: -1 })).rejects.toThrow(
+      RangeError,
+    )
+  })
+})
+
 describe("ostia ab", () => {
   beforeEach(initRepo)
   afterAll(async () => {
@@ -695,12 +814,62 @@ describe("ostia ab", () => {
     expect(stderr).toContain('"code":"command-failed"')
   }, 20_000)
 
+  test("--alloc and --peak-mem print a memory table and add memory to the protocol", async () => {
+    await initMemRepo()
+    const args = [
+      "bench/m.bench.ts",
+      "--filter",
+      "remember",
+      "--alloc",
+      "--peak-mem",
+      "--rounds",
+      "3",
+      "--confirm",
+      "0",
+      "--threshold",
+      "1e9",
+      "--geomean-threshold",
+      "1e9",
+      "--no-noise-check",
+    ]
+    const table = await runCli(args)
+    expect(table.exitCode).toBe(1)
+    expect(table.stdout).toContain("memory threshold 10%")
+    expect(table.stdout).toMatch(
+      /^Memory:\nTask +Reading +Base +Candidate +Change +Verdict$/m,
+    )
+    expect(table.stdout).toMatch(/^ {2}remember +retained\/op .* regressed$/m)
+    expect(table.stdout).toMatch(/^ {2}remember +peak /m)
+    expect(table.stdout).toContain("· memory: 1 regressed, 0 improved · fail")
+
+    const minimal = await runCli([...args, "--format", "minimal"])
+    const events = minimal.stdout
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l) as MinimalEvent)
+    const run = events.find((e) => e.event === "run")
+    if (run?.event !== "run") throw new Error("no run line")
+    expect(run.paired?.retained?.verdict).toBe("regressed")
+    expect(run.paired?.retained?.cand).toBe(run.retainedBytesPerOp!)
+    expect(run.paired?.peak?.base).toBeGreaterThan(0)
+    const summary = events.at(-1)
+    if (summary?.event !== "summary") throw new Error("no summary line")
+    expect(summary.memory).toEqual({
+      thresholdPct: 10,
+      regressed: 1,
+      improved: 0,
+    })
+    expect(summary.verdict).toBe("fail")
+  }, 60_000)
+
   test("rejects fewer than 3 rounds and a non-numeric threshold", async () => {
     const rounds = await runCli(["bench/s.bench.ts", "--rounds", "2"])
     expect(rounds.exitCode).toBe(2)
     const threshold = await runCli(["bench/s.bench.ts", "--threshold", "x"])
     expect(threshold.exitCode).toBe(2)
     expect(threshold.stderr).toContain("expected a number")
+    const mem = await runCli(["bench/s.bench.ts", "--mem-threshold", "-1"])
+    expect(mem.exitCode).toBe(2)
   }, 20_000)
 })
 

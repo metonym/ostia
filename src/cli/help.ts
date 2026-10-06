@@ -90,6 +90,11 @@ Flags:
   --geomean-threshold PCT  fail when the geometric mean of all ratios is slower than PCT
                        (default: 1.5)
   --confirm N          re-measure each flagged task in N fresh processes (default: 2; 0 skips)
+  --alloc              also compare retained heap per call on each side (--no-alloc)
+  --peak-mem           also compare each side's first-call RSS rise (--no-peak-mem); both
+                       run in 3 fresh processes per side, and the median counts
+  --mem-threshold PCT  flag a memory reading that moves past PCT of the base's and past
+                       its noise floor (default: 10)
   --filter REGEX       only tasks whose "group/name" matches
   --preload PATH       import before each suite file (repeatable, in order)
   --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
@@ -111,8 +116,8 @@ with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDA
 working tree) set. A flagged task counts only when every fresh-process repeat flags it the
 same way. A task that throws isn't timed; one that throws on the candidate side only fails
 the run. A task whose suite file and output both changed reads "not comparable" and stays
-out of the verdict. Exit codes: 0 pass, 1 a confirmed regression, a candidate-only throw or
-the geomean over its threshold, 2 nothing paired or a harness error (not a git repo,
+out of the verdict. Exit codes: 0 pass, 1 a confirmed regression, a candidate-only throw,
+the geomean over its threshold or a memory regression, 2 nothing paired or a harness error (not a git repo,
 unknown ref, a failed setup or suite), 130 Ctrl-C.
 
 Examples:
@@ -120,6 +125,7 @@ Examples:
   ostia ab bench/*.ts --base origin/main --rounds 21
   ostia ab bench/*.ts --filter parse --format minimal
   ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
+  ostia ab bench/paint.bench.ts --alloc --peak-mem
 `
 
 export const COMPARE_HELP = `ostia compare <base.json> <candidate.json>

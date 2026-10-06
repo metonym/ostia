@@ -1,11 +1,19 @@
+import type { MemoryChange } from "../ir/types.ts"
 import { percentile, sortedCopy } from "../stats/index.ts"
 import { batchTimer, probeFirstCall, type TaskBody } from "./loop.ts"
+
+export type Side = "base" | "cand"
+
+/** `"candidate"` for `"cand"`, for messages; other sides as they are. */
+export function sideLabel(side: Side | "both"): string {
+  return side === "cand" ? "candidate" : side
+}
 
 /** What `measurePaired` throws when one side's task throws, naming the
  * side; the task's own error is `cause`. */
 export class PairedSideError extends Error {
   constructor(
-    readonly side: "base" | "cand",
+    readonly side: Side,
     cause: unknown,
   ) {
     super(cause instanceof Error ? cause.message : String(cause), { cause })
@@ -151,6 +159,26 @@ export function comparable(p: {
   sameOutput: boolean
 }): boolean {
   return !(p.suiteChanged && !p.sameOutput)
+}
+
+/** `regressed` when the candidate exceeds the base by more than
+ * `thresholdPct` of the base and more than `floorBytes`; `improved` is the
+ * mirror. */
+export function memoryChange(
+  baseBytes: number,
+  candBytes: number,
+  thresholdPct: number,
+  floorBytes: number,
+): MemoryChange {
+  const diff = candBytes - baseBytes
+  const counts =
+    Math.abs(diff) > Math.max(floorBytes, (baseBytes * thresholdPct) / 100)
+  return {
+    baseBytes,
+    candBytes,
+    verdict: !counts ? "unchanged" : diff > 0 ? "regressed" : "improved",
+    floorBytes,
+  }
 }
 
 /** `regressed` when the median ratio is above `1 + thresholdPct/100` and the

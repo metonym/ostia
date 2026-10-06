@@ -376,6 +376,9 @@ ostia ab [flags] <suite.ts...>
 | `--threshold PCT` | Flag a task whose median candidate/base ratio moves more than `PCT` percent (default: 10). |
 | `--geomean-threshold PCT` | Fail when the geometric mean of all tasks' ratios is more than `PCT` percent slower (default: 1.5). |
 | `--confirm N` | Re-measure each flagged task in `N` fresh processes (default: 2; 0 trusts the first process). |
+| `--alloc` / `--no-alloc` | Also compare each side's retained heap per call. See "Memory". |
+| `--peak-mem` / `--no-peak-mem` | Also compare how far each side's first call raises RSS. See "Memory". |
+| `--mem-threshold PCT` | Flag a memory reading that moves more than `PCT` percent of the base's, and more than its noise floor (default: 10). |
 | `--filter REGEX` | Only tasks whose `group/name` id matches. |
 | `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
@@ -525,6 +528,44 @@ the suite file itself is checked, not the files it imports.
 The noise floor is measured and reported as usual but doesn't widen the threshold:
 pairing already cancels the drift it measures.
 
+**Memory.** `--alloc` and `--peak-mem` measure the same things as under `ostia bench`, on
+both sides. After timing, each task that timed without throwing runs in fresh processes
+that load only one side's suite, three per side, alternating sides; the median of each
+side counts. In each process:
+
+- `--peak-mem`: how far the first call raises RSS, garbage included. `OSTIA_PEAK_MEM` is
+  set, as under `bench`.
+- `--alloc`: after one warmup batch, a batch of calls between full GCs. The heap growth
+  per call is what the calls keep alive, not what they allocate, so it catches leaks and
+  caches that grow.
+
+Memory isn't measured in the timing process. There, the two sides share every package in
+`node_modules` and run in a fixed order, and in A/A runs (no change) the retained heap
+differed between sides by up to 12 KiB per call, the same way every run. In separate
+processes, the two sides agree within a few bytes.
+
+Pairing matters less here than for time: memory doesn't drift with load. A reading is
+`regressed` when the candidate's is larger than the base's by more than `--mem-threshold`
+(default 10%) of the base's and by more than a noise floor; `improved` is the mirror. The
+floor is 16 KiB over the batch for `--alloc`, divided by the calls in the batch (the heap
+grows in blocks, so a batch that keeps nothing can still read a block or two). For
+`--peak-mem` it's 1 MiB (fresh processes differ by a few hundred KiB on small readings),
+or, when a `peak-hidden` warning says memory freed before the call could hide part of its
+peak, the size of that memory. A memory regression fails the run like a time regression.
+Task and group `alloc`/`peakMem` options apply under `ab` as under `bench`. A task that's
+not comparable gets no memory verdict. The Change column leaves out the percent when the
+base reading is under the floor: a percent of almost nothing means little.
+
+```
+Memory:
+Task         Reading     Base       Candidate  Change             Verdict
+-------------------------------------------------------------------------
+dom:
+  paint      retained/op 0B         21B        +21B
+  paint      peak        14.03MiB   2.44MiB    -11.59MiB (-82.6%) improved
+  remember   retained/op 21B        7.88KiB    +7.86KiB           regressed
+```
+
 **Progress.** A run over many suites, with confirmations, can take many minutes. On a
 terminal, `ostia ab` shows one progress line on stderr, replaced as it goes and cleared
 before the report. `--progress` turns it on anywhere else too, as one line per step, which
@@ -534,6 +575,7 @@ is how a script or agent can tell a long run from a stuck one:
 [ab] base setup: bun scripts/generate.ts
 [ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex
 [ab] confirming flagged tasks · repeat 1/6 search/regex
+[ab] memory · process 2/6 candidate search/regex
 ```
 
 Progress never goes to stdout, so `--format minimal` output stays clean.

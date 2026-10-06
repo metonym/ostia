@@ -9,6 +9,8 @@ const DEFAULT_BUDGET_MS = 1000
 
 export interface AllocCaptureResult {
   memory: MemoryEvidence
+  /** The heap grows in blocks, so fewer calls mean a coarser `bytesPerOp`. */
+  calls: number
   diagnosticWallNs: number
 }
 
@@ -41,6 +43,7 @@ export async function measureAllocPerOp(
       kind: "retained",
       bytesPerOp: Math.max(0, (after - before) / calls),
     },
+    calls,
     diagnosticWallNs,
   }
 }

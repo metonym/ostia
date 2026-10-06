@@ -154,6 +154,9 @@ command workload's `inputs`.
 |---|---|---|
 | `setup` | unset | `--base-setup` (CLI list replaces config list) |
 | `keepTrees` | 5 | `--keep-trees` |
+| `alloc` | `false` | `--alloc` / `--no-alloc` |
+| `peakMem` | `false` | `--peak-mem` / `--no-peak-mem` |
+| `memThresholdPct` | 10 | `--mem-threshold` |
 
 `setup` is a shell command, or a list run in order, that runs once in each freshly
 extracted base tree, before it's used. Use it to build files the suites import that git
@@ -162,5 +165,8 @@ doesn't hold, such as generated or gitignored sources:
 ```json
 { "ab": { "setup": "bun scripts/generate.ts" } }
 ```
+
+`bench.alloc` and `bench.peakMem` don't apply to `ab`: memory readings add time to every
+A/B run, so `ab` has its own switches.
 
 See [cli.md](cli.md#ostia-ab) for what the command can rely on.

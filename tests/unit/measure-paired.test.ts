@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test"
-import { summarizePaired } from "../../src/ab/index"
+import { poolOrders, summarizePaired } from "../../src/ab/index"
+import { createDocument } from "../../src/ir/document"
 import type { Measurement, PairedEvidence } from "../../src/ir/types"
 import {
   measurePaired,
@@ -8,6 +9,7 @@ import {
   ratioStats,
 } from "../../src/measure/paired"
 import { formatAbSummary, memoryCells } from "../../src/renderers/paired"
+import { computeTimingStats } from "../../src/stats/index"
 
 function spin(n: number): number {
   let acc = 0
@@ -91,6 +93,25 @@ describe("measurePaired", () => {
     const { medianRatio, flagged } = ratioStats(result.ratios, 10)
     expect(medianRatio).toBeGreaterThan(2)
     expect(flagged).toBe("regressed")
+  }, 20_000)
+
+  test("candFirst gives the candidate the first call, warmup and batches", async () => {
+    for (const candFirst of [false, true]) {
+      const calls: string[] = []
+      await measurePaired(
+        () => calls.push("base"),
+        () => calls.push("cand"),
+        { rounds: 3, candFirst },
+      )
+      const first = candFirst ? "cand" : "base"
+      // The first call, then that side's whole warmup.
+      expect(calls.slice(0, 2)).toEqual([
+        first,
+        first === "base" ? "cand" : "base",
+      ])
+      expect(calls[2]).toBe(first)
+      expect(calls[3]).toBe(first)
+    }
   }, 20_000)
 
   test("compares the two sides' first return values", async () => {
@@ -404,5 +425,62 @@ describe("memoryCells", () => {
       change: "0B",
       verdict: "",
     })
+  })
+})
+
+describe("poolOrders", () => {
+  /** A one-order run of one workload whose rounds all read `ratio`. */
+  const run = (ratio: number, rounds: number) => {
+    const baseSamples = Array.from({ length: rounds }, () => 100)
+    const candSamples = baseSamples.map((b) => b * ratio)
+    const stats = ratioStats(
+      candSamples.map((c, i) => c / baseSamples[i]!),
+      10,
+    )
+    return createDocument(
+      [],
+      [
+        {
+          ...pairedMeasurement({
+            rounds,
+            baseSamples,
+            baseMedianNs: 100,
+            ratios: candSamples.map((c, i) => c / baseSamples[i]!),
+            ...stats,
+            verdict: stats.flagged ?? "unchanged",
+          }),
+          timing: computeTimingStats(candSamples),
+        },
+      ],
+    )
+  }
+
+  test("a bias that flips with the order cancels", () => {
+    // Base first reads 12% slower; candidate first, 12% faster.
+    const pooled = poolOrders(run(1.12, 8), run(0.88, 7), 10)
+    const m = pooled.measurements[0]!
+    expect(run(1.12, 8).measurements[0]!.paired!.flagged).toBe("regressed")
+    expect(m.paired!.rounds).toBe(15)
+    expect(m.paired!.ratios).toHaveLength(15)
+    expect(m.timing!.samples).toHaveLength(15)
+    expect(m.paired!.flagged).toBeUndefined()
+    expect(m.paired!.verdict).toBe("unchanged")
+  })
+
+  test("a change in both orders stays flagged", () => {
+    const pooled = poolOrders(run(1.3, 8), run(1.2, 7), 10)
+    expect(pooled.measurements[0]!.paired!.verdict).toBe("regressed")
+  })
+
+  test("a throw in either order counts; different sides make both", () => {
+    const threw = (side: "base" | "cand") =>
+      createDocument(
+        [],
+        [{ ...pairedMeasurement({}), threw: { side, message: side } }],
+      )
+    const once = poolOrders(run(1, 8), threw("cand"), 10).measurements[0]!
+    expect(once.threw?.side).toBe("cand")
+    const both = poolOrders(threw("base"), threw("cand"), 10).measurements[0]!
+    expect(both.threw).toEqual({ side: "both", message: "base\ncand" })
   })
 })

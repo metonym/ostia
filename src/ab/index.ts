@@ -35,8 +35,14 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
-import { comparable, memoryChange, type Side } from "../measure/paired.ts"
+import {
+  comparable,
+  memoryChange,
+  ratioStats,
+  type Side,
+} from "../measure/paired.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
+import { computeTimingStats } from "../stats/index.ts"
 import type {
   AbMemoryResult,
   AbMemoryTask,
@@ -53,6 +59,9 @@ export type AbProgress =
       suite: number
       suites: number
       file: string
+      /** Each suite runs twice, once with each side first. */
+      pass: number
+      passes: number
       task: number
       tasks: number
       label: string
@@ -487,6 +496,62 @@ function judgeMemory(
   }
 }
 
+/** Pools a suite's base-first run `a` with its candidate-first run `b`. The
+ * side that goes first in a process can run several percent faster, the
+ * same way every time, so one order alone reads as a change on identical
+ * code; pooled, the bias pulls both ways and cancels. A throw in either run
+ * counts. */
+export function poolOrders(
+  a: ProfileDocument,
+  b: ProfileDocument,
+  thresholdPct: number,
+): ProfileDocument {
+  const second = new Map(b.measurements.map((m) => [m.workloadId, m]))
+  const pooled = a.measurements.map((m): Measurement => {
+    const other = second.get(m.workloadId)
+    if (!other) return m
+    if (m.threw && other.threw && m.threw.side !== other.threw.side) {
+      return {
+        ...m,
+        threw: {
+          side: "both",
+          message: `${m.threw.message}\n${other.threw.message}`,
+        },
+      }
+    }
+    if (m.threw) return m
+    if (other.threw) return other
+    const p = m.paired
+    const q = other.paired
+    if (!p || !q || !m.timing || !other.timing) return m
+    const ratios = [...p.ratios, ...q.ratios]
+    const baseSamples = [...p.baseSamples, ...q.baseSamples]
+    const stats = ratioStats(ratios, thresholdPct)
+    const timing = computeTimingStats([
+      ...m.timing.samples,
+      ...other.timing.samples,
+    ])
+    if (p.batch > 1) timing.batch = p.batch
+    return {
+      ...m,
+      timing,
+      diagnosticWallNs:
+        (m.diagnosticWallNs ?? 0) + (other.diagnosticWallNs ?? 0),
+      paired: {
+        rounds: p.rounds + q.rounds,
+        batch: p.batch,
+        baseSamples,
+        baseMedianNs: median(baseSamples),
+        ratios,
+        ...stats,
+        verdict: stats.flagged ?? "unchanged",
+        sameOutput: p.sameOutput && q.sameOutput,
+      },
+    }
+  })
+  return { ...a, measurements: pooled }
+}
+
 /** Median over the main run and any fresh-process repeats, so one process's
  * JIT luck moves the geomean less. */
 function ratioEstimate(p: PairedEvidence): number {
@@ -714,6 +779,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
               suite: s + 1,
               suites: candSuites.length,
               file: opts.suites[s]!,
+              pass: extra.candFirst ? 2 : 1,
+              passes: 2,
               ...message,
             }),
         }),
@@ -721,12 +788,29 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     )
     return ran ? outPath : undefined
   }
+  /** Runs suite `s` twice, base first and then candidate first, splitting
+   * the rounds, and pools the two; undefined when cancelled. */
   const runSuite = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
   ): Promise<ProfileDocument | undefined> => {
-    const outPath = await runRunner(s, extra)
-    return outPath ? loadDocument(outPath) : undefined
+    const first = await runRunner(s, {
+      ...extra,
+      rounds: Math.ceil(rounds / 2),
+    })
+    if (!first) return undefined
+    const second = await runRunner(s, {
+      ...extra,
+      planPath: undefined,
+      rounds: Math.floor(rounds / 2),
+      candFirst: true,
+    })
+    if (!second) return undefined
+    return poolOrders(
+      await loadDocument(first),
+      await loadDocument(second),
+      thresholdPct,
+    )
   }
 
   try {

@@ -79,7 +79,8 @@ export const AB_HELP = `ostia ab [flags] <suite.ts...>
 
 Pair every task on a git ref's committed tree (base) against the working tree (candidate), in
 one process, alternating ~10ms batches, and gate on the per-round time ratio. Drift between
-the two sides cancels within a round. With no files, uses ostia.config's "bench" suites.
+the two sides cancels within a round. Each suite runs twice, once with each side first, and
+the rounds are pooled. With no files, uses ostia.config's "bench" suites.
 
 Flags:
   --base REF           git ref for the base side (default: HEAD)

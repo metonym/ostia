@@ -77,6 +77,13 @@
   `--keep-trees` (default 5; `ab.keepTrees`, `keepTrees` on `ab()`) most
   recently used trees and removes the rest, except trees used in the last
   hour. `ostia ab --clean` removes them all.
+- `ostia ab` runs each suite twice, once with the base imported, warmed and
+  timed first and once with the candidate first, splitting `--rounds` between
+  them, and judges the pooled rounds. The side that goes first can run several
+  percent faster, the same way in every process, so identical code could read
+  as a confirmed regression (svelte-highlight: +11%, repeats +16.8% and
+  +16.0%). Confirmation repeats do the same. About 25% more time. The `measure`
+  progress event gains `pass`/`passes`; `measurePaired` takes `candFirst`.
 - `ostia ab --alloc` and `--peak-mem` (`ab.alloc`/`ab.peakMem` in the config,
   `alloc`/`peakMem` on `ab()`) compare memory on both sides: retained heap per
   call, after a warmup batch, and how far the first call raises RSS. Both are

@@ -27,6 +27,7 @@ import {
   measurePaired,
   PairedSideError,
   ratioStats,
+  type Side,
   sideLabel,
 } from "../measure/paired.ts"
 import {
@@ -48,6 +49,8 @@ export interface AbRunnerOpts {
   preload?: string[]
   /** Send an `AbRunnerProgress` message over IPC before each task. */
   progress?: boolean
+  /** Import, set up and time the candidate first; see `poolOrders`. */
+  candFirst?: boolean
   /** Suite-wide defaults for the memory readings in `planPath` (task/group
    * options win). */
   alloc?: boolean
@@ -111,17 +114,15 @@ async function fail(outputPath: string, message: string): Promise<number> {
   return 2
 }
 
-type Side = "base" | "cand"
-
 type MeasureOutcome =
   | { result: Awaited<ReturnType<typeof measurePaired>> }
   | { threw: NonNullable<Measurement["threw"]> }
 
 /** One pair's `before` hooks, paired timing and `after` hooks. A throw from
  * either side's task or hooks doesn't stop the suite; it's reported with
- * its side instead. Each `before` runs once, and a side whose `before`
- * threw isn't timed or torn down. Every side that was set up is torn down
- * exactly once, candidate first, even when a hook throws. When only one
+ * its side instead. Each `before` runs once, in `order`, and a side whose
+ * `before` threw isn't timed or torn down. Every side that was set up is
+ * torn down once, in reverse order, even when a hook throws. When only one
  * side has thrown, the other side's task is called once more, before
  * teardown and only if that side is set up, to tell whether it throws too
  * (`"both"`). */
@@ -129,6 +130,7 @@ async function measureTask(
   base: RegisteredTask,
   cand: RegisteredTask,
   rounds: number,
+  order: Side[],
 ): Promise<MeasureOutcome> {
   const tasks = { base, cand }
   // The first error from each side.
@@ -137,7 +139,7 @@ async function measureTask(
     if (!errors.has(side)) errors.set(side, err)
   }
   const ready = new Set<Side>()
-  for (const side of ["base", "cand"] as const) {
+  for (const side of order) {
     try {
       await tasks[side].opts?.before?.()
       ready.add(side)
@@ -150,7 +152,10 @@ async function measureTask(
   let internal: { err: unknown } | undefined
   if (ready.size === 2) {
     try {
-      result = await measurePaired(base.fn, cand.fn, { rounds })
+      result = await measurePaired(base.fn, cand.fn, {
+        rounds,
+        candFirst: order[0] === "cand",
+      })
     } catch (err) {
       if (err instanceof PairedSideError) record(err.side, err.cause)
       else internal = { err }
@@ -168,7 +173,7 @@ async function measureTask(
     }
   }
 
-  for (const side of ["cand", "base"] as const) {
+  for (const side of order.toReversed()) {
     if (!ready.has(side)) continue
     try {
       await tasks[side].opts?.after?.()
@@ -283,25 +288,22 @@ async function main(): Promise<number> {
     await import(preloadFile)
   }
 
+  const order: Side[] = opts.candFirst ? ["cand", "base"] : ["base", "cand"]
   let baseTasks: RegisteredTask[] = []
-  if (baseSuite) {
+  let candRegistered: RegisteredTask[] = []
+  for (const side of order) {
+    const suite = side === "base" ? baseSuite : candSuite
+    if (!suite) continue
     try {
-      baseTasks = await importTasks(baseSuite)
+      const tasks = await importTasks(suite)
+      if (side === "base") baseTasks = tasks
+      else candRegistered = tasks
     } catch (err) {
       return fail(
         outputPath,
-        `the base side failed to load ${baseSuite}: ${errorText(err)}`,
+        `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
       )
     }
-  }
-  let candRegistered: RegisteredTask[]
-  try {
-    candRegistered = await importTasks(candSuite)
-  } catch (err) {
-    return fail(
-      outputPath,
-      `the candidate side failed to load ${candSuite}: ${errorText(err)}`,
-    )
   }
   if (candRegistered.length === 0) {
     return fail(
@@ -386,9 +388,11 @@ async function main(): Promise<number> {
         label: taskId(cand),
       } satisfies AbRunnerProgress)
     }
-    await runGroupHooks(base, "before", enter)
-    await runGroupHooks(cand, "before", enter)
-    const measured = await measureTask(base, cand, opts.rounds)
+    const sides = { base, cand }
+    for (const side of order) {
+      await runGroupHooks(sides[side], "before", enter)
+    }
+    const measured = await measureTask(base, cand, opts.rounds, order)
     if ("threw" in measured) {
       measurements.push(
         makePairedMeasurement({
@@ -425,8 +429,9 @@ async function main(): Promise<number> {
       )
     }
 
-    await runGroupHooks(cand, "after", leave)
-    await runGroupHooks(base, "after", leave)
+    for (const side of order.toReversed()) {
+      await runGroupHooks(sides[side], "after", leave)
+    }
   }
 
   const doc = createDocument(workloads, measurements)

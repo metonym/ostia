@@ -415,7 +415,7 @@ function formatAbProgress(p: AbProgress): string {
     case "setup":
       return `[ab] base setup: ${p.command}`
     case "measure":
-      return `[ab] suite ${p.suite}/${p.suites} ${p.file} · task ${p.task}/${p.tasks} ${p.label}`
+      return `[ab] suite ${p.suite}/${p.suites} ${p.file} · pass ${p.pass}/${p.passes} · task ${p.task}/${p.tasks} ${p.label}`
     case "confirm":
       return `[ab] confirming flagged tasks · repeat ${p.repeat}/${p.repeats} ${p.label}`
     case "memory":

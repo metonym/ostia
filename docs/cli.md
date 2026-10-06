@@ -472,8 +472,8 @@ Every script in the extracted tree gets one inert line appended,
 `;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to its working-tree
 copy. JSC reuses compiled code between identical sources, and identical copies didn't
 measure independently: with no change at all, whichever copy was imported (and warmed up)
-first ran 5–15% faster, reproducibly across processes. With the salt, an A/A run reads
-within a fraction of a percent either way.
+first ran 5–15% faster, reproducibly across processes. The salt removes part of that gap.
+The rest comes from order, not identical sources; see "Order".
 
 **Pairing.** Tasks pair across the two trees by their `group/name` id and `params`, the
 same identity the workload id hashes, so a paired task has the same workload id as in
@@ -486,6 +486,16 @@ batch until each spans 1ms, a batch size planned so the slower side's batch take
 which side goes first. Each side runs through its own compiled timing loop. The
 candidate's per-call times become the measurement's `timing`; the base side's and the
 per-round ratios go in `paired`.
+
+**Order.** In one process, the side that's imported, called, warmed and timed first can
+run faster, the same way in every process. On svelte-highlight's render suite, with no
+change at all, one task read +4–6% in every run with the base first, and −2–5% with the
+candidate first. Alternating rounds can't cancel this, and fresh-process repeats in the
+same order reproduce it, so it read as a confirmed regression. So each suite runs twice:
+once with the base first and once with the candidate first, splitting `--rounds` between
+them (8 and 7 by default). The two runs' rounds are pooled and judged together, and the
+bias pulls them both ways and cancels. Each confirmation repeat does the same. This costs
+one more process per suite and a second warmup per task, about 25% more time.
 
 **Verdict.** A task is flagged `regressed` when its median ratio is above
 `1 + threshold` and the 25th percentile is above 1, so the candidate was slower in at
@@ -573,7 +583,7 @@ is how a script or agent can tell a long run from a stuck one:
 
 ```
 [ab] base setup: bun scripts/generate.ts
-[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex
+[ab] suite 4/13 bench/search.bench.ts · pass 1/2 · task 3/7 search/regex
 [ab] confirming flagged tasks · repeat 1/6 search/regex
 [ab] memory · process 2/6 candidate search/regex
 ```

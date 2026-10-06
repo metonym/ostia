@@ -3,15 +3,37 @@ import { summarizePaired } from "../../src/ab/index"
 import type { Measurement, PairedEvidence } from "../../src/ir/types"
 import {
   measurePaired,
+  memoryChange,
   PairedSideError,
   ratioStats,
 } from "../../src/measure/paired"
+import { formatAbSummary, memoryCells } from "../../src/renderers/paired"
 
 function spin(n: number): number {
   let acc = 0
   for (let i = 0; i < n; i++) acc = (acc + i * 31) % 1000000007
   return acc
 }
+
+describe("memoryChange", () => {
+  test("flags a change past both the percent threshold and the floor", () => {
+    expect(memoryChange(1000, 2000, 10, 100).verdict).toBe("regressed")
+    expect(memoryChange(2000, 1000, 10, 100).verdict).toBe("improved")
+  })
+
+  test("a change under the floor is unchanged, however large in percent", () => {
+    // 0 to 80 bytes: one heap block over a 100-call batch.
+    expect(memoryChange(0, 80, 10, 164).verdict).toBe("unchanged")
+    expect(memoryChange(0, 8000, 10, 164).verdict).toBe("regressed")
+  })
+
+  test("a change under the percent threshold is unchanged, however large in bytes", () => {
+    const mib = 1024 * 1024
+    const change = memoryChange(100 * mib, 105 * mib, 10, mib)
+    expect(change.verdict).toBe("unchanged")
+    expect(change.floorBytes).toBe(mib)
+  })
+})
 
 describe("ratioStats", () => {
   test("flags a regression when the median and the 25th percentile are both past the threshold", () => {
@@ -322,5 +344,65 @@ describe("summarizePaired", () => {
     expect(summary.matched).toBe(0)
     expect(summary.geomeanPct).toBeNull()
     expect(summary.verdict).toBe("pass")
+  })
+
+  test("a memory regression fails the run; memory counts each task once", () => {
+    const retained = (base: number, cand: number) =>
+      memoryChange(base, cand, 10, 100)
+    const summary = summarizePaired(
+      [
+        pairedMeasurement({ retained: retained(0, 8000) }),
+        pairedMeasurement({
+          retained: retained(4000, 0),
+          peak: memoryChange(10e6, 2e6, 10, 1e6),
+        }),
+        pairedMeasurement({ medianRatio: 1 }),
+      ],
+      { ...settings, memThresholdPct: 10 },
+    )
+    expect(summary.regressed).toBe(0)
+    expect(summary.memory).toEqual({
+      thresholdPct: 10,
+      regressed: 1,
+      improved: 1,
+    })
+    expect(summary.verdict).toBe("fail")
+    expect(formatAbSummary(summary)).toContain(
+      "· memory: 1 regressed, 1 improved · fail",
+    )
+  })
+
+  test("no memory summary without memory readings", () => {
+    const summary = summarizePaired([pairedMeasurement({})], settings)
+    expect(summary.memory).toBeUndefined()
+    expect(formatAbSummary(summary)).not.toContain("memory")
+  })
+})
+
+describe("memoryCells", () => {
+  const cells = (base: number, cand: number, floor: number) =>
+    memoryCells({
+      run: undefined as never,
+      reading: "peak",
+      change: memoryChange(base, cand, 10, floor),
+    })
+
+  test("shows the byte change, with a percent unless the base is under the floor", () => {
+    const mib = 1024 * 1024
+    expect(cells(2 * mib, mib, 0)).toEqual({
+      reading: "peak",
+      base: "2.00MiB",
+      candidate: "1.00MiB",
+      change: "-1.00MiB (-50.0%)",
+      verdict: "improved",
+    })
+    expect(cells(0, 2048, 100).change).toBe("+2.00KiB")
+    expect(cells(21, 8069, 164).change).toBe("+7.86KiB")
+    // Medians of fractional bytes per call round to whole bytes.
+    expect(cells(0.1, 0.32, 100).change).toBe("0B")
+    expect(cells(64, 64, 100)).toMatchObject({
+      change: "0B",
+      verdict: "",
+    })
   })
 })

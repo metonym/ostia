@@ -28,6 +28,8 @@ import {
   formatAbSummary,
   formatNewSuites,
   formatThrew,
+  memoryCells,
+  memoryRows,
   pairedCells,
   pairedRuns,
   threwRuns,
@@ -141,6 +143,26 @@ function abSection(
             c.change,
             c.spread,
             c.verdict ? `**${cell(c.verdict)}**` : "",
+          ]
+        }),
+      ),
+      "",
+    )
+  }
+  const memory = memoryRows(doc)
+  if (memory.length > 0) {
+    lines.push(
+      ...mdTable(
+        ["Task", "Memory", "Base", "Candidate", "Change", "Verdict"],
+        memory.map((row) => {
+          const c = memoryCells(row)
+          return [
+            taskCell(byWorkload.get(row.run.workloadId), row.run.workloadId),
+            c.reading,
+            c.base,
+            c.candidate,
+            c.change,
+            c.verdict ? `**${c.verdict}**` : "",
           ]
         }),
       ),

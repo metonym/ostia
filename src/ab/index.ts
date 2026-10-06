@@ -17,6 +17,8 @@ import {
   assertSuiteExists,
   captureRunEnvironment,
   median,
+  PEAK_MEM_PROCESSES,
+  peakHiddenWarning,
   removeDir,
   runRunnerProcess,
   stampRunWarnings,
@@ -33,9 +35,15 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
-import { comparable } from "../measure/paired.ts"
+import { comparable, memoryChange, type Side } from "../measure/paired.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
-import type { AbRunnerOpts, AbRunnerProgress } from "./ab-runner.ts"
+import type {
+  AbMemoryResult,
+  AbMemoryTask,
+  AbRunnerOpts,
+  AbRunnerPlan,
+  AbRunnerProgress,
+} from "./ab-runner.ts"
 
 /** What `ab()` is doing, for `onProgress`. Counts start at 1. */
 export type AbProgress =
@@ -50,6 +58,7 @@ export type AbProgress =
       label: string
     }
   | { phase: "confirm"; repeat: number; repeats: number; label: string }
+  | { phase: "memory"; run: number; runs: number; side: Side; label: string }
 
 export interface AbOptions {
   suites: string[]
@@ -75,6 +84,16 @@ export interface AbOptions {
   outDir?: string
   cwd?: string
   noiseCheck?: boolean
+  /** Also compare each side's retained heap per call (see
+   * `bench({ alloc })`) and how far its first call raises RSS (see
+   * `bench({ peakMem })`), each the median of 3 fresh processes per side.
+   * Task/group options override these. */
+  alloc?: boolean
+  peakMem?: boolean
+  /** Flag a memory reading that moves past this many percent of the base's
+   * and past its noise floor (default: 10). A memory regression fails the
+   * run. */
+  memThresholdPct?: number
   /** Shell commands run once, in order, in a freshly extracted base tree
    * before it's used: to build what the suites import but git doesn't hold
    * (generated or gitignored files). Each runs with its cwd at the tree's
@@ -93,7 +112,8 @@ export interface AbOptions {
    * had finished, plus an `aborted` warning; unrun repeats leave their
    * workloads unconfirmed. */
   signal?: AbortSignal
-  /** Called as each setup command, task and confirmation repeat starts. */
+  /** Called as each setup command, task, confirmation repeat and memory
+   * process starts. */
   onProgress?: (progress: AbProgress) => void
 }
 
@@ -112,8 +132,18 @@ const DEFAULTS = {
   rounds: 15,
   thresholdPct: 10,
   geomeanThresholdPct: 1.5,
+  memThresholdPct: 10,
   confirm: 2,
 }
+
+// RSS moves by pages and allocator chunks, and fresh processes differ by
+// a few hundred KiB on small readings. A peak change smaller than this
+// isn't counted.
+const PEAK_NOISE_BYTES = 1024 * 1024
+// The JSC heap grows in blocks, so a batch that keeps nothing can still
+// read a block or two of growth. A retained change smaller than this over
+// the batch isn't counted.
+const RETAINED_NOISE_BYTES = 16 * 1024
 
 function git(args: string[], cwd: string): string | undefined {
   const proc = Bun.spawnSync(["git", ...args], {
@@ -420,6 +450,43 @@ export async function cleanAbTrees(
   return count
 }
 
+/** Puts a task's memory readings on its measurement: the median of each
+ * side's processes, judged against the base's. */
+function judgeMemory(
+  m: Measurement,
+  task: AbMemoryTask,
+  readings: Record<Side, AbMemoryResult[]>,
+  thresholdPct: number,
+): void {
+  const p = m.paired!
+  const all = [...readings.base, ...readings.cand]
+  const judge = (read: (r: AbMemoryResult) => number, floorBytes: number) => {
+    const change = memoryChange(
+      median(readings.base.map(read)),
+      median(readings.cand.map(read)),
+      thresholdPct,
+      floorBytes,
+    )
+    if (!comparable(p)) change.verdict = "unchanged"
+    return change
+  }
+  if (task.alloc) {
+    const calls = Math.min(...all.map((r) => r.alloc!.calls))
+    p.retained = judge((r) => r.alloc!.bytesPerOp, RETAINED_NOISE_BYTES / calls)
+  }
+  if (task.peakMem) {
+    const peaks = all.map((r) => r.peak!)
+    // Memory freed before the call can hide up to that much of its peak.
+    const warning = peakHiddenWarning(peaks)
+    const slack = Math.max(...peaks.map((r) => r.slackBytes))
+    p.peak = judge(
+      (r) => r.peak!.peakBytes,
+      warning ? Math.max(PEAK_NOISE_BYTES, slack) : PEAK_NOISE_BYTES,
+    )
+    if (warning) m.warnings.push(warning)
+  }
+}
+
 /** Median over the main run and any fresh-process repeats, so one process's
  * JIT luck moves the geomean less. */
 function ratioEstimate(p: PairedEvidence): number {
@@ -435,6 +502,7 @@ export function summarizePaired(
     rounds: number
     thresholdPct: number
     geomeanThresholdPct: number
+    memThresholdPct?: number
   },
 ): AbSummary {
   // A task that threw, even in a confirmation repeat, isn't judged on time.
@@ -452,8 +520,21 @@ export function summarizePaired(
   const improved = count("improved")
   const threw = measurements.filter((m) => m.threw)
   const candThrew = threw.some((m) => m.threw?.side === "cand")
+  const { memThresholdPct, ...rest } = settings
+  // Each task counts once: regressed if either reading regressed.
+  const memVerdicts = paired
+    .filter((p) => p.retained || p.peak)
+    .map((p) => [p.retained?.verdict, p.peak?.verdict])
+  const memRegressed = memVerdicts.filter((v) => v.includes("regressed"))
+  const memory = memVerdicts.length > 0 && {
+    thresholdPct: memThresholdPct ?? DEFAULTS.memThresholdPct,
+    regressed: memRegressed.length,
+    improved: memVerdicts.filter(
+      (v) => v.includes("improved") && !v.includes("regressed"),
+    ).length,
+  }
   return {
-    ...settings,
+    ...rest,
     matched: paired.length,
     regressed,
     improved,
@@ -462,10 +543,12 @@ export function summarizePaired(
     outputDiffers: paired.filter((p) => !p.sameOutput).length,
     notComparable: paired.length - judged.length,
     threw: threw.length,
+    ...(memory && { memory }),
     geomeanPct,
     verdict:
       regressed > 0 ||
       candThrew ||
+      memRegressed.length > 0 ||
       (geomeanPct !== null && geomeanPct > settings.geomeanThresholdPct)
         ? "fail"
         : "pass",
@@ -485,6 +568,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const thresholdPct = opts.thresholdPct ?? DEFAULTS.thresholdPct
   const geomeanThresholdPct =
     opts.geomeanThresholdPct ?? DEFAULTS.geomeanThresholdPct
+  const memThresholdPct = opts.memThresholdPct ?? DEFAULTS.memThresholdPct
   const confirm = opts.confirm ?? DEFAULTS.confirm
   const keepTrees = opts.keepTrees ?? DEFAULTS.keepTrees
   if (!Number.isInteger(keepTrees) || keepTrees < 1) {
@@ -501,6 +585,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   for (const [key, value] of Object.entries({
     thresholdPct,
     geomeanThresholdPct,
+    memThresholdPct,
   })) {
     if (!Number.isFinite(value) || value < 0) {
       throw new RangeError(`ab: ${key} must be >= 0, got ${value}`)
@@ -546,6 +631,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     rounds,
     thresholdPct,
     geomeanThresholdPct,
+    memThresholdPct,
   }
   if (!extracted) {
     const doc = createDocument([], [])
@@ -583,10 +669,13 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
   const onProgress = opts.onProgress
   let spawned = 0
-  const runSuite = async (
+  /** Runs the A/B runner on suite `s`; resolves with its output path, or
+   * undefined when cancelled. */
+  const runRunner = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
-  ): Promise<ProfileDocument | undefined> => {
+    env?: Record<string, string>,
+  ): Promise<string | undefined> => {
     touchTree(checkout)
     const outPath = `${tmpDir}/${fp("ab-run", candSuites[s]!, spawned++)}.json`
     const runnerOpts: AbRunnerOpts = {
@@ -595,7 +684,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       thresholdPct,
       preload,
       // Per task only on the first pass; repeats report themselves.
-      progress: onProgress !== undefined && !extra.workloadIds,
+      progress:
+        onProgress !== undefined && !extra.workloadIds && !extra.memoryFor,
       ...extra,
     }
     const ran = await runRunnerProcess(
@@ -614,6 +704,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         name: opts.suites[s]!,
         timeoutMs: opts.timeoutMs,
         signal: opts.signal,
+        env,
         // The runner names the side that failed to load, when that's why.
         errorFile: `${outPath}.error`,
         ...(runnerOpts.progress && {
@@ -628,7 +719,14 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         }),
       },
     )
-    return ran ? loadDocument(outPath) : undefined
+    return ran ? outPath : undefined
+  }
+  const runSuite = async (
+    s: number,
+    extra: Partial<AbRunnerOpts> = {},
+  ): Promise<ProfileDocument | undefined> => {
+    const outPath = await runRunner(s, extra)
+    return outPath ? loadDocument(outPath) : undefined
   }
 
   try {
@@ -637,9 +735,17 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     const suiteOf = new Map<string, number>()
     const baseOnly: string[] = []
     const candOnly: string[] = []
+    const wantsMemory: (AbMemoryTask & { suite: number })[] = []
     for (let s = 0; s < candSuites.length; s++) {
-      const doc = await runSuite(s)
+      const planPath = `${tmpDir}/${fp("ab-plan", candSuites[s]!)}.json`
+      const doc = await runSuite(s, {
+        alloc: opts.alloc,
+        peakMem: opts.peakMem,
+        planPath,
+      })
       if (!doc) break
+      const plan: AbRunnerPlan = await Bun.file(planPath).json()
+      for (const m of plan.memory) wantsMemory.push({ ...m, suite: s })
       workloads.push(...doc.workloads)
       measurements.push(...doc.measurements)
       for (const m of doc.measurements) {
@@ -651,7 +757,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
           code: "suite-changed",
           message: comparable(m.paired)
             ? "The suite file differs from the base's copy, so each side may run a different benchmark."
-            : "The suite file differs from the base's copy and so does the output: each side likely ran a different benchmark. Left out of the verdict and geomean.",
+            : "The suite file differs from the base's copy and so does the output: each side likely ran a different benchmark. Left out of the verdict, geomean and memory verdict.",
         })
       }
       baseOnly.push(...(doc.unmatched?.baseOnly ?? []))
@@ -698,6 +804,42 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         p.repeats.length === confirm &&
         p.repeats.every((r) => r.flagged === flagged)
       p.verdict = p.confirmed ? flagged : "unchanged"
+    }
+
+    // Memory, for tasks that timed without throwing: each side in its own
+    // fresh processes, alternating sides.
+    const byWorkload = new Map(measurements.map((m) => [m.workloadId, m]))
+    const memoryTasks = wantsMemory.filter(({ workloadId }) => {
+      const m = byWorkload.get(workloadId)
+      return m?.paired && !m.threw
+    })
+    const memoryRuns = memoryTasks.length * PEAK_MEM_PROCESSES * 2
+    let memoryRun = 0
+    for (const task of memoryTasks) {
+      const { workloadId, suite, peakMem } = task
+      const readings: Record<Side, AbMemoryResult[]> = { base: [], cand: [] }
+      for (let r = 0; r < PEAK_MEM_PROCESSES && !opts.signal?.aborted; r++) {
+        for (const side of ["base", "cand"] as const) {
+          if (opts.signal?.aborted) break
+          onProgress?.({
+            phase: "memory",
+            run: ++memoryRun,
+            runs: memoryRuns,
+            side,
+            label: labelOf.get(workloadId) ?? workloadId,
+          })
+          const outPath = await runRunner(
+            suite,
+            { memoryFor: { ...task, side } },
+            // Lets a suite skip heavy module-scope work that would peak
+            // before the measured call does.
+            peakMem ? { OSTIA_PEAK_MEM: "1" } : undefined,
+          )
+          if (outPath) readings[side].push(await Bun.file(outPath).json())
+        }
+      }
+      if (readings.base.length === 0 || readings.cand.length === 0) continue
+      judgeMemory(byWorkload.get(workloadId)!, task, readings, memThresholdPct)
     }
 
     stampRunWarnings(

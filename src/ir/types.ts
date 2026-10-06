@@ -256,6 +256,25 @@ export interface PairedEvidence {
    * input). With `sameOutput: false` too, the task is "not comparable": its
    * verdict is `"unchanged"` and it's left out of the geomean. */
   suiteChanged?: true
+  /** `--alloc`: heap each call keeps alive after a full GC, per side, after
+   * a warmup batch; each the median of 3 fresh processes. */
+  retained?: MemoryChange
+  /** `--peak-mem`: how far the task's first call raises RSS, per side,
+   * each the median of 3 fresh processes. */
+  peak?: MemoryChange
+}
+
+/** One memory reading on both sides of an `ab()` task, bytes. */
+export interface MemoryChange {
+  baseBytes: number
+  candBytes: number
+  /** Past both `AbSummary.memory.thresholdPct` of the base and
+   * `floorBytes`; always `"unchanged"` on a not-comparable task. */
+  verdict: "regressed" | "improved" | "unchanged"
+  /** The smallest change that counts, bytes: 16 KiB over the batch's calls
+   * for `retained`; for `peak`, 1 MiB, or the freed memory a `peak-hidden`
+   * warning reports. */
+  floorBytes: number
 }
 
 /** Run-level result of `ab()`, stamped on the document as `ab`. */
@@ -285,12 +304,16 @@ export interface AbSummary {
   /** Workloads that threw on either side or both, and so weren't timed;
    * not counted in `matched`. */
   threw: number
+  /** Present when any task had a memory reading (`--alloc`, `--peak-mem`):
+   * how many tasks' memory regressed or improved, on either reading. */
+  memory?: { thresholdPct: number; regressed: number; improved: number }
   /** Geometric mean of the workloads' median ratios, signed percent (negative:
    * candidate faster); a flagged workload contributes its median over its main
    * run and repeats. `null` when nothing was paired. */
   geomeanPct: number | null
   /** `"fail"` when any workload regressed (confirmed), threw on the
-   * candidate side only, or `geomeanPct` exceeds `geomeanThresholdPct`. */
+   * candidate side only, or `geomeanPct` exceeds `geomeanThresholdPct`, or
+   * any task's memory regressed. */
   verdict: "pass" | "fail"
 }
 

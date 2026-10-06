@@ -77,6 +77,20 @@
   `--keep-trees` (default 5; `ab.keepTrees`, `keepTrees` on `ab()`) most
   recently used trees and removes the rest, except trees used in the last
   hour. `ostia ab --clean` removes them all.
+- `ostia ab --alloc` and `--peak-mem` (`ab.alloc`/`ab.peakMem` in the config,
+  `alloc`/`peakMem` on `ab()`) compare memory on both sides: retained heap per
+  call, after a warmup batch, and how far the first call raises RSS. Both are
+  read in fresh processes that each load only one side's suite, 3 per side,
+  and the median counts. A reading that grows past `--mem-threshold` (default
+  10%; `ab.memThresholdPct`, `memThresholdPct`) of the base's and past its
+  noise floor (16 KiB per batch for `--alloc`; 1 MiB for `--peak-mem`, or the
+  freed memory a `peak-hidden` warning reports) reads `regressed` and fails
+  the run. The table adds a Memory block; documents gain
+  `paired.retained`/`paired.peak` and `ab.memory`; the minimal `run` line's
+  `paired` gains `retained`/`peak` (and `retainedBytesPerOp`/`peakBytes` are
+  the candidate's), and the `summary` line gains `memory`. Task and group
+  `alloc`/`peakMem` options apply under `ab` too. Progress shows each memory
+  process.
 - `ostia ab` names suite files that don't exist at the base ref ("New suite,
   not at HEAD: ..."), in the table, the document (`ab.newSuites`) and the
   minimal `summary` line. Their tasks stay candidate-only and the run goes on.

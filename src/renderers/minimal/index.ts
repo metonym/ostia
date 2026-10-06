@@ -2,6 +2,7 @@ import type {
   Comparison,
   GitMetadata,
   Measurement,
+  MemoryChange,
   ProfileDocument,
   Warning,
   Workload,
@@ -60,6 +61,18 @@ interface MinimalPaired {
   sameOutput: boolean
   /** The suite file differs from the base's copy. */
   suiteChanged?: true
+  /** `--alloc`: retained heap per call on each side. */
+  retained?: MinimalMemoryChange
+  /** `--peak-mem`: first-call RSS rise on each side. */
+  peak?: MinimalMemoryChange
+}
+
+/** `ab` only: one memory reading on both sides, bytes. */
+interface MinimalMemoryChange {
+  base: number
+  cand: number
+  verdict: "regressed" | "improved" | "unchanged"
+  floor: number
 }
 
 /** One per timing run, for piping into an agent's context in place of the full
@@ -160,6 +173,9 @@ interface MinimalSummaryLine {
   notComparable?: number
   threw?: number
   newSuites?: string[]
+  /** `ab` only, with `--alloc` or `--peak-mem`: tasks whose memory
+   * regressed or improved, and the threshold, percent. */
+  memory?: { thresholdPct: number; regressed: number; improved: number }
   git?: { base?: GitMetadata; cand?: GitMetadata }
   exportedTo?: string
   /** `pass` (exit 0), `fail` (exit 1: a regression), else `error` (exit 2, or
@@ -196,6 +212,15 @@ export interface MinimalRenderOptions {
 
 function sig(n: number): number {
   return Number.isFinite(n) ? Number(n.toPrecision(6)) : n
+}
+
+function minimalMemory(c: MemoryChange): MinimalMemoryChange {
+  return {
+    base: Math.round(c.baseBytes),
+    cand: Math.round(c.candBytes),
+    verdict: c.verdict,
+    floor: Math.round(c.floorBytes),
+  }
 }
 
 function minimalWarnings(warnings: Warning[]): MinimalWarning[] {
@@ -341,13 +366,12 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       line.userNs = sig(times.userNs)
       line.systemNs = sig(times.systemNs)
     }
+    // An `ab` run's stats are the candidate's, memory included.
     const readings = memory.get(run.workloadId)
-    if (readings?.retained !== undefined) {
-      line.retainedBytesPerOp = Math.round(readings.retained)
-    }
-    if (readings?.peak !== undefined) {
-      line.peakBytes = Math.round(readings.peak)
-    }
+    const retained = readings?.retained ?? run.paired?.retained?.candBytes
+    if (retained !== undefined) line.retainedBytesPerOp = Math.round(retained)
+    const peak = readings?.peak ?? run.paired?.peak?.candBytes
+    if (peak !== undefined) line.peakBytes = Math.round(peak)
     addWorkloadFields(line, workload)
     const ratio = ratios?.get(row)
     if (ratio !== undefined) line.relative = sig(ratio)
@@ -369,6 +393,8 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
         ...(p.repeats && { repeats: p.repeats.map((r) => sig(r.medianRatio)) }),
         sameOutput: p.sameOutput,
         ...(p.suiteChanged && { suiteChanged: true as const }),
+        ...(p.retained && { retained: minimalMemory(p.retained) }),
+        ...(p.peak && { peak: minimalMemory(p.peak) }),
       }
     }
     return line
@@ -458,6 +484,7 @@ function summaryLine(
     }
     if (doc.ab.threw !== undefined) line.threw = doc.ab.threw
     if (doc.ab.newSuites?.length) line.newSuites = doc.ab.newSuites
+    if (doc.ab.memory) line.memory = doc.ab.memory
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

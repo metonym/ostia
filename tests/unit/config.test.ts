@@ -440,6 +440,16 @@ describe("loadConfig - shape validation", () => {
       { bench: { isolate: 1 } },
       `"bench.isolate" must be a boolean`,
     ],
+    [
+      "a non-boolean ab.alloc",
+      { ab: { alloc: "yes" } },
+      `"ab.alloc" must be a boolean`,
+    ],
+    [
+      "a negative ab.memThresholdPct",
+      { ab: { memThresholdPct: -5 } },
+      `"ab.memThresholdPct" must be a non-negative number`,
+    ],
   ]
   for (const [name, config, message] of rejects) {
     test(`rejects ${name}, naming the key`, async () => {
@@ -480,6 +490,13 @@ describe("loadConfig - shape validation", () => {
         isolate: true,
         preload: [],
         bunFlags: ["--smol"],
+      },
+      ab: {
+        setup: ["bun scripts/gen.ts"],
+        keepTrees: 3,
+        alloc: true,
+        peakMem: false,
+        memThresholdPct: 20,
       },
     })
     expect(config!.workloads).toHaveLength(2)

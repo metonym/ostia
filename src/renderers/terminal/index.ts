@@ -27,6 +27,8 @@ import {
   formatAbSummary,
   formatNewSuites,
   formatThrew,
+  memoryCells,
+  memoryRows,
   pairedCells,
 } from "../paired.ts"
 import {
@@ -261,6 +263,32 @@ function renderPaired(
           { header: "Verdict", width: 7, cell: (c) => c.verdict },
         ],
         rows,
+      ),
+    )
+  }
+
+  const memory = memoryRows(doc)
+  if (memory.length > 0) {
+    lines.push(
+      "",
+      "Memory:",
+      ...textTable<ReturnType<typeof memoryCells>>(
+        [
+          { header: "Reading", width: 11, cell: (c) => c.reading },
+          { header: "Base", width: 10, cell: (c) => c.base },
+          { header: "Candidate", width: 10, cell: (c) => c.candidate },
+          { header: "Change", width: 18, cell: (c) => c.change },
+          { header: "Verdict", width: 7, cell: (c) => c.verdict },
+        ],
+        memory.map((row) => {
+          const workload = byWorkload.get(row.run.workloadId)
+          return {
+            label: labelOrId(workload, row.run.workloadId),
+            group: groupOf(workload),
+            data: memoryCells(row),
+            warnings: [],
+          }
+        }),
       ),
     )
   }

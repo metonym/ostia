@@ -269,6 +269,9 @@ const doc = await ab({
   thresholdPct: 10,           // default
   geomeanThresholdPct: 1.5,   // default
   confirm: 2,                 // fresh-process repeats per flagged task; default
+  alloc: true,                // also compare retained heap per call
+  peakMem: true,              // also compare first-call RSS rise; both use 3 fresh processes per side
+  memThresholdPct: 10,        // default
   filter: "parse/",
   preload: ["bench/setup.ts"],
   bunFlags: ["--conditions=browser"],
@@ -276,9 +279,9 @@ const doc = await ab({
   outDir: "node_modules/.cache/ostia",
   cwd: process.cwd(),
   noiseCheck: true,
-  onProgress: (p) => console.error(p), // { phase: "setup" | "measure" | "confirm", ... }
+  onProgress: (p) => console.error(p), // { phase: "setup" | "measure" | "confirm" | "memory", ... }
 })
-doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, geomeanPct, verdict, ... }
+doc.ab            // { base, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, memory?, geomeanPct, verdict, ... }
 doc.measurements  // one phase: "paired" measurement per paired task; `threw` instead of `timing` when it threw
 if (doc.ab!.verdict === "fail") process.exitCode = 1
 ```

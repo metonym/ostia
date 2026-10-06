@@ -8,7 +8,9 @@ import {
   resetRegistry,
   runGroupHooks,
   selectTasks,
+  taskAlloc,
   taskId,
+  taskPeakMem,
 } from "../bench/registry.ts"
 import { taskWorkload } from "../bench/run-tasks.ts"
 import { median } from "../bench/support.ts"
@@ -20,11 +22,19 @@ import {
 } from "../ir/document.ts"
 import { canonicalJSON } from "../ir/fp.ts"
 import type { Measurement, Workload } from "../ir/types.ts"
+import { measureAllocPerOp } from "../measure/alloc.ts"
 import {
   measurePaired,
   PairedSideError,
   ratioStats,
+  sideLabel,
 } from "../measure/paired.ts"
+import {
+  measurePeakMem,
+  memorySnapshot,
+  type PeakMemResult,
+  startRssSampler,
+} from "../measure/peak.ts"
 import { computeTimingStats } from "../stats/index.ts"
 
 export interface AbRunnerOpts {
@@ -38,6 +48,32 @@ export interface AbRunnerOpts {
   preload?: string[]
   /** Send an `AbRunnerProgress` message over IPC before each task. */
   progress?: boolean
+  /** Suite-wide defaults for the memory readings in `planPath` (task/group
+   * options win). */
+  alloc?: boolean
+  peakMem?: boolean
+  /** Write an `AbRunnerPlan` here. */
+  planPath?: string
+  /** Instead of timing: take this task's memory readings on one side and
+   * write an `AbMemoryResult` to the output path. */
+  memoryFor?: AbMemoryTask & { side: Side }
+}
+
+/** A paired task and the memory readings it wants. */
+export interface AbMemoryTask {
+  workloadId: string
+  alloc: boolean
+  peakMem: boolean
+}
+
+export interface AbRunnerPlan {
+  memory: AbMemoryTask[]
+}
+
+/** One side's memory readings from one fresh process. */
+export interface AbMemoryResult {
+  peak?: PeakMemResult
+  alloc?: { bytesPerOp: number; calls: number }
 }
 
 /** Sent to the parent before each task is measured, when `progress` is
@@ -161,6 +197,63 @@ async function measureTask(
   return { result: result! }
 }
 
+/** A `memoryFor` process. Only one side's suite loads, so the other side's
+ * setup and the packages both sides share can't move the readings. Peak is
+ * the first call; retained follows a warmup batch, as `bench --alloc`
+ * follows timing. */
+async function measureMemory(
+  suite: string,
+  candSuite: string,
+  outputPath: string,
+  memoryFor: NonNullable<AbRunnerOpts["memoryFor"]>,
+  preload: string[],
+): Promise<number> {
+  const { workloadId, side } = memoryFor
+  // Baseline for `measurePeakMem`, taken once ostia (which the suite
+  // imports) is loaded.
+  const sampler = memoryFor.peakMem ? await startRssSampler() : undefined
+  await import("../index.ts")
+  const launched = memorySnapshot()
+  let t: RegisteredTask | undefined
+  try {
+    for (const preloadFile of preload) await import(preloadFile)
+    t = (await importTasks(suite)).find(
+      (t) => taskWorkload(candSuite, t).id === workloadId,
+    )
+  } catch (err) {
+    return fail(
+      outputPath,
+      `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
+    )
+  }
+  if (!t) {
+    return fail(
+      outputPath,
+      `no task with workload id ${workloadId} in ${suite}.`,
+    )
+  }
+  try {
+    const result: AbMemoryResult = {}
+    await runGroupHooks(t, "before")
+    await t.opts?.before?.()
+    if (sampler) result.peak = await measurePeakMem(t.fn, launched, sampler)
+    if (memoryFor.alloc) {
+      await measureAllocPerOp(t.fn)
+      const { memory, calls } = await measureAllocPerOp(t.fn)
+      result.alloc = { bytesPerOp: memory.bytesPerOp!, calls }
+    }
+    await t.opts?.after?.()
+    await runGroupHooks(t, "after")
+    await Bun.write(outputPath, JSON.stringify(result))
+    return 0
+  } catch (err) {
+    return fail(
+      outputPath,
+      `${taskId(t)} threw on the ${sideLabel(side)} side while measuring memory: ${errorText(err)}`,
+    )
+  }
+}
+
 /** Pairs one suite file's tasks against the same file at the base checkout,
  * in this process. Each side is imported from its own path so its relative
  * imports resolve within its own tree, while bare imports (including `ostia`,
@@ -175,6 +268,16 @@ async function main(): Promise<number> {
     return 2
   }
   const opts: AbRunnerOpts = JSON.parse(optsJson)
+
+  if (opts.memoryFor) {
+    return measureMemory(
+      opts.memoryFor.side === "base" ? baseSuite : candSuite,
+      candSuite,
+      outputPath,
+      opts.memoryFor,
+      opts.preload ?? [],
+    )
+  }
 
   for (const preloadFile of opts.preload ?? []) {
     await import(preloadFile)
@@ -254,6 +357,19 @@ async function main(): Promise<number> {
   }
 
   const edges = groupEdges(pairs.map((p) => p.cand))
+
+  if (opts.planPath) {
+    const plan: AbRunnerPlan = {
+      memory: pairs
+        .map((p) => ({
+          workloadId: p.workload.id,
+          alloc: taskAlloc(p.cand, opts.alloc ?? false),
+          peakMem: taskPeakMem(p.cand, opts.peakMem ?? false),
+        }))
+        .filter((m) => m.alloc || m.peakMem),
+    }
+    await Bun.write(opts.planPath, JSON.stringify(plan))
+  }
 
   const cfgFp = configFingerprint({
     rounds: opts.rounds,

@@ -593,8 +593,9 @@ Progress never goes to stdout, so `--format minimal` output stays clean.
 Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
 only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git
 repository, an unknown ref, or a suite file that doesn't exist or lies outside the
-repository (`invalid-flag`), a setup command failed (`command-failed`), or a suite failed
-(`spawn-failed`); `130` Ctrl-C.
+repository (`invalid-flag`), a setup command failed (`command-failed`), a suite failed on
+one side outside any task (`suite-failed`, with `data.side`), or a suite crashed or timed
+out (`spawn-failed`); `130` Ctrl-C.
 
 With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
 `preload`, `bunFlags`, `outDir` and `timeoutMs`, and its setup commands from `ab.setup`.

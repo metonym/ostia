@@ -1,7 +1,7 @@
 import type { OstiaConfigInput } from "./config/index.ts"
 
 export type { AbOptions, AbProgress } from "./ab/index.ts"
-export { AbBaseError, AbSetupError, ab } from "./ab/index.ts"
+export { AbBaseError, AbSetupError, AbSuiteError, ab } from "./ab/index.ts"
 export type { BenchOptions } from "./bench/index.ts"
 export { bench } from "./bench/index.ts"
 export { range } from "./bench/range.ts"

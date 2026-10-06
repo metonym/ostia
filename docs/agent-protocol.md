@@ -171,6 +171,7 @@ structured detail. stdout stays pure JSON for the machine formats.
 | `baseline-missing` | No baseline file (`ci`, `baseline show`), or the baseline doesn't cover the configured workloads (`onMissingBaseline`). |
 | `no-matches` | `compare` found no workload id in both documents; `ab` found no task on both sides. |
 | `spawn-failed` | A run threw: a command couldn't start, a `prepare` hook failed or timed out, a suite failed or timed out. |
+| `suite-failed` | `ab`: one side's suite failed outside any task: it threw on import, registered no tasks, or a task threw while its memory was measured. `data.side` is `"base"` or `"cand"`. |
 | `command-failed` | A command had a non-ignored non-zero exit (`time`, `ci`), or produced no samples for another reason; an `ab` setup command (`--base-setup`) failed. |
 | `timeout` | `time`: a command produced no samples because its trials timed out. |
 | `time-source-no-match` | `time`: a command produced no samples because no trial's output matched `--time-source`. |

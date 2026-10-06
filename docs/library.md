@@ -287,8 +287,10 @@ if (doc.ab!.verdict === "fail") process.exitCode = 1
 ```
 
 It rejects with a `RangeError` for bad settings, with an `AbBaseError` when `cwd` isn't
-in a git repository or `base` isn't a commit, and with an `AbSetupError` (its message
-ends with the command's output) when a `baseSetup` command fails. A task that returns its
+in a git repository or `base` isn't a commit, with an `AbSetupError` (its message
+ends with the command's output) when a `baseSetup` command fails, and with an
+`AbSuiteError` when one side's suite fails outside any task, such as on import; its `side`
+is `"base"` or `"cand"`. A task that returns its
 result gets an output comparison between the two sides for free
 (`paired.sameOutput`).
 

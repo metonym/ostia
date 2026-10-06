@@ -107,10 +107,16 @@ function errorText(err: unknown): string {
 }
 
 /** Reports a failure that stops the whole suite: on stderr, and in
- * `<outputPath>.error` for `ab()` to put in the error it throws. */
-async function fail(outputPath: string, message: string): Promise<number> {
+ * `<outputPath>.error` (and `.side`, when it's one side's) for `ab()` to
+ * put in the error it throws. */
+async function fail(
+  outputPath: string,
+  message: string,
+  side?: Side,
+): Promise<number> {
   process.stderr.write(`ab runner: ${message}\n`)
   await Bun.write(`${outputPath}.error`, message)
+  if (side) await Bun.write(`${outputPath}.side`, side)
   return 2
 }
 
@@ -229,6 +235,7 @@ async function measureMemory(
     return fail(
       outputPath,
       `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
+      side,
     )
   }
   if (!t) {
@@ -255,6 +262,7 @@ async function measureMemory(
     return fail(
       outputPath,
       `${taskId(t)} threw on the ${sideLabel(side)} side while measuring memory: ${errorText(err)}`,
+      side,
     )
   }
 }
@@ -302,6 +310,7 @@ async function main(): Promise<number> {
       return fail(
         outputPath,
         `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
+        side,
       )
     }
   }
@@ -309,6 +318,7 @@ async function main(): Promise<number> {
     return fail(
       outputPath,
       `${candSuite} registered no tasks (no task() calls found).`,
+      "cand",
     )
   }
 

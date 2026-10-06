@@ -21,12 +21,10 @@ group("cpu-parse", () => {
   )
 })
 
+// No 1e3-sample task: on CI it flipped between two speeds from process to
+// process (up to 1.9x), and failed the dogfood gate on unrelated PRs.
 group("jsc-parse", () => {
-  const small = syntheticJscTraces(SMALL_TREE, 1_000)
   const large = syntheticJscTraces(LARGE_TREE, 10_000)
-  task("parseJscProfile (1e3 samples, 341 frames)", () =>
-    parseJscProfile(small),
-  )
   task("parseJscProfile (1e4 samples, 9330 frames)", () =>
     parseJscProfile(large),
   )

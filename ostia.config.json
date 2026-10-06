@@ -20,6 +20,17 @@
       "inputs": []
     },
     {
+      "label": "ab-overhead",
+      "prepare": "bun scripts/ab-fixture.ts",
+      "command": [
+        "sh",
+        "-c",
+        "cd node_modules/.cache/ostia-ab-fixture && exec bun ../../../src/cli/main.ts ab bench/s.bench.ts --rounds 3 --confirm 0 --no-noise-check --quiet"
+      ],
+      "inputs": ["src/**/*.ts", "scripts/ab-fixture.ts"],
+      "ignoreExitCodes": [1]
+    },
+    {
       "label": "dogfood-suites",
       "suites": ["bench/*.ts"]
     }

@@ -1,3 +1,5 @@
+import { summarizePaired } from "../../src/ab/index.ts"
+import { median } from "../../src/bench/support.ts"
 import type { RawCpuProfile } from "../../src/capture/cpu/parse.ts"
 import { parseCpuProfile } from "../../src/capture/cpu/parse.ts"
 import type { RawHeapSnapshot } from "../../src/capture/heap/parse.ts"
@@ -7,11 +9,19 @@ import type {
 } from "../../src/capture/jsc/parse.ts"
 import {
   createDocument,
+  makeEntryWorkload,
   makeInstrumentedMeasurement,
+  makePairedMeasurement,
   makeSubprocessWorkload,
   makeTimingMeasurement,
 } from "../../src/ir/document.ts"
-import type { CpuEvidence, ProfileDocument, Trial } from "../../src/ir/types.ts"
+import type {
+  CpuEvidence,
+  Measurement,
+  ProfileDocument,
+  Trial,
+} from "../../src/ir/types.ts"
+import { memoryChange, ratioStats } from "../../src/measure/paired.ts"
 import { computeTimingStats } from "../../src/stats/index.ts"
 
 export function syntheticSamples(n: number): number[] {
@@ -220,6 +230,62 @@ export function syntheticDocument(
     )
   }
   return createDocument([workload], measurements)
+}
+
+/** An `ab` document of `n` tasks in groups of 10, as `ostia ab --alloc
+ * --peak-mem` writes it: 15 rounds each, both memory readings, every 10th
+ * task thrown on the candidate side. */
+export function syntheticAbDocument(n: number): ProfileDocument {
+  const rounds = 15
+  const workloads = Array.from({ length: n }, (_, i) =>
+    makeEntryWorkload("bench/synthetic.bench.ts", `g${i % 10}/task ${i}`, {
+      group: `g${i % 10}`,
+      label: `g${i % 10}/task ${i}`,
+    }),
+  )
+  const measurements: Measurement[] = workloads.map((workload, i) => {
+    const input = { workload, configFingerprint: "cfg_ab", warnings: [] }
+    if (i % 10 === 9) {
+      return makePairedMeasurement({
+        ...input,
+        threw: { side: "cand", message: `task ${i} broke\nat line 1` },
+        diagnosticWallNs: 0,
+      })
+    }
+    const baseSamples = syntheticSamples(rounds).map((ns) => ns + i)
+    // A spread of changes, from -20% to +20%.
+    const shift = 0.8 + ((i * 7) % 41) / 100
+    const candSamples = baseSamples.map((ns) => ns * shift)
+    const ratios = candSamples.map((c, r) => c / baseSamples[r]!)
+    const stats = ratioStats(ratios, 10)
+    return makePairedMeasurement({
+      ...input,
+      timing: computeTimingStats(candSamples),
+      diagnosticWallNs: 1_000_000,
+      paired: {
+        rounds,
+        batch: 100,
+        baseSamples,
+        baseMedianNs: median(baseSamples),
+        ratios,
+        ...stats,
+        verdict: stats.flagged ?? "unchanged",
+        sameOutput: i % 13 !== 0,
+        retained: memoryChange(i * 100, i * 100 * shift, 10, 164),
+        peak: memoryChange(4e6 + i, (4e6 + i) * shift, 10, 1024 * 1024),
+      },
+    })
+  })
+  const doc = createDocument(workloads, measurements)
+  doc.unmatched = { baseOnly: [], candOnly: [] }
+  doc.ab = summarizePaired(measurements, {
+    base: { ref: "HEAD", sha: "0".repeat(40) },
+    rounds,
+    thresholdPct: 10,
+    geomeanThresholdPct: 1.5,
+    memThresholdPct: 10,
+  })
+  return doc
 }
 
 export const SMALL_TREE = buildTree(4, 4)

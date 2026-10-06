@@ -11,15 +11,18 @@ deterministic fixtures (`bench/lib/fixtures.ts`).
 | `capture-parse.ts` | `parseCpuProfile`, `parseJscProfile`, `parseHeapSnapshot` - raw capture JSON to IR |
 | `cpu-tree.ts` | `buildParentMap`, `computeNodeTimes` - shared ranking behind the mermaid/collapsed renderers |
 | `compare.ts` | `compareDocuments`, `compareWorkload` - the diff engine behind `compare`/`ci` |
-| `render.ts` | every renderer format: table, json, jsonl, markdown, collapsed, mermaid, speedscope, cpuprofile pass-through |
+| `render.ts` | every renderer format: table, json, jsonl, markdown, minimal, collapsed, mermaid, speedscope, cpuprofile pass-through; and an `ab` report (paired table, Memory and Threw blocks) |
 | `cache.ts` | `computeCacheKey`, `computeInputsDigest` - scans this repo's `examples/**/*.ts`, a file set that doesn't grow with `src/` |
 
 `bench/lib/fixtures.ts` is shared setup, not a suite - it's one directory level down so
 `bench/*.ts` globs (`bun run bench`) only pick up real suites, never it.
 
-Subprocess-level metrics (spawn overhead, cold start, warm-cache `ci`) live in
-`ostia.config.json`'s workloads instead, since those need a real process spawn and
-aren't in-process tasks.
+Subprocess-level metrics (spawn overhead, cold start, warm-cache `ci`, a small
+`ostia ab` run) live in `ostia.config.json`'s workloads instead, since those need a
+real process spawn and aren't in-process tasks. `ab-overhead` runs in a fixture repo
+that `scripts/ab-fixture.ts` builds once: ostia can't `ab` these suites, because
+they import ostia by relative path, so each tree's copy registers its tasks with its
+own ostia and nothing pairs.
 
 ## Running
 

@@ -3,6 +3,7 @@ import { renderers } from "../src/renderers/index.ts"
 import {
   cpuEvidenceFromTree,
   LARGE_TREE,
+  syntheticAbDocument,
   syntheticDocument,
 } from "./lib/fixtures.ts"
 
@@ -12,6 +13,16 @@ group("render", () => {
   task("jsonl render", () => renderers.jsonl.render(doc, {}))
   task("markdown render", () => renderers.markdown.render(doc, {}))
   task("table render", () => renderers.table.render(doc, {}))
+  task("minimal render", () => renderers.minimal.render(doc, {}))
+})
+
+// An `ab` report: paired table, Memory block, Threw block and summary.
+group("render ab (200 tasks)", () => {
+  const doc = syntheticAbDocument(200)
+  const protocol = { command: "ab" as const, exitCode: 1 }
+  task("table render", () => renderers.table.render(doc, {}))
+  task("markdown render", () => renderers.markdown.render(doc, {}))
+  task("minimal render", () => renderers.minimal.render(doc, { protocol }))
 })
 
 group("viz", () => {

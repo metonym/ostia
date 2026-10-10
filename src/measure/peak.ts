@@ -3,6 +3,7 @@ import { isPromiseLike } from "./loop.ts"
 
 export interface MemorySnapshot {
   rssBytes: number
+  residentBytes: number
   liveBytes: number
 }
 
@@ -10,10 +11,23 @@ export interface MemorySnapshot {
  * into live data and memory setup freed that the allocator still holds. */
 export function memorySnapshot(): MemorySnapshot {
   const { heapSize, extraMemorySize } = heapStats()
+  const rssBytes = process.memoryUsage.rss()
   return {
-    rssBytes: process.memoryUsage.rss(),
+    rssBytes,
+    residentBytes: residentBytes() ?? rssBytes,
     liveBytes: heapSize + extraMemorySize,
   }
+}
+
+// Bun 1.4.3+ reports the physical footprint as RSS on macOS, which misses
+// reused freed pages for a while (oven-sh/bun#44951). Resident size doesn't.
+function residentBytes(): number | undefined {
+  if (process.platform !== "darwin") return undefined
+  const ps = Bun.spawnSync(["ps", "-o", "rss=", "-p", String(process.pid)], {
+    stderr: "ignore",
+  })
+  const kib = Number(ps.stdout.toString().trim())
+  return ps.success && kib > 0 ? kib * 1024 : undefined
 }
 
 // Worker body: waits for `go`, then polls RSS flat out (~1µs) keeping the max
@@ -145,7 +159,9 @@ export async function measurePeakMem(
   )
 
   const residentFree = since
-    ? start.rssBytes - since.rssBytes - (start.liveBytes - since.liveBytes)
+    ? start.residentBytes -
+      since.residentBytes -
+      (start.liveBytes - since.liveBytes)
     : 0
   return {
     peakBytes: Math.max(0, peak - start.rssBytes),

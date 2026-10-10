@@ -890,7 +890,8 @@ describe("ostia ab", () => {
     if (run?.event !== "run") throw new Error("no run line")
     expect(run.paired?.retained?.verdict).toBe("regressed")
     expect(run.paired?.retained?.cand).toBe(run.retainedBytesPerOp!)
-    expect(run.paired?.peak?.base).toBeGreaterThan(0)
+    // The base `remember` allocates nothing, so its peak can read 0.
+    expect(run.paired?.peak?.base).toBeGreaterThanOrEqual(0)
     const summary = events.at(-1)
     if (summary?.event !== "summary") throw new Error("no summary line")
     expect(summary.memory).toEqual({

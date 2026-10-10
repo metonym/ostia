@@ -11,5 +11,6 @@
     "tests/**/*.ts",
     "scripts/**/*.ts",
     "bench/**/*.ts"
-  ]
+  ],
+  "ignoreBinaries": ["check"]
 }

@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+**Fixes**
+
+- `--peak-mem` on macOS with Bun 1.4.3+ warns `peak-hidden` again when memory
+  freed before the call could hide its peak. Bun 1.4.3 reports the physical
+  footprint as RSS there, which drops freed memory the allocator still holds,
+  so the slack read near zero while the call reused that memory unseen. The
+  slack now comes from resident size (`ps`) on macOS.
+
 ## 0.2.10 — 2026-10-06
 
 **Breaking**

@@ -124,6 +124,7 @@ export interface EntryWorkloadOptions {
   groupDescription?: string
   isolated?: boolean
   params?: Record<string, string | number | boolean>
+  formerIds?: string[]
   skipped?: boolean
 }
 
@@ -159,6 +160,8 @@ export interface TimingMeasurementInput {
   timing?: TimingStats
   warnings: Warning[]
   interleaved?: boolean
+  /** In-process heap readings around the run; see `MemoryEvidence`. */
+  heapUsed?: { beforeBytes: number; afterBytes: number }
 }
 
 export function makeTimingMeasurement(
@@ -174,7 +177,13 @@ export function makeTimingMeasurement(
     timing: input.timing,
     warnings: input.warnings,
     artifacts: [],
-    memory: memoryFromTrials(input.trials),
+    memory: input.heapUsed
+      ? {
+          origin: "heapStats",
+          heapUsedBeforeBytes: input.heapUsed.beforeBytes,
+          heapUsedAfterBytes: input.heapUsed.afterBytes,
+        }
+      : memoryFromTrials(input.trials),
     ...definedFields({ interleaved: input.interleaved }),
   }
 }

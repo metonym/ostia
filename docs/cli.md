@@ -319,6 +319,15 @@ The first task allocates and drops a 40MB array per call: `Retained/op` sees not
 `Peak mem` sees all of it. The second keeps 8KB per call alive, which both see. Byte
 counts print 1024-based (`B`, `KiB`, `MiB`) everywhere, heap snapshot summaries included.
 
+Without any flag, every task's timing measurement records the JS heap's size just before
+its warmup and just after its last trial (`memory.heapUsedBeforeBytes` /
+`heapUsedAfterBytes`): the heap as of its last collection, read without forcing one, so it
+never changes the timing. A cache that grows the heap elsewhere in the process shows in
+`heapUsedBefore` of every task after it. `ostia compare` reports either reading when it
+moves 10% or more (`+9.4% median` next to `heap used before 12.00MiB → 16.80MiB (+40.0%)`).
+Bun exposes neither a JS allocation counter nor GC counts or pause times, so ostia can't
+report bytes allocated per call or GC activity.
+
 ### `--preload` and `--bun-flags`
 
 `--preload PATH` imports a script before each suite file, in the same subprocess, like
@@ -626,24 +635,63 @@ even for `compare`. The table and markdown formats print the source first:
 ```
 thresholds: ostia.config.json
 base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)
-threshold 5% (widened to 6.2% by noise floor)
 ```
 
-The `base → cand` line appears when both documents carry git metadata; the `threshold`
-line appears (table only) when the noise floor widened the threshold.
+The `base → cand` line appears when both documents carry git metadata. When machine
+noise or drift widened the timing threshold (see [statistics.md](statistics.md#threshold-widening)),
+the comparisons start with a line saying by how much.
+
+Each task shows the base and candidate medians, then the change:
 
 ```
 ✗ bun fixtures/work.ts
-  timing: +23.8% median, 95% CI [+18.3%, +30.1%], p<0.001 (regressed)
+  timing: 31.2 ms -> 38.6 ms, +23.8% median, 95% CI [+18.3%, +30.1%], p<0.001 (regressed)
+  memory: heap used before 12.00MiB -> 16.80MiB (+40.0%)
 ```
 
-A workload id present in only one document is listed instead of dropped:
+The `memory` line lists each memory reading both documents have (`bench` records the heap
+used before and after every task; `--alloc`, `--peak-mem` and subprocess max RSS add
+theirs) that moved by 10% or more. Memory is never gated.
+
+A task present in only one document is listed instead of dropped:
 
 ```
-Unmatched:
-  baseline only: old-task
-  candidate only: new-task
+Not compared:
+  css/extractCssOrphans: candidate only (new, or renamed without `aliases`)
+  css/extractCssIndexAdditions: base only (removed, or renamed without `aliases`)
 ```
+
+A renamed suite task compares against its old name when the task lists it in
+`aliases` (`task("extractCssOrphans", fn, { aliases: ["extractCssIndexAdditions"] })`);
+the comparison then says `renamed from css/extractCssIndexAdditions`.
+
+`--format json` prints the candidate document with its comparisons. Its `compared` array
+holds one entry per task on either side, the same rows the table and markdown print:
+
+```json
+{
+  "workloadId": "wl_386ffb97e9529162",
+  "task": "css/extractCssOrphans",
+  "group": "css",
+  "renamedFrom": { "workloadId": "wl_10f3b15c8f4faf39", "task": "css/extractCssIndexAdditions" },
+  "verdict": "improved",
+  "comparisonId": "cmp_e09ab92eebdeba34",
+  "pass": true,
+  "timing": {
+    "unit": "ns", "baseMedian": 38300000, "candMedian": 26100000,
+    "baseSamples": 40, "candSamples": 41, "medianDeltaPct": -31.9,
+    "ci95": [-33.0, -30.5], "pValue": 0.0001, "thresholdPct": 5
+  },
+  "memory": [
+    { "reading": "heapUsedBefore", "baseBytes": 12582912, "candBytes": 17616077, "deltaPct": 40 }
+  ]
+}
+```
+
+`verdict` is `improved`, `unchanged`, `regressed`, `missing-base` (candidate only) or
+`missing-cand` (base only). `pass` is whether the comparison passed the gate, frames and
+heap types included; one-sided tasks have neither `pass` nor `timing`. Frame and heap-type
+deltas and warnings stay on the `Comparison` named by `comparisonId`.
 
 When the documents differ in OS, architecture, Bun version, CPU model or core count,
 every comparison carries an `environment-mismatch` warning; table and markdown print it

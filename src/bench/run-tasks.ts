@@ -1,3 +1,4 @@
+import { heapSize } from "bun:jsc"
 import {
   configFingerprint,
   createDocument,
@@ -11,11 +12,13 @@ import {
   captureTaskCpuProfile,
   DEFAULT_TASK_CPU_INTERVAL_US,
 } from "../measure/cpu.ts"
+import { stampDrift } from "../measure/environment.ts"
 import {
   type InprocessTimingOptions,
   measureTask,
 } from "../measure/inprocess.ts"
 import {
+  formerTaskIds,
   groupEdges,
   type RegisteredTask,
   runGroupHooks,
@@ -49,8 +52,12 @@ export function taskWorkload(
   isolated?: boolean,
 ): Workload {
   const id = taskIdOf(t)
+  const formerIds = formerTaskIds(t).map(
+    (former) => makeEntryWorkload(suiteFile, former, { params: t.params }).id,
+  )
   return makeEntryWorkload(suiteFile, id, {
     label: id,
+    formerIds: formerIds.length > 0 ? formerIds : undefined,
     baseline: t.baseline,
     group: t.groupName,
     description: t.opts?.description,
@@ -96,10 +103,15 @@ export async function measureTasks(
       warmup: opts.warmup,
       gc: taskGc(t, opts.gc ?? false),
     }
+    // The heap as of its last GC, never forcing one: a forced GC would
+    // change the timing it brackets.
+    const heapBefore = heapSize()
     const result = await measureTask(t.fn, taskOpts)
+    const heapAfter = heapSize()
     measurements.push(
       makeTimingMeasurement({
         workload,
+        heapUsed: { beforeBytes: heapBefore, afterBytes: heapAfter },
         configFingerprint: configFingerprint({
           budgetMs: taskOpts.budgetMs ?? null,
           samples: taskOpts.samples ?? null,
@@ -150,5 +162,6 @@ export async function measureTasks(
     await runGroupHooks(t, "after", leave)
   }
 
+  stampDrift(environment)
   return createDocument(workloads, measurements, environment)
 }

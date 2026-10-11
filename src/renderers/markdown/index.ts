@@ -36,16 +36,19 @@ import {
 } from "../paired.ts"
 import { groupOf, relativeRatios, type TimingRow } from "../relative.ts"
 import {
-  comparisonResolver,
+  comparedRows,
   environmentMismatch,
   memoryColumns,
   memoryReadings,
   noSampleRuns,
+  oneSidedNote,
   rowComparisonWarnings,
   runWarnings,
   shownFrameDeltas,
   shownHeapDeltas,
+  shownMemoryDeltas,
   skippedWorkloads,
+  thresholdNote,
   timingRuns,
   workloadsById,
 } from "../select.ts"
@@ -433,50 +436,66 @@ function heapDetail(run: Measurement): string[] {
 }
 
 function comparisonSection(doc: ProfileDocument): string[] {
-  if (!doc.comparisons || doc.comparisons.length === 0) return []
-  const resolve = comparisonResolver(doc)
+  const rows = comparedRows(doc)
+  if (rows.length === 0) return []
   const lines = ["## Comparisons", ""]
-  for (const cmp of doc.comparisons) {
-    const { run, workload, workloadId } = resolve(cmp)
-    lines.push(
-      `### ${cmp.verdict === "pass" ? "✓" : "✗"} ${labelOrId(workload, workloadId)}`,
-      "",
-    )
-    if (cmp.timing) {
-      const { medianDeltaPct, ci95, pValue, verdict } = cmp.timing
+  const note = thresholdNote(doc)
+  if (note) lines.push(`${note}.`, "")
+  const notCompared: string[] = []
+  for (const { row, cmp } of rows) {
+    if (row.verdict === "missing-base" || row.verdict === "missing-cand") {
+      notCompared.push(`- \`${cell(row.task)}\`: ${oneSidedNote(row.verdict)}`)
+      continue
+    }
+    lines.push(`### ${row.pass === false ? "✗" : "✓"} ${row.task}`, "")
+    if (row.renamedFrom) {
+      lines.push(`- renamed from \`${cell(row.renamedFrom.task)}\``)
+    }
+    if (row.timing) {
+      const { baseMedian, candMedian, medianDeltaPct, ci95, pValue } =
+        row.timing
+      const alpha = cmp?.thresholds.alpha
       // "~": the delta rounds to non-zero but isn't significant (p past alpha).
       const tilde =
-        verdict === "unchanged" &&
+        row.verdict === "unchanged" &&
         pValue !== undefined &&
-        pValue >= cmp.thresholds.alpha
+        alpha !== undefined &&
+        pValue >= alpha
           ? "~"
           : ""
-      const detail: string[] = []
-      if (run?.timing) detail.push(`n=${run.timing.samples.length}`)
+      const unit = pickDurationUnit(Math.max(baseMedian, candMedian))
+      const detail = [`n=${row.timing.candSamples}`]
       if (ci95)
         detail.push(
           `95% CI [${formatSignedPct(ci95[0])}, ${formatSignedPct(ci95[1])}]`,
         )
       if (pValue !== undefined) detail.push(`p=${pValue.toFixed(4)}`)
-      detail.push(`threshold ${cmp.thresholds.effectiveTimingPct.toFixed(1)}%`)
+      detail.push(`threshold ${row.timing.thresholdPct.toFixed(1)}%`)
       lines.push(
-        `- timing: ${tilde}${formatSignedPct(medianDeltaPct)} median, ${detail.join(", ")} (**${verdict}**)`,
+        `- timing: ${formatDuration(baseMedian, unit)} → ${formatDuration(candMedian, unit)}, ${tilde}${formatSignedPct(medianDeltaPct)} median, ${detail.join(", ")} (**${row.verdict}**)`,
       )
     }
-    for (const f of shownFrameDeltas(cmp, TOP_FRAMES)) {
-      lines.push(
-        `- frame \`${cell(f.name)}\`: ${formatSignedPct(f.deltaPct)} self-time (${formatUsAsMs(f.baseSelfUs)}ms → ${formatUsAsMs(f.candSelfUs)}ms)`,
-      )
-    }
-    for (const h of shownHeapDeltas(cmp, TOP_TYPES)) {
-      lines.push(
-        `- heap \`${cell(h.type)}\`: ${formatSignedPct(h.deltaPct)} count (${h.baseCount} → ${h.candCount})`,
-      )
-    }
-    for (const w of rowComparisonWarnings(cmp)) {
-      lines.push(`- ! ${warningNote(w)}`)
+    const memory = shownMemoryDeltas(row)
+    if (memory.length > 0) lines.push(`- memory: ${memory.join(", ")}`)
+    if (cmp) {
+      for (const f of shownFrameDeltas(cmp, TOP_FRAMES)) {
+        lines.push(
+          `- frame \`${cell(f.name)}\`: ${formatSignedPct(f.deltaPct)} self-time (${formatUsAsMs(f.baseSelfUs)}ms → ${formatUsAsMs(f.candSelfUs)}ms)`,
+        )
+      }
+      for (const h of shownHeapDeltas(cmp, TOP_TYPES)) {
+        lines.push(
+          `- heap \`${cell(h.type)}\`: ${formatSignedPct(h.deltaPct)} count (${h.baseCount} → ${h.candCount})`,
+        )
+      }
+      for (const w of rowComparisonWarnings(cmp)) {
+        lines.push(`- ! ${warningNote(w)}`)
+      }
     }
     lines.push("")
+  }
+  if (notCompared.length > 0) {
+    lines.push("### Not compared", "", ...notCompared, "")
   }
   return lines
 }

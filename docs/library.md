@@ -150,6 +150,7 @@ suites and tasks that had finished.
 | `isolate`, `gc`, `cpu`, `alloc`, `peakMem` | Override the suite-wide flag (and the group's) for this task. |
 | `baseline` | This task is the group's Relative reference (default: the group's fastest). |
 | `description` | Stored as `Workload.description` and shown in `minimal` output. |
+| `aliases` | Former names of the task in the same group. `compare`, `ci` and `ab` match a base measured under any of them, so a rename still compares. |
 | `params` | Structured parameters; part of the workload id. Merged over the current `sweep()` point. |
 | `before`, `after` | Run once, unmeasured, before the task's warmup and after its last trial, in the task's own process (works with `isolate`). |
 

@@ -15,6 +15,10 @@ export interface ProfileDocument {
   /** Workload ids on only one side of the comparison; present wherever
    * `comparisons` is. */
   unmatched?: { baseOnly: string[]; candOnly: string[] }
+  /** Every task on either side of the comparison, one entry each: what
+   * `--format markdown` prints, flat for scripts. Present wherever
+   * `comparisons` is. */
+  compared?: ComparedTask[]
   /** Machine conditions at measurement time; absent when the noise check was
    * skipped. */
   environment?: Environment
@@ -38,6 +42,10 @@ export interface NoiseFloor {
   floorPct: number
   referenceMedianNs: number
   samples: number
+  /** How much slower (positive) the reference ran at the end of the run than
+   * at the start, percent: the machine's drift over the run. Absent when the
+   * run didn't re-measure it (`profile()`, older documents). */
+  driftPct?: number
 }
 
 export interface Environment {
@@ -83,6 +91,10 @@ export interface Workload {
   /** From `task(..., { params })` or a `sweep()` point. Part of the id, so
    * points sharing a task name don't collide. */
   params?: Record<string, string | number | boolean>
+  /** Ids this task had under its former names (`task(..., { aliases })`), so
+   * `compare` and `ab` match a base measured before a rename. Never part of
+   * the id. */
+  formerIds?: string[]
   /** From `task.skip()` / `group.skip()`: never measured, so no `Measurement`.
    * Renderers print a "- skipped" row; `compare` treats it as `unchanged` with
    * a `skipped` warning. */
@@ -209,6 +221,11 @@ export interface MemoryEvidence {
   /** `--peak-mem`: how far one call raised RSS, garbage included; median over
    * 3 fresh processes. A `peak-hidden` warning says when it may read low. */
   peakBytes?: number
+  /** In-process timing: the JS heap's size as of its last collection, just
+   * before the task's warmup and just after its last trial. Read without
+   * forcing a GC, so it never perturbs the timing. */
+  heapUsedBeforeBytes?: number
+  heapUsedAfterBytes?: number
 }
 
 export interface JitTierBreakdown {
@@ -413,6 +430,65 @@ export interface ComparisonSummary {
   /** `Comparison.thresholds.effectiveTimingPct`, which is the same for the
    * whole document pair. */
   effectiveTimingPct: number
+  /** The machine's drift, percent, added to the timing threshold: the
+   * largest of each run's own drift (`NoiseFloor.driftPct`) and how far the
+   * reference loop's speed moved between the two runs. Absent when either
+   * document lacks a noise check. */
+  driftPct?: number
   /** `"fail"` when any comparison's verdict is `"fail"`. */
   verdict: "pass" | "fail"
+}
+
+/** One task of a `compare`/`ci` run: matched on both sides, or present on
+ * only one (`missing-base`: new, or renamed without an alias; `missing-cand`:
+ * removed, or renamed). Times in ns, memory in bytes. */
+export interface ComparedTask {
+  /** The candidate's workload id; the base's on a `missing-cand` task. */
+  workloadId: string
+  /** Display name: the label, else the command, else the id. */
+  task: string
+  group?: string
+  /** Set when the base was matched through one of the task's `aliases`: the
+   * base's workload id and display name. */
+  renamedFrom?: { workloadId: string; task: string }
+  verdict:
+    | "improved"
+    | "unchanged"
+    | "regressed"
+    | "missing-base"
+    | "missing-cand"
+  /** The `Comparison` holding this task's frame and heap-type deltas and
+   * warnings; absent on a one-sided task. */
+  comparisonId?: string
+  /** Whether the comparison passed the gate (timing, frames, heap types);
+   * absent on a one-sided task, which never fails it. */
+  pass?: boolean
+  /** Absent on a one-sided or skipped task. */
+  timing?: {
+    unit: "ns"
+    baseMedian: number
+    candMedian: number
+    /** Absent on a document compared before ostia recorded it. */
+    baseSamples?: number
+    candSamples: number
+    medianDeltaPct: number
+    /** Absent on a thin (<5 samples a side) comparison, with `pValue`. */
+    ci95?: [number, number]
+    pValue?: number
+    /** `Comparison.thresholds.effectiveTimingPct`. */
+    thresholdPct: number
+  }
+  /** Memory readings present on both sides; informational, never gated. */
+  memory?: MemoryDelta[]
+}
+
+/** One memory reading of a task on both sides of a `compare`/`ci`, bytes. */
+export interface MemoryDelta {
+  /** `heapUsedBefore`/`heapUsedAfter`: in-process heap around the timing
+   * run; `retained`: `--alloc`; `peak`: `--peak-mem`; `maxRss`: subprocess
+   * timing. */
+  reading: "heapUsedBefore" | "heapUsedAfter" | "retained" | "peak" | "maxRss"
+  baseBytes: number
+  candBytes: number
+  deltaPct: number
 }

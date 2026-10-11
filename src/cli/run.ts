@@ -31,7 +31,7 @@ import {
   OstiaDocumentError,
   saveDocument,
 } from "../ir/document.ts"
-import type { ProfileDocument, Workload } from "../ir/types.ts"
+import type { ProfileDocument } from "../ir/types.ts"
 import { sideLabel } from "../measure/paired.ts"
 import { isHarnessFailure } from "../measure/timing.ts"
 import { formatGit, workloadLabel } from "../renderers/format.ts"
@@ -631,6 +631,7 @@ async function compareCommand(argv: string[]): Promise<number> {
       baseOnly: result.unmatched.baseOnly.map((w) => w.id),
       candOnly: result.unmatched.candOnly.map((w) => w.id),
     },
+    compared: result.compared,
   }
 
   // json/jsonl/minimal stay pure JSON on stdout, so only the human formats get prose banners.
@@ -640,14 +641,6 @@ async function compareCommand(argv: string[]): Promise<number> {
     await out(`thresholds: ${thresholdsSource}\n`)
     if (base.git && cand.git) {
       await out(`base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`)
-    }
-    if (
-      parsed.format === "table" &&
-      result.summary.effectiveTimingPct > thresholds.timingPct
-    ) {
-      await out(
-        `threshold ${thresholds.timingPct}% (widened to ${result.summary.effectiveTimingPct.toFixed(1)}% by noise floor)\n`,
-      )
     }
   }
 
@@ -665,16 +658,6 @@ async function compareCommand(argv: string[]): Promise<number> {
     } satisfies MinimalProtocolContext,
   })
 
-  if (
-    humanFormat &&
-    (result.unmatched.baseOnly.length > 0 ||
-      result.unmatched.candOnly.length > 0)
-  ) {
-    await out(
-      renderUnmatchedSection(result.unmatched, parsed.format === "markdown"),
-    )
-  }
-
   if (result.summary.matched === 0) {
     await writeCliError(
       "no-matches",
@@ -683,21 +666,6 @@ async function compareCommand(argv: string[]): Promise<number> {
   }
 
   return exitCode
-}
-
-function renderUnmatchedSection(
-  unmatched: { baseOnly: Workload[]; candOnly: Workload[] },
-  markdown: boolean,
-): string {
-  const labels = (ws: Workload[]) => ws.map((w) => workloadLabel(w)).join(", ")
-  const bullet = markdown ? "- " : "  "
-  const lines = markdown ? ["### Unmatched", ""] : ["", "Unmatched:"]
-  if (unmatched.baseOnly.length > 0)
-    lines.push(`${bullet}baseline only: ${labels(unmatched.baseOnly)}`)
-  if (unmatched.candOnly.length > 0)
-    lines.push(`${bullet}candidate only: ${labels(unmatched.candOnly)}`)
-  if (markdown) lines.push("")
-  return `${lines.join("\n")}\n`
 }
 
 interface ReportArgs extends ConfigArgs {

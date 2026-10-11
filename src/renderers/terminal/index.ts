@@ -38,16 +38,19 @@ import {
   type TimingRow,
 } from "../relative.ts"
 import {
-  comparisonResolver,
+  comparedRows,
   environmentMismatch,
   memoryColumns,
   memoryReadings,
   noSampleRuns,
+  oneSidedNote,
   rowComparisonWarnings,
   runWarnings,
   shownFrameDeltas,
   shownHeapDeltas,
+  shownMemoryDeltas,
   skippedWorkloads,
+  thresholdNote,
   timingRuns,
   workloadsById,
 } from "../select.ts"
@@ -324,33 +327,45 @@ function renderPaired(
 }
 
 function renderComparisons(doc: ProfileDocument): string[] {
-  if (!doc.comparisons || doc.comparisons.length === 0) return []
+  const rows = comparedRows(doc)
+  if (rows.length === 0) return []
   const lines: string[] = []
-  const resolve = comparisonResolver(doc)
 
   const mismatch = environmentMismatch(doc)
   if (mismatch) lines.push(`⚠ ${mismatch.message}`, "")
+  const note = thresholdNote(doc)
+  if (note) lines.push(note, "")
 
   const footnotes: string[] = []
+  const notCompared: string[] = []
 
-  for (const cmp of doc.comparisons) {
-    const { workload, workloadId } = resolve(cmp)
-    const label = labelOrId(workload, workloadId)
-    lines.push(`${cmp.verdict === "pass" ? "✓" : "✗"} ${label}`)
+  for (const { row, cmp } of rows) {
+    if (row.verdict === "missing-base" || row.verdict === "missing-cand") {
+      notCompared.push(`  ${row.task}: ${oneSidedNote(row.verdict)}`)
+      continue
+    }
+    lines.push(`${row.pass === false ? "✗" : "✓"} ${row.task}`)
+    if (row.renamedFrom) lines.push(`  renamed from ${row.renamedFrom.task}`)
 
-    if (cmp.timing) {
-      const { medianDeltaPct, ci95, pValue, verdict } = cmp.timing
+    if (row.timing) {
+      const { baseMedian, candMedian, medianDeltaPct, ci95, pValue } =
+        row.timing
+      const unit = pickDurationUnit(Math.max(baseMedian, candMedian))
+      const medians = `${formatDuration(baseMedian, unit)} -> ${formatDuration(candMedian, unit)}`
       if (ci95 && pValue !== undefined) {
         const p = pValue < 0.001 ? "p<0.001" : `p=${pValue.toFixed(3)}`
         lines.push(
-          `  timing: ${formatSignedPct(medianDeltaPct)} median, 95% CI [${formatSignedPct(ci95[0])}, ${formatSignedPct(ci95[1])}], ${p} (${verdict})`,
+          `  timing: ${medians}, ${formatSignedPct(medianDeltaPct)} median, 95% CI [${formatSignedPct(ci95[0])}, ${formatSignedPct(ci95[1])}], ${p} (${row.verdict})`,
         )
       } else {
         lines.push(
-          `  timing: ${formatSignedPct(medianDeltaPct)} median (${verdict})`,
+          `  timing: ${medians}, ${formatSignedPct(medianDeltaPct)} median (${row.verdict})`,
         )
       }
     }
+    const memory = shownMemoryDeltas(row, "->")
+    if (memory.length > 0) lines.push(`  memory: ${memory.join(", ")}`)
+    if (!cmp) continue
     for (const f of shownFrameDeltas(cmp, TOP_FRAMES)) {
       lines.push(
         `  frame ${f.name}: ${formatSignedPct(f.deltaPct)} self-time (${formatUsAsMs(f.baseSelfUs)}ms -> ${formatUsAsMs(f.candSelfUs)}ms)`,
@@ -365,10 +380,11 @@ function renderComparisons(doc: ProfileDocument): string[] {
     const warnings = rowComparisonWarnings(cmp)
     if (warnings.length > 0) {
       lines.push(`  ! ${warnings.map((w) => w.code).join(", ")}`)
-      for (const w of warnings) footnotes.push(`  ${label}: ${w.message}`)
+      for (const w of warnings) footnotes.push(`  ${row.task}: ${w.message}`)
     }
   }
 
+  if (notCompared.length > 0) lines.push("", "Not compared:", ...notCompared)
   if (footnotes.length > 0) lines.push("", "Comparison warnings:", ...footnotes)
   return lines
 }

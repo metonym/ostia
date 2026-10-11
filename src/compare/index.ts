@@ -1,13 +1,17 @@
 import { fp } from "../ir/fp.ts"
 import type {
+  ComparedTask,
   Comparison,
   ComparisonSummary,
+  Environment,
   Measurement,
+  MemoryDelta,
   ProfileDocument,
   TimingStats,
   Warning,
   Workload,
 } from "../ir/types.ts"
+import { workloadLabel } from "../renderers/format.ts"
 import { bootstrapMedianDiffCi } from "../stats/bootstrap.ts"
 import { mannWhitneyU } from "../stats/mannwhitney.ts"
 
@@ -48,8 +52,15 @@ type Lookup = (workloadId: string, phase: Phase) => Measurement | undefined
 interface CompareIndex {
   base: Lookup
   cand: Lookup
+  baseMemory: (workloadId: string) => MemoryReadings
+  candMemory: (workloadId: string) => MemoryReadings
+  baseWorkloads: Map<string, Workload>
   candWorkloads: Map<string, Workload>
+  /** The base workload a candidate workload compares against: its own id,
+   * else the first of its `formerIds` the base has. */
+  baseIdFor: (candWorkloadId: string) => string | undefined
   environmentMismatch: Warning | undefined
+  driftPct: number | undefined
   effectiveTimingPct: number
 }
 
@@ -63,21 +74,85 @@ function indexMeasurements(doc: ProfileDocument): Lookup {
     byPhase.get(`${workloadId}\u0000${phase}`)
 }
 
+type MemoryReadings = Partial<Record<MemoryDelta["reading"], number>>
+
+/** Every memory reading per workload, from its timing and `memstats`
+ * measurements. */
+function indexMemory(doc: ProfileDocument): (id: string) => MemoryReadings {
+  const byWorkload = new Map<string, MemoryReadings>()
+  for (const m of doc.measurements) {
+    const mem = m.memory
+    if (!mem || (m.phase !== "timing" && m.phase !== "memstats")) continue
+    const readings = byWorkload.get(m.workloadId) ?? {}
+    if (m.phase === "timing") {
+      readings.heapUsedBefore = mem.heapUsedBeforeBytes
+      readings.heapUsedAfter = mem.heapUsedAfterBytes
+      readings.maxRss = mem.maxRssBytes
+    } else if (mem.kind === "peak") {
+      readings.peak = mem.peakBytes
+    } else {
+      readings.retained = mem.bytesPerOp
+    }
+    byWorkload.set(m.workloadId, readings)
+  }
+  return (id) => byWorkload.get(id) ?? {}
+}
+
+/** The reference loop's mean speed over a run: the start and end readings
+ * averaged when the run re-measured it. */
+function meanReferenceNs(env: Environment): number {
+  const { referenceMedianNs, driftPct } = env.noise
+  return referenceMedianNs * (1 + (driftPct ?? 0) / 200)
+}
+
+/** How far the machine's speed moved within either run, or between them,
+ * percent; `undefined` unless both runs measured their noise floor. */
+function machineDriftPct(
+  base: ProfileDocument,
+  cand: ProfileDocument,
+): number | undefined {
+  if (!base.environment || !cand.environment) return undefined
+  const baseRef = meanReferenceNs(base.environment)
+  const between =
+    baseRef > 0 ? (meanReferenceNs(cand.environment) / baseRef - 1) * 100 : 0
+  return Math.max(
+    Math.abs(base.environment.noise.driftPct ?? 0),
+    Math.abs(cand.environment.noise.driftPct ?? 0),
+    Math.abs(between),
+  )
+}
+
 function buildIndex(
   base: ProfileDocument,
   cand: ProfileDocument,
   thresholds: Thresholds,
 ): CompareIndex {
+  const baseWorkloads = new Map(base.workloads.map((w) => [w.id, w]))
+  const candWorkloads = new Map(cand.workloads.map((w) => [w.id, w]))
+  const driftPct = machineDriftPct(base, cand)
   return {
     base: indexMeasurements(base),
     cand: indexMeasurements(cand),
-    candWorkloads: new Map(cand.workloads.map((w) => [w.id, w])),
+    baseMemory: indexMemory(base),
+    candMemory: indexMemory(cand),
+    baseWorkloads,
+    candWorkloads,
+    baseIdFor: (id) => {
+      if (baseWorkloads.has(id)) return id
+      return candWorkloads
+        .get(id)
+        ?.formerIds?.find((former) => baseWorkloads.has(former))
+    },
     environmentMismatch: environmentMismatchWarning(base, cand),
-    effectiveTimingPct: Math.max(
-      thresholds.timingPct,
-      base.environment?.noise.floorPct ?? 0,
-      cand.environment?.noise.floorPct ?? 0,
-    ),
+    driftPct,
+    // Drift moves every task the same way, so it adds to the threshold
+    // instead of competing with it.
+    effectiveTimingPct:
+      Math.max(
+        thresholds.timingPct,
+        base.environment?.noise.floorPct ?? 0,
+        cand.environment?.noise.floorPct ?? 0,
+      ) + (driftPct ?? 0),
   }
 }
 
@@ -114,6 +189,8 @@ function environmentMismatchWarning(
 export interface CompareResult {
   comparisons: Comparison[]
   unmatched: { baseOnly: Workload[]; candOnly: Workload[] }
+  /** Every task on either side; see `ProfileDocument.compared`. */
+  compared: ComparedTask[]
   summary: ComparisonSummary
 }
 
@@ -136,8 +213,12 @@ function geomeanTimingPct(comparisons: Comparison[]): number | null {
  * pair-level facts `compareDocuments` and `ostia ci` both need. */
 export interface Comparer {
   effectiveTimingPct: number
+  driftPct: number | undefined
   compare(workloadId: string): Comparison | undefined
   unmatched(): { baseOnly: Workload[]; candOnly: Workload[] }
+  /** The document's `compared`: a row per `[candidate workload id,
+   * comparison]` in `matched`, in that order, then the unmatched ones. */
+  compared(matched: [string, Comparison][]): ComparedTask[]
 }
 
 export function createComparer(
@@ -146,23 +227,118 @@ export function createComparer(
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): Comparer {
   const index = buildIndex(base, cand, thresholds)
+  const unmatched = () => {
+    const matchedBaseIds = new Set<string>()
+    const candOnly: Workload[] = []
+    for (const w of cand.workloads) {
+      const baseId = index.baseIdFor(w.id)
+      if (baseId === undefined) candOnly.push(w)
+      else matchedBaseIds.add(baseId)
+    }
+    return {
+      baseOnly: base.workloads.filter((w) => !matchedBaseIds.has(w.id)),
+      candOnly,
+    }
+  }
   return {
     effectiveTimingPct: index.effectiveTimingPct,
+    driftPct: index.driftPct,
     compare: (workloadId) => compareIndexed(index, workloadId, thresholds),
-    unmatched() {
-      const baseIds = new Set(base.workloads.map((w) => w.id))
-      return {
-        baseOnly: base.workloads.filter((w) => !index.candWorkloads.has(w.id)),
-        candOnly: cand.workloads.filter((w) => !baseIds.has(w.id)),
-      }
+    unmatched,
+    compared(matched) {
+      // A candidate workload whose base has no measurement of it (a base
+      // `task.skip()`) has no comparison either: it's missing its base too.
+      const compared = new Set(matched.map(([id]) => id))
+      const candOnly = cand.workloads.filter((w) => !compared.has(w.id))
+      const { baseOnly } = unmatched()
+      const oneSided = (
+        w: Workload,
+        verdict: "missing-base" | "missing-cand",
+      ): ComparedTask => ({
+        workloadId: w.id,
+        task: workloadLabel(w),
+        ...(w.entry?.group !== undefined && { group: w.entry.group }),
+        verdict,
+      })
+      return [
+        ...matched.map(([id, cmp]) => comparedTask(index, id, cmp)),
+        ...candOnly.map((w) => oneSided(w, "missing-base")),
+        ...baseOnly.map((w) => oneSided(w, "missing-cand")),
+      ]
     },
   }
+}
+
+// Memory readings in the order rows list them.
+const MEMORY_READINGS: MemoryDelta["reading"][] = [
+  "heapUsedBefore",
+  "heapUsedAfter",
+  "retained",
+  "peak",
+  "maxRss",
+]
+
+function comparedTask(
+  index: CompareIndex,
+  workloadId: string,
+  cmp: Comparison,
+): ComparedTask {
+  const baseId = index.baseIdFor(workloadId) ?? workloadId
+  const cand = index.candWorkloads.get(workloadId)
+  const base = index.baseWorkloads.get(baseId)
+  const row: ComparedTask = {
+    workloadId,
+    task: cand ? workloadLabel(cand) : workloadId,
+    ...(cand?.entry?.group !== undefined && { group: cand.entry.group }),
+    verdict: cmp.timing?.verdict ?? "unchanged",
+    comparisonId: cmp.id,
+    pass: cmp.verdict === "pass",
+  }
+  if (baseId !== workloadId) {
+    row.renamedFrom = {
+      workloadId: baseId,
+      task: base ? workloadLabel(base) : baseId,
+    }
+  }
+  const baseTiming = index.base(baseId, "timing")?.timing
+  const candTiming = index.cand(workloadId, "timing")?.timing
+  if (cmp.timing && baseTiming && candTiming) {
+    const { medianDeltaPct, ci95, pValue } = cmp.timing
+    row.timing = {
+      unit: "ns",
+      baseMedian: baseTiming.median,
+      candMedian: candTiming.median,
+      baseSamples: baseTiming.samples.length,
+      candSamples: candTiming.samples.length,
+      medianDeltaPct,
+      ...(ci95 && { ci95 }),
+      ...(pValue !== undefined && { pValue }),
+      thresholdPct: cmp.thresholds.effectiveTimingPct,
+    }
+  }
+  const baseMemory = index.baseMemory(baseId)
+  const candMemory = index.candMemory(workloadId)
+  const memory: MemoryDelta[] = []
+  for (const reading of MEMORY_READINGS) {
+    const baseBytes = baseMemory[reading]
+    const candBytes = candMemory[reading]
+    if (baseBytes === undefined || candBytes === undefined) continue
+    memory.push({
+      reading,
+      baseBytes,
+      candBytes,
+      deltaPct: pctDelta(baseBytes, candBytes),
+    })
+  }
+  if (memory.length > 0) row.memory = memory
+  return row
 }
 
 /** The `comparisonSummary` stamped on a compared document. */
 export function summarizeComparisons(
   comparisons: Comparison[],
   effectiveTimingPct: number,
+  driftPct?: number,
 ): ComparisonSummary {
   let regressed = 0
   let improved = 0
@@ -180,6 +356,7 @@ export function summarizeComparisons(
     unchanged,
     geomeanPct: geomeanTimingPct(comparisons),
     effectiveTimingPct,
+    ...(driftPct !== undefined && { driftPct }),
     verdict: comparisons.some((c) => c.verdict === "fail") ? "fail" : "pass",
   }
 }
@@ -193,15 +370,21 @@ export function compareDocuments(
   thresholds: Thresholds = DEFAULT_THRESHOLDS,
 ): CompareResult {
   const comparer = createComparer(base, cand, thresholds)
-  const comparisons: Comparison[] = []
+  const matched: [string, Comparison][] = []
   for (const workload of cand.workloads) {
     const comparison = comparer.compare(workload.id)
-    if (comparison) comparisons.push(comparison)
+    if (comparison) matched.push([workload.id, comparison])
   }
+  const comparisons = matched.map(([, c]) => c)
   return {
     comparisons,
     unmatched: comparer.unmatched(),
-    summary: summarizeComparisons(comparisons, comparer.effectiveTimingPct),
+    compared: comparer.compared(matched),
+    summary: summarizeComparisons(
+      comparisons,
+      comparer.effectiveTimingPct,
+      comparer.driftPct,
+    ),
   }
 }
 
@@ -350,11 +533,13 @@ function compareIndexed(
   thresholds: Thresholds,
 ): Comparison | undefined {
   const { effectiveTimingPct } = index
-  const baseTiming = index.base(workloadId, "timing")
+  const baseId = index.baseIdFor(workloadId)
+  if (baseId === undefined) return undefined
+  const baseTiming = index.base(baseId, "timing")
   const candTiming = index.cand(workloadId, "timing")
-  const baseCpu = index.base(workloadId, "cpu")
+  const baseCpu = index.base(baseId, "cpu")
   const candCpu = index.cand(workloadId, "cpu")
-  const baseHeap = index.base(workloadId, "heap")
+  const baseHeap = index.base(baseId, "heap")
   const candHeap = index.cand(workloadId, "heap")
   const candWorkload = index.candWorkloads.get(workloadId)
 

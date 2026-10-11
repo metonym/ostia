@@ -5,7 +5,7 @@ ostia is a profiling and benchmarking toolkit for Bun. It times subprocess comma
 profiles, heap snapshots, JIT tiers, retained heap and peak memory, and writes everything
 to one schema-versioned JSON document (`ProfileDocument`). Two documents compare with a
 bootstrap confidence interval and a Mann-Whitney test, with the regression threshold
-widened to the machine's measured noise floor. `ostia ab` pairs the working tree against
+widened by the machine's measured noise and drift. `ostia ab` pairs the working tree against
 a git ref in one process, which holds up on machines too noisy for that. `ostia ci` gates
 a config file of workloads against a saved baseline, and `--format minimal` gives scripts
 and LLM agents a compact JSON line protocol. The CLI is a thin wrapper over the library, so anything
@@ -122,7 +122,7 @@ ostia ci              # on your change: exit 1 on a regression
 Profile CI: ✗
 ...
 ✗ work
-  timing: +44.1% median, 95% CI [+41.4%, +45.6%], p<0.001 (regressed)
+  timing: 14.57 ms -> 21.00 ms, +44.1% median, 95% CI [+41.4%, +45.6%], p<0.001 (regressed)
 ```
 
 Scratch output (cache, artifacts) goes to `node_modules/.cache/ostia`. Baselines go to
@@ -271,8 +271,12 @@ ostia compare before.json after.json --format markdown
 
 ```
 ✗ bun fixtures/work.ts
-  timing: +23.8% median, 95% CI [+18.3%, +30.1%], p<0.001 (regressed)
+  timing: 31.2 ms -> 38.6 ms, +23.8% median, 95% CI [+18.3%, +30.1%], p<0.001 (regressed)
 ```
+
+`--format json` adds a flat `compared` array, one row per task, for scripts. A task on only
+one side is listed under "Not compared"; a renamed suite task still compares when it lists
+its old name in `aliases`.
 
 A regression needs the whole 95% CI above the threshold and a Mann-Whitney p-value below
 `alpha` (default 0.01). Thresholds come from the config file when one exists, otherwise

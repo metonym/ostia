@@ -25,6 +25,7 @@ import type {
   Warning,
   Workload,
 } from "../ir/types.ts"
+import { stampDrift } from "../measure/environment.ts"
 import { isHarnessFailure, runTimingPhase } from "../measure/timing.ts"
 import { formatSignedPct, workloadLabel } from "../renderers/format.ts"
 import { abortedWarning } from "../time.ts"
@@ -253,6 +254,7 @@ export async function measureConfigWorkloads(
   if (aborted && last && !last.warnings.some((w) => w.code === "aborted")) {
     last.warnings = [...last.warnings, abortedWarning()]
   }
+  if (results.some((r) => r.status === "executed")) stampDrift(environment)
   return { results, environment, aborted }
 }
 
@@ -305,14 +307,15 @@ export async function runCi(opts: CiOptions): Promise<{
   }
 
   const comparer = createComparer(baseline, candidateDoc, config.thresholds)
-  const comparisons: Comparison[] = []
+  const matched: [string, Comparison][] = []
   for (const result of results) {
     const comparison = comparer.compare(result.workload.id)
     if (comparison) {
       result.comparison = comparison
-      comparisons.push(comparison)
+      matched.push([result.workload.id, comparison])
     }
   }
+  const comparisons = matched.map(([, c]) => c)
   const missingBaseline = results.length - comparisons.length
   const passed = comparisons.filter((c) => c.verdict === "pass").length
 
@@ -331,9 +334,11 @@ export async function runCi(opts: CiOptions): Promise<{
     baseOnly: unmatched.baseOnly.map((w) => w.id),
     candOnly: unmatched.candOnly.map((w) => w.id),
   }
+  candidateDoc.compared = comparer.compared(matched)
   candidateDoc.comparisonSummary = summarizeComparisons(
     comparisons,
     comparer.effectiveTimingPct,
+    comparer.driftPct,
   )
 
   return {

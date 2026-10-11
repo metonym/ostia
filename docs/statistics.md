@@ -50,6 +50,10 @@ hash loop for about 200ms, once per call, and record `mad / median` of its trial
 now, independent of the workload. `noiseCheck: false` / `--no-noise-check` skips it (and
 the widening below).
 
+`time()`, `bench()` and `ostia ci` run the loop again when they finish and record how much
+slower it ran at the end than at the start as `environment.noise.driftPct`: the
+machine's drift over the run (thermal throttling, a neighbour on a shared CI runner).
+
 A `noisy-machine` warning is added when the 1-minute load average exceeds 75% of the
 available cores.
 
@@ -94,10 +98,25 @@ has no `ci95`/`pValue`.
 effectiveTimingPct = max(thresholds.timingPct,
                          base.environment.noise.floorPct,
                          cand.environment.noise.floorPct)
+                     + driftPct
+
+driftPct = max(|base.environment.noise.driftPct|,
+               |cand.environment.noise.driftPct|,
+               |candReference / baseReference - 1| × 100)
 ```
 
-A change smaller than the machine's current jitter is never called a regression. The
-value is stored per comparison (`thresholds.effectiveTimingPct`) and in the summary.
+`candReference` and `baseReference` are each run's average reference-loop time (start and
+end). A change smaller than the machine's current jitter is never called a regression,
+and when the machine ran faster or slower for one run than the other, every task shifts
+by about as much, so the shift adds to the threshold. `driftPct` is `0` for a document
+without `driftPct` (before ostia measured it) beyond the shift between the runs, and is
+left out entirely when either document skipped the noise check. The values are stored per
+comparison (`thresholds.effectiveTimingPct`) and in the summary (`effectiveTimingPct`,
+`driftPct`).
+
+Widening trades sensitivity for fewer false alarms: on a machine that drifts 10% between
+two runs, a 12% regression reads `unchanged`. `ostia ab` pairs base and candidate in one
+process instead, so drift can't favor either side; prefer it for gating pull requests.
 
 ### CPU frames and heap types
 

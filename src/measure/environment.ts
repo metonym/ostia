@@ -16,6 +16,16 @@ export function captureEnvironment(): Environment {
   }
 }
 
+/** Re-runs the reference loop at the end of a run and stamps how much
+ * slower it ran than at the start on `env.noise.driftPct`: the machine's
+ * drift over the run, which `compare` adds to its timing threshold. */
+export function stampDrift(env: Environment | undefined): void {
+  if (!env) return
+  const start = env.noise.referenceMedianNs
+  const end = measureNoiseFloor().referenceMedianNs
+  env.noise.driftPct = start > 0 ? (end / start - 1) * 100 : 0
+}
+
 export function noisyMachineWarning(env: Environment): Warning | undefined {
   if (env.loadAvg1 <= env.cores * LOAD_WARNING_FRACTION) return undefined
   return {

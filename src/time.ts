@@ -20,6 +20,7 @@ import type {
 import {
   captureEnvironment,
   noisyMachineWarning,
+  stampDrift,
 } from "./measure/environment.ts"
 import {
   assertSamplingOptions,
@@ -220,6 +221,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     last.warnings = [...last.warnings, abortedWarning()]
   }
 
+  stampDrift(environment)
   return createDocument(workloads, measurements, environment)
 }
 

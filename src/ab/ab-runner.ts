@@ -2,6 +2,7 @@
 
 import {
   filterTasks,
+  formerTaskIds,
   getRegisteredTasks,
   groupEdges,
   type RegisteredTask,
@@ -88,8 +89,13 @@ export interface AbRunnerProgress {
 }
 
 /** Tasks pair across sides by "group/name" plus `params`, the workload id's identity. */
-function pairKey(t: RegisteredTask): string {
-  return `${taskId(t)}\u0000${canonicalJSON(t.params ?? null)}`
+function pairKey(t: RegisteredTask, id: string = taskId(t)): string {
+  return `${id}\u0000${canonicalJSON(t.params ?? null)}`
+}
+
+/** The task's own key, then one per alias: a base task under any of them pairs. */
+function pairKeys(t: RegisteredTask): string[] {
+  return [taskId(t), ...formerTaskIds(t)].map((id) => pairKey(t, id))
 }
 
 async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
@@ -336,7 +342,7 @@ async function main(): Promise<number> {
 
   const wanted = opts.workloadIds && new Set(opts.workloadIds)
   const baseByKey = new Map(baseTasks.map((t) => [pairKey(t), t]))
-  const candKeys = new Set(candRegistered.map(pairKey))
+  const candKeys = new Set(candRegistered.flatMap(pairKeys))
 
   const workloads: Workload[] = []
   const pairs: {
@@ -350,7 +356,9 @@ async function main(): Promise<number> {
     if (wanted && !wanted.has(workload.id)) continue
     workloads.push(workload)
     if (cand.skipped) continue
-    const base = baseByKey.get(pairKey(cand))
+    const base = pairKeys(cand)
+      .map((key) => baseByKey.get(key))
+      .find((t) => t !== undefined)
     if (base && !base.skipped) pairs.push({ workload, base, cand })
     else candOnly.push(workload.id)
   }

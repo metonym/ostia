@@ -71,13 +71,15 @@ digits.
 
 | Field | Meaning |
 |---|---|
+| `baseMedian` | The base's median, ns; the line's own `median` is the candidate's. |
 | `medianPct`, `meanPct` | Change of the candidate against the baseline, percent. |
 | `verdict` | `"regressed"`, `"improved"` or `"unchanged"` (timing only). |
 | `pass` | `false` when the comparison failed, including on CPU frame or heap type thresholds. |
 | `ci95` | 95% bootstrap CI on the median change, percent. Absent for thin comparisons (<5 samples per side). |
 | `pValue` | Mann-Whitney p-value. Same absence rule. |
-| `effectiveTimingPct` | The threshold actually applied, after noise-floor widening. |
+| `effectiveTimingPct` | The threshold actually applied, after noise-floor and drift widening. |
 | `matched` | Always `true`. |
+| `renamedFrom` | The base task's name, when it was matched through the task's `aliases`. |
 
 `paired` (`ab` only; ratios are candidate/base, so above 1 is slower):
 
@@ -115,7 +117,8 @@ digits.
 | `unmatched` | Count of `unmatched` events. |
 | `cached`, `executed`, `failed`, `missingBaseline` | `ci` only. `failed` counts harness failures. |
 | `geomeanPct` | Geometric mean of candidate/base median ratios, as a signed percent; `null` when there were no timing comparisons. |
-| `effectiveTimingPct` | Threshold after noise-floor widening; for `ab`, `--threshold` as given. |
+| `effectiveTimingPct` | Threshold after noise-floor and drift widening; for `ab`, `--threshold` as given. |
+| `driftPct` | `compare`/`ci`, when both runs measured their noise floor: the machine drift added to the threshold. |
 | `base` | `ab` only: `{ ref, sha }` the working tree was paired against. |
 | `geomeanThresholdPct` | `ab` only: the run fails when `geomeanPct` exceeds it. |
 | `unconfirmed` | `ab` only: flagged in the first process, not reproduced by the repeats; counted in `unchanged`. |

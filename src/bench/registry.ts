@@ -12,6 +12,10 @@ export interface TaskOptions {
   /** Per-task hard floor on trials; overrides the suite-wide `--min-samples` /
    * `minSamples`. */
   minSamples?: number
+  /** Former names of this task in the same group, so `compare` and `ab`
+   * match a base measured before a rename instead of reporting the old name
+   * as removed and the new one as new. */
+  aliases?: string[]
   /** What this task measures and why. Flows into `Workload.description` so the
    * intent travels with the numbers instead of living only in a source comment. */
   description?: string
@@ -266,6 +270,13 @@ export function withCurrentParams<T>(
 
 export function taskId(t: RegisteredTask): string {
   return t.groupName ? `${t.groupName}/${t.name}` : t.name
+}
+
+/** `taskId` under each of the task's `aliases`. */
+export function formerTaskIds(t: RegisteredTask): string[] {
+  return (t.opts?.aliases ?? []).map((alias) =>
+    t.groupName ? `${t.groupName}/${alias}` : alias,
+  )
 }
 
 // Effective per-task flags: the task's own value, then its group's, then the

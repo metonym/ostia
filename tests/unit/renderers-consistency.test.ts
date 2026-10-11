@@ -105,8 +105,8 @@ describe("a comparison whose workload is missing from the document", () => {
 
   test("a zero delta prints unsigned in both", async () => {
     const { table, markdown } = await renderBoth()
-    expect(table).toMatch(/timing: 0\.0% median/)
-    expect(markdown).toMatch(/- timing: ~?0\.0% median/)
+    expect(table).toMatch(/timing: 1\.00 ms -> 1\.00 ms, 0\.0% median/)
+    expect(markdown).toMatch(/- timing: 1\.00 ms → 1\.00 ms, ~?0\.0% median/)
   })
 })
 

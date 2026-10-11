@@ -210,6 +210,19 @@ describe("ab() - paired A/B against a git ref", () => {
     expect(doc.ab!.matched).toBe(1)
   }, 60_000)
 
+  test("a task renamed with its former name in `aliases` pairs with the base's", async () => {
+    await Bun.write(
+      `${REPO}/bench/s.bench.ts`,
+      SUITE.replace(
+        'task("stable", () => spin(20_000))',
+        'task("renamed", () => spin(20_000), { aliases: ["stable"] })',
+      ),
+    )
+    const doc = await ab({ ...QUICK, suites: ["bench/s.bench.ts"] })
+    expect(doc.unmatched).toEqual({ baseOnly: [], candOnly: [] })
+    expect(doc.ab!.matched).toBe(2)
+  }, 60_000)
+
   test("a suite file that doesn't exist at the base ref pairs nothing", async () => {
     await Bun.write(`${REPO}/bench/new.bench.ts`, SUITE)
     const doc = await ab({ ...QUICK, suites: ["bench/new.bench.ts"] })

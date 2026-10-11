@@ -7,6 +7,7 @@ import {
 } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
 import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
+import { stampDrift } from "../measure/environment.ts"
 import type { PeakMemResult } from "../measure/peak.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
 import type { RunnerOpts } from "./runner.ts"
@@ -418,6 +419,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         ? "Run was cancelled before it finished; this document holds whatever suites/tasks had already completed."
         : undefined,
     )
+    stampDrift(environment)
     return createDocument(workloads, measurements, environment)
   } finally {
     await removeDir(tmpDir)

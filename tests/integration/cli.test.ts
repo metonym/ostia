@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { profile, time } from "../../src/index.ts"
+import { type ProfileDocument, profile, time } from "../../src/index.ts"
 import {
   createDocument,
   makeSubprocessWorkload,
@@ -706,7 +706,7 @@ describe("ostia compare - config thresholds (task 04.3)", () => {
 })
 
 describe("ostia compare - zero matched workloads (task 04.2)", () => {
-  test("exits 2 and prints an Unmatched section when base and candidate share no workload id", async () => {
+  test("exits 2 and lists both sides under Not compared when base and candidate share no workload id", async () => {
     const basePath = `${import.meta.dir}/../../.ostia-test-cli-compare-unmatched-base.json`
     const candPath = `${import.meta.dir}/../../.ostia-test-cli-compare-unmatched-cand.json`
     try {
@@ -727,7 +727,31 @@ describe("ostia compare - zero matched workloads (task 04.2)", () => {
 
       const { stdout, exitCode } = await runCli(["compare", basePath, candPath])
       expect(exitCode).toBe(2)
-      expect(stdout).toContain("Unmatched:")
+      expect(stdout).toContain("Not compared:")
+      expect(stdout).toContain("bun -e 1: base only")
+      expect(stdout).toContain("bun -e 2: candidate only")
+
+      const md = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "markdown",
+      ])
+      expect(md.stdout).toContain("### Not compared")
+
+      const json = await runCli([
+        "compare",
+        basePath,
+        candPath,
+        "--format",
+        "json",
+      ])
+      const doc = JSON.parse(json.stdout) as ProfileDocument
+      expect(doc.compared!.map((t) => [t.task, t.verdict])).toEqual([
+        ["bun -e 2", "missing-base"],
+        ["bun -e 1", "missing-cand"],
+      ])
     } finally {
       await Bun.spawn(["rm", "-f", basePath, candPath]).exited
     }

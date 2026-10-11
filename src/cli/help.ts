@@ -132,8 +132,10 @@ Examples:
 export const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
 ostia compare <candidate.json> --baseline <base.json>
 
-Compare two ProfileDocuments by workload id. Gates on ostia.config's "thresholds" when
-present (the same ones "ostia ci" uses), else the defaults.
+Compare two ProfileDocuments by workload id (or a task's former names, from its
+"aliases"). Gates on ostia.config's "thresholds" when present (the same ones "ostia ci"
+uses), else the defaults, widened by machine noise and drift. Tasks on only one side are
+listed under "Not compared"; with --format json, "compared" holds one row per task.
 
 Flags:
   --baseline PATH      the base document, when only the candidate is positional

@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test"
-import { compareDocuments, compareWorkload } from "../../src/compare/index.ts"
+import {
+  compareDocuments,
+  compareWorkload,
+  DEFAULT_THRESHOLDS,
+} from "../../src/compare/index.ts"
 import {
   createDocument,
   makeEntryWorkload,
@@ -7,7 +11,7 @@ import {
   makeSubprocessWorkload,
   makeTimingMeasurement,
 } from "../../src/ir/document.ts"
-import type { Trial } from "../../src/ir/types.ts"
+import type { ProfileDocument, Trial } from "../../src/ir/types.ts"
 import { renderers } from "../../src/renderers/index.ts"
 import { computeTimingStats } from "../../src/stats/index.ts"
 
@@ -728,6 +732,8 @@ describe("minimal renderer - one compact JSON object per timing run", () => {
       .split("\n")
       .map((l) => JSON.parse(l))
     expect(lines[0]!.delta).toEqual({
+      // No `compared` rows here: the base median is derived from the change.
+      baseMedian: 9333330,
       medianPct: 12.5,
       meanPct: 11,
       verdict: "regressed",
@@ -1251,5 +1257,96 @@ describe("user/system CPU time", () => {
     const line = JSON.parse(text!.split("\n")[0]!)
     expect(line.userNs).toBeCloseTo(3_000_002, -2)
     expect(line.systemNs).toBeCloseTo(1_000_002, -2)
+  })
+})
+
+describe("comparisons render from the document's compared rows", () => {
+  function comparedDoc(): ProfileDocument {
+    const w = makeEntryWorkload("suite.ts", "g/new", { label: "g/new" })
+    const samples = [26_100_000, 26_200_000, 26_000_000, 26_150_000, 26_050_000]
+    const run = makeTimingMeasurement({
+      workload: w,
+      configFingerprint: "cfg",
+      trials: samples.map((wallNs, i) => ({ i, wallNs })),
+      timing: computeTimingStats(samples),
+      warnings: [],
+    })
+    const doc = createDocument([w], [run])
+    doc.comparisons = [
+      {
+        id: "cmp_1",
+        baselineMeasurementId: "run_base",
+        candidateMeasurementId: run.id,
+        timing: {
+          medianDeltaPct: -31.9,
+          meanDeltaPct: -31.9,
+          ci95: [-33, -30.5],
+          pValue: 0.0001,
+          verdict: "improved",
+        },
+        thresholds: { ...DEFAULT_THRESHOLDS, effectiveTimingPct: 5 },
+        verdict: "pass",
+      },
+    ]
+    doc.compared = [
+      {
+        workloadId: w.id,
+        task: "g/new",
+        group: "g",
+        renamedFrom: { workloadId: "wl_old", task: "g/old" },
+        verdict: "improved",
+        comparisonId: "cmp_1",
+        pass: true,
+        timing: {
+          unit: "ns",
+          baseMedian: 38_300_000,
+          candMedian: 26_100_000,
+          baseSamples: 5,
+          candSamples: 5,
+          medianDeltaPct: -31.9,
+          ci95: [-33, -30.5],
+          pValue: 0.0001,
+          thresholdPct: 5,
+        },
+        memory: [
+          {
+            reading: "heapUsedBefore",
+            baseBytes: 10 * 1024 * 1024,
+            candBytes: 14 * 1024 * 1024,
+            deltaPct: 40,
+          },
+          {
+            reading: "heapUsedAfter",
+            baseBytes: 10 * 1024 * 1024,
+            candBytes: 10.5 * 1024 * 1024,
+            deltaPct: 5,
+          },
+        ],
+      },
+      { workloadId: "wl_gone", task: "g/gone", verdict: "missing-cand" },
+    ]
+    return doc
+  }
+
+  test("markdown shows both medians, the rename, moved memory and what wasn't compared", async () => {
+    const md = (await renderers.markdown.render(comparedDoc(), {})).text!
+    expect(md).toContain("### ✓ g/new")
+    expect(md).toContain("- renamed from `g/old`")
+    expect(md).toContain(
+      "- timing: 38.3 ms → 26.1 ms, -31.9% median, n=5, 95% CI [-33.0%, -30.5%], p=0.0001, threshold 5.0% (**improved**)",
+    )
+    expect(md).toContain(
+      "- memory: heap used before 10.00MiB → 14.00MiB (+40.0%)",
+    )
+    expect(md).not.toContain("heap used after")
+    expect(md).toContain("### Not compared")
+    expect(md).toContain("- `g/gone`: base only")
+  })
+
+  test("the table says the same", async () => {
+    const table = (await renderers.table.render(comparedDoc(), {})).text!
+    expect(table).toContain("renamed from g/old")
+    expect(table).toContain("timing: 38.3 ms -> 26.1 ms, -31.9% median")
+    expect(table).toContain("Not compared:\n  g/gone: base only")
   })
 })

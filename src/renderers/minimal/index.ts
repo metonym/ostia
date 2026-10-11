@@ -1,4 +1,5 @@
 import type {
+  ComparedTask,
   Comparison,
   GitMetadata,
   Measurement,
@@ -11,6 +12,7 @@ import { cpuTimes, labelOrId } from "../format.ts"
 import { pairedRuns, threwRuns } from "../paired.ts"
 import { relativeRatios } from "../relative.ts"
 import {
+  comparedRows,
   memoryReadings,
   noSampleRuns,
   skippedWorkloads,
@@ -29,6 +31,8 @@ interface MinimalWarning {
 }
 
 interface MinimalDelta {
+  /** The base's median, ns: the row's own `median` is the candidate's. */
+  baseMedian?: number
   medianPct: number
   meanPct: number
   verdict: "improved" | "regressed" | "unchanged"
@@ -40,6 +44,8 @@ interface MinimalDelta {
   /** The threshold actually tested against, after machine noise widened it. */
   effectiveTimingPct: number
   matched: true
+  /** The base task's name, when it was matched through an alias. */
+  renamedFrom?: string
 }
 
 /** `ab` only: the base side and per-round candidate/base ratios behind a
@@ -159,6 +165,8 @@ interface MinimalSummaryLine {
   missingBaseline?: number
   geomeanPct: number | null
   effectiveTimingPct: number
+  /** `compare`/`ci`: the machine's drift, added to the timing threshold. */
+  driftPct?: number
   noiseFloorPct?: number
   /** `ci` only. */
   baseline?: { name: string; path: string }
@@ -240,9 +248,13 @@ function addWorkloadFields(
   if (w?.params !== undefined) line.params = w.params
 }
 
-function deltaFrom(cmp: Comparison | undefined): MinimalDelta | undefined {
+function deltaFrom(
+  cmp: Comparison | undefined,
+  row: ComparedTask | undefined,
+): MinimalDelta | undefined {
   if (!cmp?.timing) return undefined
   const delta: MinimalDelta = {
+    ...(row?.timing && { baseMedian: sig(row.timing.baseMedian) }),
     medianPct: sig(cmp.timing.medianDeltaPct),
     meanPct: sig(cmp.timing.meanDeltaPct),
     verdict: cmp.timing.verdict,
@@ -254,6 +266,7 @@ function deltaFrom(cmp: Comparison | undefined): MinimalDelta | undefined {
     delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])]
   }
   if (cmp.timing.pValue !== undefined) delta.pValue = sig(cmp.timing.pValue)
+  if (row?.renamedFrom) delta.renamedFrom = row.renamedFrom.task
   return delta
 }
 
@@ -265,6 +278,7 @@ function statlessLine(
   kind: Pick<MinimalRunLine, "skipped" | "samples">,
   warnings: Warning[],
   cmp: Comparison | undefined,
+  row: ComparedTask | undefined,
   noiseFloorPct: number | undefined,
 ): MinimalRunLine {
   const line: MinimalRunLine = {
@@ -279,7 +293,7 @@ function statlessLine(
   }
   addWorkloadFields(line, workload)
   if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
-  const delta = deltaFrom(cmp)
+  const delta = deltaFrom(cmp, row)
   if (delta) line.delta = delta
   return line
 }
@@ -297,6 +311,11 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
   const comparisonByRun = new Map(
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
   )
+  const rowByComparison = new Map(
+    comparedRows(doc).map(({ row }) => [row.comparisonId, row]),
+  )
+  const rowOf = (cmp: Comparison | undefined) =>
+    cmp && rowByComparison.get(cmp.id)
   const memory = memoryReadings(doc)
   const cpuWarningsByWorkloadId = new Map<string, Warning[]>()
   for (const m of doc.measurements) {
@@ -320,6 +339,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       { skipped: true },
       comparisonByRun.get(w.id)?.warnings ?? [],
       comparisonByRun.get(w.id),
+      rowOf(comparisonByRun.get(w.id)),
       noiseFloorPct,
     ),
   )
@@ -333,6 +353,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       { samples: 0 },
       warningsOf(run, comparison),
       comparison,
+      rowOf(comparison),
       noiseFloorPct,
     )
   })
@@ -377,7 +398,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
     if (ratio !== undefined) line.relative = sig(ratio)
     if (workload?.baseline) line.baseline = true
     if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
-    const delta = deltaFrom(comparison)
+    const delta = deltaFrom(comparison, rowOf(comparison))
     if (delta) line.delta = delta
     const p = run.paired
     if (p) {
@@ -485,6 +506,12 @@ function summaryLine(
     if (doc.ab.threw !== undefined) line.threw = doc.ab.threw
     if (doc.ab.newSuites?.length) line.newSuites = doc.ab.newSuites
     if (doc.ab.memory) line.memory = doc.ab.memory
+  }
+  if (
+    doc.comparisonSummary?.driftPct !== undefined &&
+    protocol.command !== "ab"
+  ) {
+    line.driftPct = sig(doc.comparisonSummary.driftPct)
   }
   if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
   if (protocol.baseGit || protocol.candGit) {

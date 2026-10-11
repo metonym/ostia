@@ -2,6 +2,36 @@
 
 ## Unreleased
 
+**Features**
+
+- `compare` and `ci` documents gain `compared`: one row per task on either side, with
+  its group, name, base and candidate medians (ns) and sample counts, change, 95% CI,
+  p-value, threshold, memory readings and a `verdict` of `improved`, `unchanged`,
+  `regressed`, `missing-base` (candidate only) or `missing-cand` (base only). `ostia
+  compare --format json` carries it, and the table and markdown comparisons are rendered
+  from it, so scripts no longer need to parse the Markdown.
+- Comparisons show the base and candidate medians next to the change: `timing: 38.3 ms →
+  26.1 ms, -31.9% median, ...`. The minimal format's `delta` gains `baseMedian`.
+- Tasks on only one side of `compare` or `ci` are listed under "Not compared" in the
+  table and markdown output, which replaces the "Unmatched" list printed after the
+  report.
+- `task(name, fn, { aliases: [...] })` names a task's former names in its group. `compare`,
+  `ci` and `ab` match a base measured under any of them, so a renamed task still compares
+  (`renamed from ...`) instead of showing up as one task removed and another added.
+  Workloads carry them as `formerIds`.
+- `bench` records the JS heap's size before and after each task's timing run
+  (`memory.heapUsedBeforeBytes`/`heapUsedAfterBytes`), read without forcing a GC.
+  `compare` reports both, with `--alloc`, `--peak-mem` and subprocess max RSS readings,
+  as a `memory` line when one moves 10% or more (`compared[].memory` in JSON). Memory
+  is never gated.
+- `time`, `bench` and `ci` re-run the noise-floor reference loop at the end of a run and
+  record how far it drifted (`environment.noise.driftPct`). `compare` and `ci` add the
+  machine's drift (within either run, or between the two) to the timing threshold, and
+  say so above the comparisons; `comparisonSummary.driftPct` and the minimal `summary`
+  line's `driftPct` carry it. Runs of untouched code back to back on a shared CI runner
+  read `regressed` less often. `ostia ab` remains the drift-free way to gate a pull
+  request.
+
 **Fixes**
 
 - `--peak-mem` on macOS with Bun 1.4.3+ warns `peak-hidden` again when memory

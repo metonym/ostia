@@ -1,11 +1,18 @@
 import type {
+  ComparedTask,
   Comparison,
   Measurement,
+  MemoryDelta,
   ProfileDocument,
   Warning,
   Workload,
 } from "../ir/types.ts"
-import { formatBytes } from "./format.ts"
+import {
+  formatBytes,
+  formatSignedPct,
+  labelOrId,
+  workloadLabel,
+} from "./format.ts"
 
 // Below this absolute percent a frame/heap-type delta is noise, not a row.
 const MIN_DISPLAY_DELTA_PCT = 0.5
@@ -63,7 +70,7 @@ export function rowComparisonWarnings(cmp: Comparison): Warning[] {
  * workload id (the display fallback when the document lacks the workload). A
  * skipped candidate has no measurement, so `candidateMeasurementId` then holds
  * the workload id itself. */
-export function comparisonResolver(doc: ProfileDocument) {
+function comparisonResolver(doc: ProfileDocument) {
   const workloads = workloadsById(doc)
   const runs = new Map(doc.measurements.map((m) => [m.id, m]))
   return (cmp: Comparison) => {
@@ -149,4 +156,117 @@ export function memoryColumns(
         return bytes === undefined ? undefined : formatBytes(bytes)
       },
     }))
+}
+
+/** The document's `compared` rows, each with its `Comparison` (absent on a
+ * one-sided task). A document compared before `compared` existed gets rows
+ * rebuilt from `comparisons` and `unmatched`: no sample counts or memory,
+ * the base median derived from the change, base-only tasks named by id. */
+export function comparedRows(
+  doc: ProfileDocument,
+): { row: ComparedTask; cmp: Comparison | undefined }[] {
+  // Most documents were never compared: skip building the lookups.
+  if (!doc.compared && !doc.comparisons?.length && !doc.unmatched) return []
+  const byId = new Map((doc.comparisons ?? []).map((c) => [c.id, c]))
+  const rows = doc.compared ?? rebuildCompared(doc)
+  return rows.map((row) => ({
+    row,
+    cmp:
+      row.comparisonId === undefined ? undefined : byId.get(row.comparisonId),
+  }))
+}
+
+function rebuildCompared(doc: ProfileDocument): ComparedTask[] {
+  const resolve = comparisonResolver(doc)
+  const workloads = workloadsById(doc)
+  const oneSided = (
+    id: string,
+    verdict: "missing-base" | "missing-cand",
+  ): ComparedTask => {
+    const w = workloads.get(id)
+    return {
+      workloadId: id,
+      task: labelOrId(w, id),
+      ...(w?.entry?.group !== undefined && { group: w.entry.group }),
+      verdict,
+    }
+  }
+  return [
+    ...(doc.comparisons ?? []).map((cmp): ComparedTask => {
+      const { run, workload, workloadId } = resolve(cmp)
+      const row: ComparedTask = {
+        workloadId,
+        task: workload ? workloadLabel(workload) : workloadId,
+        ...(workload?.entry?.group !== undefined && {
+          group: workload.entry.group,
+        }),
+        verdict: cmp.timing?.verdict ?? "unchanged",
+        comparisonId: cmp.id,
+        pass: cmp.verdict === "pass",
+      }
+      if (cmp.timing && run?.timing) {
+        const { medianDeltaPct, ci95, pValue } = cmp.timing
+        row.timing = {
+          unit: "ns",
+          baseMedian: run.timing.median / (1 + medianDeltaPct / 100),
+          candMedian: run.timing.median,
+          candSamples: run.timing.samples.length,
+          medianDeltaPct,
+          ...(ci95 && { ci95 }),
+          ...(pValue !== undefined && { pValue }),
+          thresholdPct: cmp.thresholds.effectiveTimingPct,
+        }
+      }
+      return row
+    }),
+    ...(doc.unmatched?.candOnly ?? []).map((id) =>
+      oneSided(id, "missing-base"),
+    ),
+    ...(doc.unmatched?.baseOnly ?? []).map((id) =>
+      oneSided(id, "missing-cand"),
+    ),
+  ]
+}
+
+// Heap readings move with GC timing, so a small change is noise, not a line.
+const MIN_MEMORY_DISPLAY_PCT = 10
+
+const MEMORY_READING_LABELS: Record<MemoryDelta["reading"], string> = {
+  heapUsedBefore: "heap used before",
+  heapUsedAfter: "heap used after",
+  retained: "retained/op",
+  peak: "peak",
+  maxRss: "max RSS",
+}
+
+/** `heap used before 12.00MiB → 16.80MiB (+40.0%)` for each memory reading
+ * that moved at least 10%. */
+export function shownMemoryDeltas(row: ComparedTask, arrow = "→"): string[] {
+  return (row.memory ?? [])
+    .filter((m) => !(Math.abs(m.deltaPct) < MIN_MEMORY_DISPLAY_PCT))
+    .map(
+      (m) =>
+        `${MEMORY_READING_LABELS[m.reading]} ${formatBytes(m.baseBytes)} ${arrow} ${formatBytes(m.candBytes)} (${Number.isFinite(m.deltaPct) ? formatSignedPct(m.deltaPct) : "new"})`,
+    )
+}
+
+/** `Timing threshold 5.0%, widened to 17.3% by machine noise and drift
+ * (12.3%)`, when noise or drift widened it; else undefined. */
+export function thresholdNote(doc: ProfileDocument): string | undefined {
+  const summary = doc.comparisonSummary
+  const base = doc.comparisons?.[0]?.thresholds.timingPct
+  if (!summary || base === undefined) return undefined
+  if (!(summary.effectiveTimingPct > base)) return undefined
+  const drift =
+    summary.driftPct !== undefined && summary.driftPct > 0
+      ? ` and drift (${summary.driftPct.toFixed(1)}%); \`ostia ab\` alternates base and candidate in one process, so drift can't favor either`
+      : ""
+  return `Timing threshold ${base.toFixed(1)}%, widened to ${summary.effectiveTimingPct.toFixed(1)}% by machine noise${drift}`
+}
+
+/** "base only" / "candidate only", and what that usually means. */
+export function oneSidedNote(verdict: "missing-base" | "missing-cand"): string {
+  return verdict === "missing-base"
+    ? "candidate only (new, or renamed without `aliases`)"
+    : "base only (removed, or renamed without `aliases`)"
 }

@@ -36,11 +36,12 @@ objects) or `"unsupported-schema"`.
 | `createdAt` | ISO timestamp. Metadata only. |
 | `workloads` | `Workload[]`: what was measured. |
 | `measurements` | `Measurement[]`: one per workload and phase. |
-| `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples } }`. Absent when the noise check was skipped. |
+| `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples, driftPct? } }`. Absent when the noise check was skipped. `driftPct`: how much slower the reference loop ran at the end of the run than at the start. |
 | `git?` | `{ sha, branch, dirty }` from the process's cwd. Absent outside a repo. Never part of an id or cache key. |
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
-| `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, verdict }`. |
+| `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, driftPct?, verdict }`. `driftPct` is the machine drift added to the timing threshold ([statistics.md](statistics.md#threshold-widening)). |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
+| `compared?` | `ComparedTask[]`: one row per task on either side; see below. |
 | `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, memory?, geomeanPct, verdict }`. `memory` (`{ thresholdPct, regressed, improved }`) is there when any task has a memory reading. |
 
 ## Workloads
@@ -58,6 +59,7 @@ objects) or `"unsupported-schema"`.
 | `description?`, `groupDescription?` | From `task()`/`group()` options. |
 | `isolated?` | Ran in a process of its own. |
 | `params?` | From `task(..., { params })` or `sweep()`. |
+| `formerIds?` | Ids the task had under its `aliases`; `compare` and `ab` match a base under any of them. Not part of the id. |
 | `skipped?` | From `task.skip()`/`group.skip()`; there is no measurement. |
 
 ### Workload ids
@@ -96,7 +98,7 @@ identity; it is shown as the label too.)
 | `diagnosticWallNs?` | Wall time of an instrumented run. |
 | `cpu?`, `jit?` | CPU evidence (frames, call tree, per-frame totals, samples) and JIT tier counts (`llint`, `baseline`, `dfg`, `ftl`). |
 | `heap?` | `{ typeCounts, objectCount?, heapSizeBytes? }` from a heap snapshot. |
-| `memory?` | `maxRssBytes` (subprocess timing), or on `memstats`: `kind: "retained"` with `bytesPerOp` (`--alloc`: heap each call keeps alive after a full GC) or `kind: "peak"` with `peakBytes` (`--peak-mem`: how far the task's first call raised RSS, median of 3 fresh processes). A `memstats` measurement without `kind` predates the field and is `"retained"`. |
+| `memory?` | `maxRssBytes` (subprocess timing), `heapUsedBeforeBytes`/`heapUsedAfterBytes` (in-process timing: the JS heap as of its last GC just before the task's warmup and just after its last trial, read without forcing a GC), or on `memstats`: `kind: "retained"` with `bytesPerOp` (`--alloc`: heap each call keeps alive after a full GC) or `kind: "peak"` with `peakBytes` (`--peak-mem`: how far the task's first call raised RSS, median of 3 fresh processes). A `memstats` measurement without `kind` predates the field and is `"retained"`. |
 | `warnings` | `Warning[]`. |
 | `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
 
@@ -133,6 +135,25 @@ with `sameOutput: false` too, `verdict` is `unchanged`. `retained` (`--alloc`) a
 | `verdict` | `"pass"` or `"fail"`. |
 
 See [statistics.md](statistics.md) for how these are computed.
+
+## Compared tasks
+
+`compared` holds what the table and markdown formats print for a comparison, one entry per
+task, flat for scripts: matched tasks in the candidate's order, then candidate-only, then
+base-only ones.
+
+| Field | Meaning |
+|---|---|
+| `workloadId` | The candidate's workload id (the base's for a base-only task). |
+| `task`, `group?` | Display name (label, else command, else id) and `group()` path. |
+| `renamedFrom?` | `{ workloadId, task }` of the base, when matched through `aliases`. |
+| `verdict` | `"improved"`, `"unchanged"`, `"regressed"`, `"missing-base"` (candidate only) or `"missing-cand"` (base only). |
+| `comparisonId?`, `pass?` | The `Comparison` with this task's frames, heap types and warnings, and whether it passed the gate. Absent on one-sided tasks. |
+| `timing?` | `{ unit: "ns", baseMedian, candMedian, baseSamples?, candSamples, medianDeltaPct, ci95?, pValue?, thresholdPct }`. Absent on one-sided and skipped tasks. |
+| `memory?` | `{ reading, baseBytes, candBytes, deltaPct }[]` for each reading both sides have: `heapUsedBefore`, `heapUsedAfter`, `retained` (`--alloc`), `peak` (`--peak-mem`), `maxRss`. Informational, never gated. |
+
+A document compared before `compared` existed renders rows rebuilt from `comparisons`:
+no sample count for the base, no memory, the base median derived from the change.
 
 ## Warnings
 

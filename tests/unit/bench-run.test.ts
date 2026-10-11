@@ -100,3 +100,36 @@ describe("run() - in-file entrypoint, no subprocess/CLI", () => {
     expect(printed).toContain("solo")
   })
 })
+
+describe("run() - aliases and heap readings", () => {
+  beforeEach(() => {
+    resetRegistry()
+  })
+
+  test("a task's aliases become the ids it had under those names", async () => {
+    group("css", () => {
+      task("extractCssOrphans", () => 1, {
+        aliases: ["extractCssIndexAdditions"],
+      })
+    })
+    const renamed = await run({ quiet: true, samples: 3, noiseCheck: false })
+
+    resetRegistry()
+    group("css", () => {
+      task("extractCssIndexAdditions", () => 1)
+    })
+    const before = await run({ quiet: true, samples: 3, noiseCheck: false })
+
+    expect(renamed.workloads[0]!.formerIds).toEqual([before.workloads[0]!.id])
+    expect(renamed.workloads[0]!.id).not.toBe(before.workloads[0]!.id)
+  })
+
+  test("each timing measurement carries the heap used before and after it", async () => {
+    task("t", () => [1, 2, 3])
+    const doc = await run({ quiet: true, samples: 3, noiseCheck: false })
+    const memory = doc.measurements[0]!.memory!
+    expect(memory.origin).toBe("heapStats")
+    expect(memory.heapUsedBeforeBytes).toBeGreaterThan(0)
+    expect(memory.heapUsedAfterBytes).toBeGreaterThan(0)
+  })
+})

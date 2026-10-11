@@ -431,3 +431,157 @@ describe("compareWorkload - environment-mismatch warning (task 04.5)", () => {
     ).toBeFalsy()
   })
 })
+
+function entryDoc(
+  task: string,
+  samples: number[],
+  opts: {
+    formerIds?: string[]
+    heapUsed?: { beforeBytes: number; afterBytes: number }
+  } = {},
+) {
+  const workload = makeEntryWorkload("suite.ts", task, {
+    label: task,
+    group: "g",
+    formerIds: opts.formerIds,
+  })
+  const run = makeTimingMeasurement({
+    workload,
+    configFingerprint: "cfg",
+    trials: samples.map((wallNs, i) => ({ i, wallNs })),
+    timing: computeTimingStats(samples),
+    warnings: [],
+    heapUsed: opts.heapUsed,
+  })
+  return { doc: createDocument([workload], [run]), workload }
+}
+
+const steady = (median: number) =>
+  Array.from({ length: 30 }, (_, i) => median + (i % 5) * 1_000)
+
+describe("compareDocuments - renamed tasks (aliases)", () => {
+  test("a task whose formerIds hold the base's id compares against it", () => {
+    const base = entryDoc("g/extractCssIndexAdditions", steady(10_000_000))
+    const cand = entryDoc("g/extractCssOrphans", steady(10_000_000), {
+      formerIds: [base.workload.id],
+    })
+
+    const result = compareDocuments(base.doc, cand.doc)
+    expect(result.comparisons).toHaveLength(1)
+    expect(result.unmatched).toEqual({ baseOnly: [], candOnly: [] })
+    expect(result.compared).toHaveLength(1)
+    expect(result.compared[0]!.renamedFrom).toEqual({
+      workloadId: base.workload.id,
+      task: "g/extractCssIndexAdditions",
+    })
+    expect(result.compared[0]!.verdict).toBe("unchanged")
+  })
+
+  test("without an alias, both names are one-sided rows", () => {
+    const base = entryDoc("g/old", steady(10_000_000))
+    const cand = entryDoc("g/new", steady(10_000_000))
+
+    const result = compareDocuments(base.doc, cand.doc)
+    expect(result.comparisons).toHaveLength(0)
+    expect(result.compared.map((t) => [t.task, t.verdict, t.group])).toEqual([
+      ["g/new", "missing-base", "g"],
+      ["g/old", "missing-cand", "g"],
+    ])
+  })
+})
+
+describe("compareDocuments - compared rows", () => {
+  test("carry both medians, the change, its CI, p-value and threshold", () => {
+    const base = entryDoc("g/t", steady(38_300_000))
+    const cand = entryDoc("g/t", steady(26_100_000))
+
+    const { compared, comparisons } = compareDocuments(base.doc, cand.doc)
+    const row = compared[0]!
+    expect(row.comparisonId).toBe(comparisons[0]!.id)
+    expect(row.pass).toBe(true)
+    expect(row.verdict).toBe("improved")
+    expect(row.timing).toMatchObject({
+      unit: "ns",
+      baseMedian: 38_302_000,
+      candMedian: 26_102_000,
+      baseSamples: 30,
+      candSamples: 30,
+      medianDeltaPct: comparisons[0]!.timing!.medianDeltaPct,
+      ci95: comparisons[0]!.timing!.ci95,
+      pValue: comparisons[0]!.timing!.pValue,
+      thresholdPct: DEFAULT_THRESHOLDS.timingPct,
+    })
+  })
+
+  test("carry heap used on both sides, never gating on it", () => {
+    const base = entryDoc("g/t", steady(10_000_000), {
+      heapUsed: { beforeBytes: 10_000_000, afterBytes: 12_000_000 },
+    })
+    const cand = entryDoc("g/t", steady(10_000_000), {
+      heapUsed: { beforeBytes: 14_000_000, afterBytes: 12_000_000 },
+    })
+
+    const { compared } = compareDocuments(base.doc, cand.doc)
+    expect(compared[0]!.memory).toEqual([
+      {
+        reading: "heapUsedBefore",
+        baseBytes: 10_000_000,
+        candBytes: 14_000_000,
+        deltaPct: 40,
+      },
+      {
+        reading: "heapUsedAfter",
+        baseBytes: 12_000_000,
+        candBytes: 12_000_000,
+        deltaPct: 0,
+      },
+    ])
+    expect(compared[0]!.pass).toBe(true)
+  })
+})
+
+describe("compareDocuments - machine drift", () => {
+  const env = (referenceMedianNs: number, driftPct?: number) => ({
+    cpuModel: "test-cpu",
+    cores: 8,
+    loadAvg1: 1,
+    loadAvg5: 1,
+    noise: { floorPct: 1, referenceMedianNs, samples: 100, driftPct },
+  })
+
+  test("the reference loop slowing between the runs widens the threshold by as much", () => {
+    // +9.4% on untouched code, with the machine 10% slower for the candidate.
+    const base = entryDoc("g/t", steady(10_000_000))
+    const cand = entryDoc("g/t", steady(10_940_000))
+    base.doc.environment = env(1000)
+    cand.doc.environment = env(1100)
+
+    const result = compareDocuments(base.doc, cand.doc)
+    expect(result.summary.driftPct).toBeCloseTo(10, 6)
+    expect(result.summary.effectiveTimingPct).toBeCloseTo(15, 6)
+    expect(result.compared[0]!.verdict).toBe("unchanged")
+    expect(result.summary.verdict).toBe("pass")
+  })
+
+  test("drift within a run counts, from its average reference speed", () => {
+    const base = entryDoc("g/t", steady(10_000_000))
+    const cand = entryDoc("g/t", steady(10_000_000))
+    // The base slowed 8% over its run; the candidate ran level at the base's
+    // average speed, so there's no shift between the runs.
+    base.doc.environment = env(1000, 8)
+    cand.doc.environment = env(1040)
+
+    const result = compareDocuments(base.doc, cand.doc)
+    expect(result.summary.driftPct).toBeCloseTo(8, 6)
+  })
+
+  test("no drift without both noise checks", () => {
+    const base = entryDoc("g/t", steady(10_000_000))
+    const cand = entryDoc("g/t", steady(10_000_000))
+    base.doc.environment = env(1000, 5)
+
+    const result = compareDocuments(base.doc, cand.doc)
+    expect(result.summary.driftPct).toBeUndefined()
+    expect(result.summary.effectiveTimingPct).toBe(DEFAULT_THRESHOLDS.timingPct)
+  })
+})

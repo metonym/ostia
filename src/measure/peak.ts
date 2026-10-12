@@ -1,3 +1,4 @@
+import { dlopen, FFIType, ptr } from "bun:ffi"
 import { heapStats } from "bun:jsc"
 import { isPromiseLike } from "./loop.ts"
 
@@ -23,11 +24,26 @@ export function memorySnapshot(): MemorySnapshot {
 // reused freed pages for a while (oven-sh/bun#44951). Resident size doesn't.
 function residentBytes(): number | undefined {
   if (process.platform !== "darwin") return undefined
-  const ps = Bun.spawnSync(["ps", "-o", "rss=", "-p", String(process.pid)], {
-    stderr: "ignore",
+  readResident ??= residentReader()
+  return readResident()
+}
+
+let readResident: (() => number | undefined) | undefined
+
+// Asks the kernel directly: spawning `ps` costs a few ms a call.
+function residentReader(): () => number | undefined {
+  const { symbols } = dlopen("/usr/lib/libSystem.B.dylib", {
+    proc_pid_rusage: {
+      args: [FFIType.i32, FFIType.i32, FFIType.ptr],
+      returns: FFIType.i32,
+    },
   })
-  const kib = Number(ps.stdout.toString().trim())
-  return ps.success && kib > 0 ? kib * 1024 : undefined
+  // rusage_info_v0: a 16-byte uuid, then u64s; ri_resident_size is at byte 64.
+  const info = new BigUint64Array(12)
+  return () =>
+    symbols.proc_pid_rusage(process.pid, 0, ptr(info)) === 0
+      ? Number(info[8])
+      : undefined
 }
 
 // Worker body: waits for `go`, then polls RSS flat out (~1µs) keeping the max

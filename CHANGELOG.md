@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+**Performance**
+
+- `--peak-mem` on macOS reads resident size from the kernel instead of spawning `ps`,
+  saving a few milliseconds per measured task.
+
 ## 0.2.11 — 2026-10-11
 
 **Features**

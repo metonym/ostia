@@ -150,15 +150,16 @@ function abSection(
         ],
         paired.map((run) => {
           const c = pairedCells(run, ab.metric)
-          return [
+          const row = [
             taskCell(byWorkload.get(run.workloadId), run.workloadId),
             c.base,
             c.candidate,
             c.change,
             c.spread,
-            ...(also ? [c.also] : []),
-            c.verdict ? `**${cell(c.verdict)}**` : "",
           ]
+          if (also) row.push(c.also)
+          row.push(c.verdict ? `**${cell(c.verdict)}**` : "")
+          return row
         }),
       ),
       "",

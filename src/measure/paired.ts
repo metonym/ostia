@@ -1,5 +1,11 @@
-import type { MemoryChange } from "../ir/types.ts"
+import type {
+  AbSummary,
+  MemoryChange,
+  PairedEvidence,
+  PairedInstructions,
+} from "../ir/types.ts"
 import { percentile, sortedCopy } from "../stats/index.ts"
+import { instructionCounter } from "./instructions.ts"
 import { batchTimer, probeFirstCall, type TaskBody } from "./loop.ts"
 
 export type Side = "base" | "cand"
@@ -53,9 +59,17 @@ export interface PairedTimingResult {
   candSamples: number[]
   /** `candSamples[i] / baseSamples[i]`. */
   ratios: number[]
+  /** Instructions per call of each side in each round, index-aligned with
+   * the times; absent where the machine can't count them. */
+  instructions?: InstructionSamples
   /** Whether the two sides' first calls returned deep-equal values. */
   sameOutput: boolean
   diagnosticWallNs: number
+}
+
+interface InstructionSamples {
+  baseSamples: number[]
+  candSamples: number[]
 }
 
 export interface RatioStats {
@@ -125,20 +139,28 @@ export async function measurePaired(
     for (const name of order) await timers[name](batch)
   }
 
+  // Read around each batch, outside the loop's own clock reads.
+  const count = instructionCounter().read
+  const instructions: InstructionSamples = { baseSamples: [], candSamples: [] }
   const baseSamples: number[] = []
   const candSamples: number[] = []
   const ratios: number[] = []
   for (let r = 0; r < rounds; r++) {
     signal?.throwIfAborted()
     const ns = { base: 0, cand: 0 }
+    const ins = { base: 0, cand: 0 }
     for (const name of r % 2 === 0 ? order : reversed) {
+      const before = count?.() ?? 0
       ns[name] = await timers[name](batch)
+      if (count) ins[name] = (count() - before) / batch
     }
     const b = Math.max(1, ns.base)
     const c = Math.max(1, ns.cand)
     baseSamples.push(b / batch)
     candSamples.push(c / batch)
     ratios.push(c / b)
+    instructions.baseSamples.push(ins.base)
+    instructions.candSamples.push(ins.cand)
   }
 
   return {
@@ -147,8 +169,71 @@ export async function measurePaired(
     baseSamples,
     candSamples,
     ratios,
+    ...(count && { instructions }),
     sameOutput,
     diagnosticWallNs: Bun.nanoseconds() - start,
+  }
+}
+
+function median(values: number[]): number {
+  return percentile(sortedCopy(values), 0.5)
+}
+
+type RatioQuartiles = Omit<RatioStats, "flagged">
+
+/** `metric`'s ratios of a paired task or one of its repeats; undefined when
+ * its instructions weren't counted. */
+export function metricRatios(
+  r: RatioQuartiles & { instructions?: RatioQuartiles },
+  metric: AbSummary["metric"],
+): RatioQuartiles | undefined {
+  return metric === "instructions" ? r.instructions : r
+}
+
+/** A paired task's evidence from its rounds (one process's, or several
+ * pooled), `flagged` by `metric`'s ratios. */
+export function pairedEvidence(
+  input: Pick<
+    PairedTimingResult,
+    | "rounds"
+    | "batch"
+    | "baseSamples"
+    | "ratios"
+    | "instructions"
+    | "sameOutput"
+  >,
+  thresholdPct: number,
+  metric: AbSummary["metric"],
+): PairedEvidence {
+  const { flagged: timeFlag, ...time } = ratioStats(input.ratios, thresholdPct)
+  let instructions: PairedInstructions | undefined
+  let instructionFlag: RatioStats["flagged"]
+  if (input.instructions) {
+    const { baseSamples, candSamples } = input.instructions
+    const ratios = candSamples.map((c, i) => c / Math.max(1, baseSamples[i]!))
+    const { flagged, ...stats } = ratioStats(ratios, thresholdPct)
+    instructionFlag = flagged
+    instructions = {
+      baseSamples,
+      candSamples,
+      baseMedian: median(baseSamples),
+      candMedian: median(candSamples),
+      ratios,
+      ...stats,
+    }
+  }
+  const flagged = metric === "instructions" ? instructionFlag : timeFlag
+  return {
+    rounds: input.rounds,
+    batch: input.batch,
+    baseSamples: input.baseSamples,
+    baseMedianNs: median(input.baseSamples),
+    ratios: input.ratios,
+    ...time,
+    ...(instructions && { instructions }),
+    ...(flagged && { flagged }),
+    verdict: flagged ?? "unchanged",
+    sameOutput: input.sameOutput,
   }
 }
 

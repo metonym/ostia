@@ -17,6 +17,7 @@ import type {
   CpuEvidence,
   Environment,
   HeapEvidence,
+  InstructionStats,
   JitTierBreakdown,
   Measurement,
   MemoryEvidence,
@@ -162,6 +163,7 @@ export interface TimingMeasurementInput {
   interleaved?: boolean
   /** In-process heap readings around the run; see `MemoryEvidence`. */
   heapUsed?: { beforeBytes: number; afterBytes: number }
+  instructions?: InstructionStats
 }
 
 export function makeTimingMeasurement(
@@ -184,7 +186,10 @@ export function makeTimingMeasurement(
           heapUsedAfterBytes: input.heapUsed.afterBytes,
         }
       : memoryFromTrials(input.trials),
-    ...definedFields({ interleaved: input.interleaved }),
+    ...definedFields({
+      instructions: input.instructions,
+      interleaved: input.interleaved,
+    }),
   }
 }
 
@@ -417,7 +422,7 @@ function assertDocumentShape(doc: Record<string, unknown>, path: string): void {
 
 /** `ab` documents from ostia 0.2.8-0.2.9 name the ratio quartiles `p25`/`p75`,
  * now `ratioP25`/`ratioP75`; read the old names so saved documents still
- * render. */
+ * render. Those from before 0.2.12 lack `ab.metric`. */
 function renamePairedRatioFields(doc: ProfileDocument): ProfileDocument {
   const rename = (r: Record<string, unknown>) => {
     if (r.ratioP25 !== undefined || r.p25 === undefined) return
@@ -432,6 +437,8 @@ function renamePairedRatioFields(doc: ProfileDocument): ProfileDocument {
     for (const r of m.paired.repeats ?? [])
       rename(r as unknown as Record<string, unknown>)
   }
+  // Before 0.2.12, `ab` judged by time alone.
+  if (doc.ab) doc.ab.metric ??= "time"
   return doc
 }
 

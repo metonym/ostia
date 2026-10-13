@@ -31,7 +31,7 @@ import {
   OstiaDocumentError,
   saveDocument,
 } from "../ir/document.ts"
-import type { ProfileDocument } from "../ir/types.ts"
+import type { AbSummary, ProfileDocument } from "../ir/types.ts"
 import { sideLabel } from "../measure/paired.ts"
 import { isHarnessFailure } from "../measure/timing.ts"
 import { formatGit, workloadLabel } from "../renderers/format.ts"
@@ -376,10 +376,13 @@ async function benchCommand(argv: string[]): Promise<number> {
   return aborted ? 130 : 0
 }
 
+const AB_METRICS: readonly AbSummary["metric"][] = ["time", "instructions"]
+
 interface AbArgs extends SuiteArgs {
   base?: string
   baseSetup: string[]
   rounds?: number
+  metric?: AbSummary["metric"]
   thresholdPct?: number
   geomeanThresholdPct?: number
   confirm?: number
@@ -396,6 +399,7 @@ const AB_FLAGS = {
   "--base": flag.str("base"),
   "--base-setup": flag.list("baseSetup"),
   "--rounds": flag.int("rounds", 3),
+  "--metric": flag.oneOf("metric", AB_METRICS),
   "--threshold": flag.num("thresholdPct", 0),
   "--geomean-threshold": flag.num("geomeanThresholdPct", 0),
   "--confirm": flag.int("confirm", 0),
@@ -504,6 +508,7 @@ async function abCommand(argv: string[]): Promise<number> {
           baseSetup:
             parsed.baseSetup.length > 0 ? parsed.baseSetup : config?.ab?.setup,
           rounds: parsed.rounds,
+          metric: parsed.metric ?? config?.ab?.metric,
           thresholdPct: parsed.thresholdPct,
           geomeanThresholdPct: parsed.geomeanThresholdPct,
           confirm: parsed.confirm,

@@ -22,6 +22,9 @@ recomputes them from the stored samples, so every loaded `TimingStats` has them.
 distinct from `TimingStats.p25`/`p75`, which are ns. This did not bump `schemaVersion`:
 `loadDocument` reads the old names as the new ones.
 
+`ab` documents written before ostia 0.2.12 lack `ab.metric`; `loadDocument` sets it to
+`"time"`, the only metric they could have used.
+
 `OstiaDocumentError.code` is `"invalid-json"`, `"not-a-document"` (no numeric
 `schemaVersion`, or `workloads`/`measurements` that aren't arrays of well-formed
 objects) or `"unsupported-schema"`.
@@ -42,7 +45,7 @@ objects) or `"unsupported-schema"`.
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, driftPct?, verdict }`. `driftPct` is the machine drift added to the timing threshold ([statistics.md](statistics.md#threshold-widening)). |
 | `unmatched?` | `{ baseOnly: string[], candOnly: string[] }`: workload ids on only one side. |
 | `compared?` | `ComparedTask[]`: one row per task on either side; see below. |
-| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, memory?, geomeanPct, verdict }`. `memory` (`{ thresholdPct, regressed, improved }`) is there when any task has a memory reading. |
+| `ab?` | From `ostia ab`/`ab()`: `{ base: { ref, sha }, newSuites?, rounds, metric, thresholdPct, geomeanThresholdPct, matched, regressed, improved, unchanged, unconfirmed, outputDiffers, notComparable, threw, memory?, geomeanPct, verdict }`. `metric` (`"time"` or `"instructions"`) is what the verdicts, confirmation and `geomeanPct` judge. `memory` (`{ thresholdPct, regressed, improved }`) is there when any task has a memory reading. |
 
 ## Workloads
 
@@ -92,6 +95,7 @@ identity; it is shown as the label too.)
 | `configFingerprint` | Hash of the sampling settings that produced it. |
 | `trials` | `Trial[]`. |
 | `timing?` | `TimingStats`, on timing measurements with at least one sample; on a paired measurement, the candidate side's per-call times, one sample per round. |
+| `instructions?` | In-process timing, where the machine counts them: `{ samples, median }`, instructions retired per call on the thread that ran the task, user mode only, one sample per trial. |
 | `paired?` | Paired measurements only; see below. |
 | `threw?` | Paired measurements only: `{ side: "base" \| "cand" \| "both", message, repeat? }` for a task that threw. Usually instead of `timing` and `paired`; when it threw in a confirmation repeat, `repeat` (from 1) says which, and `timing`/`paired` keep the first process's numbers. Either way it's left out of `matched` and the geomean. |
 | `interleaved?` | Trials were round-robined with other commands. |
@@ -111,12 +115,15 @@ For batched in-process tasks, `samples` are per-call times and `batch` is the nu
 calls per trial.
 
 `PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
-medianRatio, ratioP25, ratioP75, flagged?, repeats?, confirmed?, verdict, sameOutput,
-suiteChanged?, retained?, peak? }`. `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
-times in round `i`, and `ratios[i]` is candidate over base. `flagged` is what the first
-process saw; `repeats` are the fresh-process re-measurements of a flagged task
-(`{ medianRatio, ratioP25, ratioP75, flagged? }`), and `verdict` is `flagged` only when
-`confirmed`. `suiteChanged` is `true` when the suite file differs from the base's copy;
+medianRatio, ratioP25, ratioP75, instructions?, flagged?, repeats?, confirmed?, verdict,
+sameOutput, suiteChanged?, retained?, peak? }`. `baseSamples[i]` and `timing.samples[i]`
+are the two sides' per-call times in round `i`, and `ratios[i]` is candidate over base.
+`instructions`, where the machine counts them, holds the same rounds' instructions per
+call: `{ baseSamples, candSamples, baseMedian, candMedian, ratios, medianRatio, ratioP25,
+ratioP75 }`. `flagged` is what the first process saw, by `ab.metric`'s ratios; `repeats`
+are the fresh-process re-measurements of a flagged task (`{ medianRatio, ratioP25,
+ratioP75, instructions?: { medianRatio, ratioP25, ratioP75 }, flagged? }`), and `verdict`
+is `flagged` only when `confirmed`. `suiteChanged` is `true` when the suite file differs from the base's copy;
 with `sameOutput: false` too, `verdict` is `unchanged`. `retained` (`--alloc`) and `peak`
 (`--peak-mem`) are `MemoryChange`s: `{ baseBytes, candBytes, verdict, floorBytes }`, where
 `verdict` counts only a change past both the memory threshold and `floorBytes`. See

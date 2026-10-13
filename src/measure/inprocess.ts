@@ -1,6 +1,17 @@
 import { formatDuration } from "../format.ts"
-import type { TimingStats, Trial, Warning } from "../ir/types.ts"
-import { computeTimingStats, timingWarnings } from "../stats/index.ts"
+import type {
+  InstructionStats,
+  TimingStats,
+  Trial,
+  Warning,
+} from "../ir/types.ts"
+import {
+  computeTimingStats,
+  percentile,
+  sortedCopy,
+  timingWarnings,
+} from "../stats/index.ts"
+import { instructionCounter } from "./instructions.ts"
 import { batchTimer, probeFirstCall, type TaskBody } from "./loop.ts"
 
 export interface InprocessTimingOptions {
@@ -38,6 +49,8 @@ const CALIBRATION_ROUNDS = 5
 export interface InprocessTimingResult {
   trials: Trial[]
   timing: TimingStats
+  /** Per trial, where the machine counts them. */
+  instructions?: InstructionStats
   warnings: Warning[]
 }
 
@@ -125,12 +138,17 @@ export async function measureTask(
   const effectiveBudgetNs = opts.samples !== undefined ? 0 : timeBudgetNs
   const maxTrials = opts.samples ?? Math.max(MAX_TRIALS, minSamples)
 
+  // Read around each batch, outside the loop's own clock reads.
+  const count = instructionCounter().read
+  const instructions: number[] = []
   const trials: Trial[] = []
   const start = Bun.nanoseconds()
   let elapsed = 0
   let i = 0
   while (i < minSamples || (elapsed < effectiveBudgetNs && i < maxTrials)) {
+    const before = count?.() ?? 0
     const ns = await timeBatch(batchSize)
+    if (count) instructions.push((count() - before) / batchSize)
     trials.push({ i, wallNs: ns / batchSize })
     i++
     elapsed = Bun.nanoseconds() - start
@@ -151,5 +169,15 @@ export async function measureTask(
     })
   }
 
-  return { trials, timing, warnings }
+  return {
+    trials,
+    timing,
+    ...(count && {
+      instructions: {
+        samples: instructions,
+        median: percentile(sortedCopy(instructions), 0.5),
+      },
+    }),
+    warnings,
+  }
 }

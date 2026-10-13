@@ -6,8 +6,13 @@ import type {
   PairedEvidence,
   ProfileDocument,
 } from "../ir/types.ts"
-import { comparable, sideLabel } from "../measure/paired.ts"
-import { formatBytes, formatSignedPct, labelOrId } from "./format.ts"
+import { comparable, metricRatios, sideLabel } from "../measure/paired.ts"
+import {
+  formatBytes,
+  formatInstructions,
+  formatSignedPct,
+  labelOrId,
+} from "./format.ts"
 import { workloadsById } from "./select.ts"
 
 export type PairedRun = Measurement & {
@@ -71,11 +76,11 @@ function formatRatio(ratio: number): string {
 // Blank for unchanged; a flagged workload that fresh processes didn't
 // reproduce reads `unconfirmed`. Repeats follow so the confirmation is visible.
 // A changed suite with changed output reads `not comparable`.
-function pairedVerdict(p: PairedEvidence): string {
+function pairedVerdict(p: PairedEvidence, metric: AbSummary["metric"]): string {
   if (!comparable(p)) return "not comparable"
   if (!p.flagged) return ""
   const repeats = p.repeats?.length
-    ? ` (repeats: ${p.repeats.map((r) => formatRatio(r.medianRatio)).join(", ")})`
+    ? ` (repeats: ${p.repeats.map((r) => formatRatio(metricRatios(r, metric)?.medianRatio ?? Number.NaN)).join(", ")})`
     : ""
   if (p.confirmed === undefined) return `${p.flagged}${repeats}`
   return `${p.confirmed ? `${p.flagged}, confirmed` : `${p.flagged}? unconfirmed`}${repeats}`
@@ -87,17 +92,45 @@ export function formatNewSuites(ab: AbSummary): string | undefined {
   return `New suite${ab.newSuites.length > 1 ? "s" : ""}, not at ${ab.base.ref}: ${ab.newSuites.join(", ")}`
 }
 
-/** The text of one paired row's table cells. */
-export function pairedCells(run: PairedRun) {
+/** The text of one paired row's table cells: `metric`'s per-call medians
+ * and change, then in `also` the other metric's change (see `alsoHeader`),
+ * blank on a task without an instruction count. */
+export function pairedCells(run: PairedRun, metric: AbSummary["metric"]) {
   const p = run.paired
+  const i = p.instructions
+  const judged = metricRatios(p, metric)
+  const other = metricRatios(p, metric === "time" ? "instructions" : "time")
   const unit = pickDurationUnit(Math.min(p.baseMedianNs, run.timing.median))
+  const [base, candidate] =
+    metric === "time"
+      ? [p.baseMedianNs, run.timing.median].map((ns) =>
+          formatDuration(ns, unit),
+        )
+      : i
+        ? [i.baseMedian, i.candMedian].map(formatInstructions)
+        : ["-", "-"]
   return {
-    base: formatDuration(p.baseMedianNs, unit),
-    candidate: formatDuration(run.timing.median, unit),
-    change: formatRatio(p.medianRatio),
-    spread: `${formatRatio(p.ratioP25)}…${formatRatio(p.ratioP75)}`,
-    verdict: pairedVerdict(p),
+    base: base!,
+    candidate: candidate!,
+    change: judged ? formatRatio(judged.medianRatio) : "",
+    spread: judged
+      ? `${formatRatio(judged.ratioP25)}…${formatRatio(judged.ratioP75)}`
+      : "",
+    also: other ? formatRatio(other.medianRatio) : "",
+    verdict: pairedVerdict(p, metric),
   }
+}
+
+/** The header of `pairedCells`'s `also` column, or undefined when no row
+ * would fill it. */
+export function alsoHeader(
+  doc: ProfileDocument,
+  metric: AbSummary["metric"],
+): string | undefined {
+  if (metric === "instructions") return "Time"
+  return pairedRuns(doc).some((run) => run.paired.instructions)
+    ? "Instr"
+    : undefined
 }
 
 export interface MemoryRow {
@@ -139,12 +172,15 @@ export function memoryCells({ reading, change: c }: MemoryRow) {
   }
 }
 
-/** `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%` */
+/** `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean
+ * threshold 1.5%`, with `· by instructions/call` after the rounds when that's
+ * the metric. */
 export function formatAbHeader(ab: AbSummary): string {
+  const metric = ab.metric === "instructions" ? " · by instructions/call" : ""
   const memory = ab.memory
     ? ` · memory threshold ${ab.memory.thresholdPct}%`
     : ""
-  return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%${memory}`
+  return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds${metric} · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%${memory}`
 }
 
 /** `Geomean +2.1% (threshold 1.5%) · 1 regressed, 0 improved, 47 unchanged of 48 (1 unconfirmed) · memory: 0 regressed, 1 improved · fail` */

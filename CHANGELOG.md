@@ -2,6 +2,25 @@
 
 ## Unreleased
 
+**Features**
+
+- `ab` and `bench` count the instructions each call retires, where the machine allows:
+  on macOS, and on Linux when `perf_event_open` is permitted and the machine exposes a
+  hardware counter. The count is per thread and user mode only, read around each timed
+  batch, so warmup and suite setup don't count. Unlike time, load from other processes
+  barely moves it: on an 8-core Mac at load 4-12, A/A rounds spread -40%…+44% in time and
+  under ±1% in instructions.
+- `ostia ab --metric instructions` (`ab({ metric })`, config `ab.metric`) judges each
+  round by its instruction ratio instead of its time ratio, with the same quartile rule,
+  both import orders, fresh-process confirmation and geomean. On that loaded Mac it
+  flagged and confirmed a 5% change in each of three runs where time flagged nothing.
+  It stops with exit 2 where instructions can't be counted.
+- `ab` tables show the other metric's change next to the one judged (`Instr`, or `Time`
+  under `--metric instructions`), and `bench` tables add `Instr/call`. Documents carry
+  `PairedEvidence.instructions`, `repeats[].instructions`, `ab.metric` and, on in-process
+  timing measurements, `instructions: { samples, median }`; `--format minimal` adds
+  `instructions` to `run` lines and `paired`, and `metric` to the `ab` summary.
+
 **Performance**
 
 - `--peak-mem` on macOS reads resident size from the kernel instead of spawning `ps`,

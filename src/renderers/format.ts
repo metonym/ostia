@@ -30,6 +30,15 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)}MiB`
 }
 
+/** An instruction count: `840`, `12.4K`, `3.02M`, `1.25G`. */
+export function formatInstructions(count: number): string {
+  if (count < 1e3) return count.toFixed(0)
+  const [divisor, suffix] =
+    count >= 1e9 ? [1e9, "G"] : count >= 1e6 ? [1e6, "M"] : [1e3, "K"]
+  const value = count / divisor
+  return `${value.toFixed(value < 10 ? 2 : 1)}${suffix}`
+}
+
 export function frameName(frame: Frame | undefined): string {
   return frame?.name || "(anonymous)"
 }

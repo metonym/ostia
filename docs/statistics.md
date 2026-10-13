@@ -157,6 +157,14 @@ same process, in alternating ~10ms batches, and never compares across time at al
 
 The noise floor is still measured and reported, but doesn't widen `thresholdPct`.
 
+With `metric: "instructions"`, each round's ratio is candidate over base instructions
+retired per call, counted on the thread running the task around each batch, and
+everything above applies to those ratios instead. Pairing cancels drift slower than a
+round; it can't cancel load that changes within one, which is where time ratios get their
+spread on a busy machine. Instruction counts don't depend on load, so their quartiles
+stay within about 1% where time's span tens of percent; what still moves them is the
+JIT, which is why the quartile rule and confirmation stay.
+
 ### Environment mismatch
 
 When base and candidate differ in OS, architecture, Bun version, or (when both have it)

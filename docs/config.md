@@ -154,6 +154,7 @@ command workload's `inputs`.
 |---|---|---|
 | `setup` | unset | `--base-setup` (CLI list replaces config list) |
 | `keepTrees` | 5 | `--keep-trees` |
+| `metric` | `"time"` | `--metric` (`"time"` or `"instructions"`) |
 | `alloc` | `false` | `--alloc` / `--no-alloc` |
 | `peakMem` | `false` | `--peak-mem` / `--no-peak-mem` |
 | `memThresholdPct` | 10 | `--mem-threshold` |

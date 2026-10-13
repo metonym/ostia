@@ -2,13 +2,21 @@ import { describe, expect, test } from "bun:test"
 import { poolOrders, summarizePaired } from "../../src/ab/index"
 import { createDocument } from "../../src/ir/document"
 import type { Measurement, PairedEvidence } from "../../src/ir/types"
+import { instructionCounter } from "../../src/measure/instructions"
 import {
   measurePaired,
   memoryChange,
   PairedSideError,
+  pairedEvidence,
   ratioStats,
 } from "../../src/measure/paired"
-import { formatAbSummary, memoryCells } from "../../src/renderers/paired"
+import {
+  formatAbHeader,
+  formatAbSummary,
+  memoryCells,
+  type PairedRun,
+  pairedCells,
+} from "../../src/renderers/paired"
 import { computeTimingStats } from "../../src/stats/index"
 
 function spin(n: number): number {
@@ -94,6 +102,28 @@ describe("measurePaired", () => {
     expect(medianRatio).toBeGreaterThan(2)
     expect(flagged).toBe("regressed")
   }, 20_000)
+
+  test.skipIf(instructionCounter().unavailable !== undefined)(
+    "counts each side's instructions per call, index-aligned with the times",
+    async () => {
+      const result = await measurePaired(
+        () => spin(2_000),
+        () => spin(8_000),
+        { rounds: 5 },
+      )
+      const { baseSamples, candSamples } = result.instructions!
+      expect(baseSamples).toHaveLength(5)
+      expect(candSamples).toHaveLength(5)
+      // A round can still run in a lower JIT tier; the median can't.
+      const { medianRatio } = ratioStats(
+        candSamples.map((c, i) => c / baseSamples[i]!),
+        10,
+      )
+      expect(medianRatio).toBeGreaterThan(3.5)
+      expect(medianRatio).toBeLessThan(5)
+    },
+    20_000,
+  )
 
   test("candFirst gives the candidate the first call, warmup and batches", async () => {
     for (const candFirst of [false, true]) {
@@ -246,6 +276,51 @@ const settings = {
   geomeanThresholdPct: 1.5,
 }
 
+describe("pairedEvidence", () => {
+  // Time swings ±20% round to round; instructions read a steady +5%.
+  const rounds = {
+    rounds: 6,
+    batch: 10,
+    baseSamples: [100, 100, 100, 100, 100, 100],
+    ratios: [1.2, 0.8, 1.2, 0.8, 1.2, 0.8],
+    instructions: {
+      baseSamples: [1000, 1000, 1000, 1000, 1000, 1000],
+      candSamples: [1050, 1050, 1049, 1051, 1050, 1050],
+    },
+    sameOutput: true,
+  }
+
+  test("flags by the metric it's given", () => {
+    const byTime = pairedEvidence(rounds, 3, "time")
+    expect(byTime.flagged).toBeUndefined()
+    expect(byTime.verdict).toBe("unchanged")
+    const byInstructions = pairedEvidence(rounds, 3, "instructions")
+    expect(byInstructions.flagged).toBe("regressed")
+    expect(byInstructions.verdict).toBe("regressed")
+    expect(byInstructions.medianRatio).toBe(byTime.medianRatio)
+    expect(byInstructions.instructions).toMatchObject({
+      baseMedian: 1000,
+      candMedian: 1050,
+    })
+    expect(byInstructions.instructions!.medianRatio).toBeCloseTo(1.05)
+    expect(byInstructions.instructions!.ratios).toHaveLength(6)
+  })
+
+  test("without instruction counts, the instructions metric flags nothing", () => {
+    const { instructions: _, ...timeOnly } = rounds
+    const p = pairedEvidence(
+      { ...timeOnly, ratios: [1.5, 1.5, 1.5, 1.5, 1.5, 1.5] },
+      3,
+      "instructions",
+    )
+    expect(p.instructions).toBeUndefined()
+    expect(p.flagged).toBeUndefined()
+    expect(pairedEvidence({ ...p, ...timeOnly }, 3, "time").flagged).toBe(
+      undefined,
+    )
+  })
+})
+
 describe("summarizePaired", () => {
   test("passes when nothing regressed and the geomean is under its threshold", () => {
     const summary = summarizePaired(
@@ -360,6 +435,44 @@ describe("summarizePaired", () => {
     expect(summary.verdict).toBe("pass")
   })
 
+  test("the instructions metric takes its geomean from instruction ratios", () => {
+    const instructions = (medianRatio: number) => ({
+      baseSamples: [],
+      candSamples: [],
+      baseMedian: 1000,
+      candMedian: 1000 * medianRatio,
+      ratios: [],
+      medianRatio,
+      ratioP25: medianRatio,
+      ratioP75: medianRatio,
+    })
+    const measurements = [
+      pairedMeasurement({
+        medianRatio: 1.5,
+        instructions: instructions(1.04),
+        flagged: "regressed",
+        confirmed: true,
+        verdict: "regressed",
+        repeats: [1.06, 1.05].map((r) => ({
+          medianRatio: 0.7,
+          ratioP25: 0.6,
+          ratioP75: 0.8,
+          instructions: { medianRatio: r, ratioP25: r, ratioP75: r },
+          flagged: "regressed" as const,
+        })),
+      }),
+      pairedMeasurement({ medianRatio: 0.5, instructions: instructions(1) }),
+    ]
+    const summary = summarizePaired(measurements, {
+      ...settings,
+      metric: "instructions",
+    })
+    expect(summary.metric).toBe("instructions")
+    // sqrt(median(1.04, 1.06, 1.05) * 1)
+    expect(summary.geomeanPct).toBeCloseTo((Math.sqrt(1.05) - 1) * 100, 5)
+    expect(summarizePaired(measurements, settings).metric).toBe("time")
+  })
+
   test("geomean is null when nothing was paired", () => {
     const summary = summarizePaired([], settings)
     expect(summary.matched).toBe(0)
@@ -472,6 +585,43 @@ describe("poolOrders", () => {
     expect(pooled.measurements[0]!.paired!.verdict).toBe("regressed")
   })
 
+  test("pools instruction counts and flags by the metric", () => {
+    const counted = (ratio: number, rounds: number) => {
+      const doc = run(1, rounds)
+      const base = Array.from({ length: rounds }, () => 1000)
+      doc.measurements[0]!.paired!.instructions = {
+        baseSamples: base,
+        candSamples: base.map((b) => b * ratio),
+        baseMedian: 1000,
+        candMedian: 1000 * ratio,
+        ratios: base.map(() => ratio),
+        medianRatio: ratio,
+        ratioP25: ratio,
+        ratioP75: ratio,
+      }
+      return doc
+    }
+    const pooled = poolOrders(
+      counted(1.05, 8),
+      counted(1.04, 7),
+      3,
+      "instructions",
+    )
+    const p = pooled.measurements[0]!.paired!
+    expect(p.instructions!.baseSamples).toHaveLength(15)
+    expect(p.instructions!.medianRatio).toBeCloseTo(1.05)
+    expect(p.verdict).toBe("regressed")
+    expect(
+      poolOrders(counted(1.05, 8), counted(1.04, 7), 3).measurements[0]!.paired!
+        .verdict,
+    ).toBe("unchanged")
+    // One order uncounted: the pooled task has no instruction count.
+    expect(
+      poolOrders(counted(1.05, 8), run(1, 7), 3, "instructions")
+        .measurements[0]!.paired!.instructions,
+    ).toBeUndefined()
+  })
+
   test("a throw in either order counts; different sides make both", () => {
     const threw = (side: "base" | "cand") =>
       createDocument(
@@ -482,5 +632,69 @@ describe("poolOrders", () => {
     expect(once.threw?.side).toBe("cand")
     const both = poolOrders(threw("base"), threw("cand"), 10).measurements[0]!
     expect(both.threw).toEqual({ side: "both", message: "base\ncand" })
+  })
+})
+
+describe("pairedCells", () => {
+  const run = {
+    ...pairedMeasurement({
+      baseMedianNs: 1000,
+      medianRatio: 1.2,
+      ratioP25: 1.1,
+      ratioP75: 1.3,
+      instructions: {
+        baseSamples: [],
+        candSamples: [],
+        baseMedian: 2_500_000,
+        candMedian: 2_625_000,
+        ratios: [],
+        medianRatio: 1.05,
+        ratioP25: 1.04,
+        ratioP75: 1.06,
+      },
+      flagged: "regressed",
+      confirmed: true,
+      verdict: "regressed",
+      repeats: [
+        {
+          medianRatio: 0.9,
+          ratioP25: 0.8,
+          ratioP75: 1,
+          instructions: { medianRatio: 1.06, ratioP25: 1.05, ratioP75: 1.07 },
+          flagged: "regressed",
+        },
+      ],
+    }),
+    timing: computeTimingStats([1200]),
+  } as PairedRun
+
+  test("by time, the instruction change goes in `also`", () => {
+    expect(pairedCells(run, "time")).toEqual({
+      base: "1.00 µs",
+      candidate: "1.20 µs",
+      change: "+20.0%",
+      spread: "+10.0%…+30.0%",
+      also: "+5.0%",
+      verdict: "regressed, confirmed (repeats: -10.0%)",
+    })
+  })
+
+  test("by instructions, the counts and their change lead and time goes in `also`", () => {
+    expect(pairedCells(run, "instructions")).toEqual({
+      base: "2.50M",
+      candidate: "2.63M",
+      change: "+5.0%",
+      spread: "+4.0%…+6.0%",
+      also: "+20.0%",
+      verdict: "regressed, confirmed (repeats: +6.0%)",
+    })
+  })
+
+  test("the header names the instructions metric", () => {
+    const ab = summarizePaired([], settings)
+    expect(formatAbHeader(ab)).not.toContain("instructions")
+    expect(formatAbHeader({ ...ab, metric: "instructions" })).toContain(
+      "15 rounds · by instructions/call · threshold",
+    )
   })
 })

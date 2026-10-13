@@ -267,6 +267,7 @@ const doc = await ab({
   baseSetup: ["bun scripts/generate.ts"], // run once in a freshly extracted base tree
   keepTrees: 5,               // cached base trees to keep; default
   rounds: 15,                 // default
+  metric: "time",             // default; "instructions" judges instructions retired per call
   thresholdPct: 10,           // default
   geomeanThresholdPct: 1.5,   // default
   confirm: 2,                 // fresh-process repeats per flagged task; default

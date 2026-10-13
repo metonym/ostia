@@ -14,7 +14,6 @@ import {
   taskPeakMem,
 } from "../bench/registry.ts"
 import { taskWorkload } from "../bench/run-tasks.ts"
-import { median } from "../bench/support.ts"
 import {
   configFingerprint,
   createDocument,
@@ -22,12 +21,13 @@ import {
   saveDocument,
 } from "../ir/document.ts"
 import { canonicalJSON } from "../ir/fp.ts"
-import type { Measurement, Workload } from "../ir/types.ts"
+import type { AbSummary, Measurement, Workload } from "../ir/types.ts"
 import { measureAllocPerOp } from "../measure/alloc.ts"
+import { instructionCounter } from "../measure/instructions.ts"
 import {
   measurePaired,
   PairedSideError,
-  ratioStats,
+  pairedEvidence,
   type Side,
   sideLabel,
 } from "../measure/paired.ts"
@@ -46,6 +46,7 @@ export interface AbRunnerOpts {
   workloadIds?: string[]
   rounds: number
   thresholdPct: number
+  metric: AbSummary["metric"]
   /** Scripts imported, in order, before either suite. */
   preload?: string[]
   /** Send an `AbRunnerProgress` message over IPC before each task. */
@@ -298,6 +299,12 @@ async function main(): Promise<number> {
     )
   }
 
+  const uncounted =
+    opts.metric === "instructions" && instructionCounter().unavailable
+  if (uncounted) {
+    return fail(outputPath, `can't count instructions: ${uncounted}`)
+  }
+
   for (const preloadFile of opts.preload ?? []) {
     await import(preloadFile)
   }
@@ -394,6 +401,7 @@ async function main(): Promise<number> {
   const cfgFp = configFingerprint({
     rounds: opts.rounds,
     thresholdPct: opts.thresholdPct,
+    metric: opts.metric,
   })
   const measurements: Measurement[] = []
   for (let i = 0; i < pairs.length; i++) {
@@ -423,7 +431,6 @@ async function main(): Promise<number> {
       )
     } else {
       const { result } = measured
-      const stats = ratioStats(result.ratios, opts.thresholdPct)
       const timing = computeTimingStats(result.candSamples)
       if (result.batch > 1) timing.batch = result.batch
       measurements.push(
@@ -433,16 +440,7 @@ async function main(): Promise<number> {
           timing,
           diagnosticWallNs: result.diagnosticWallNs,
           warnings: [],
-          paired: {
-            rounds: result.rounds,
-            batch: result.batch,
-            baseSamples: result.baseSamples,
-            baseMedianNs: median(result.baseSamples),
-            ratios: result.ratios,
-            ...stats,
-            verdict: stats.flagged ?? "unchanged",
-            sameOutput: result.sameOutput,
-          },
+          paired: pairedEvidence(result, opts.thresholdPct, opts.metric),
         }),
       )
     }

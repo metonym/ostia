@@ -35,10 +35,12 @@ import type {
   ProfileDocument,
   Workload,
 } from "../ir/types.ts"
+import { instructionCounter } from "../measure/instructions.ts"
 import {
   comparable,
   memoryChange,
-  ratioStats,
+  metricRatios,
+  pairedEvidence,
   type Side,
 } from "../measure/paired.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
@@ -77,6 +79,13 @@ export interface AbOptions {
   /** Rounds per workload, each one base batch and one candidate batch of
    * about 10ms (default: 15). */
   rounds?: number
+  /** What to judge each round by: the candidate/base time ratio
+   * (`"time"`, the default), or the ratio of instructions each side retired
+   * per call (`"instructions"`), which a loaded machine barely moves, so a
+   * lower `thresholdPct` holds. Instructions are recorded either way where
+   * the machine counts them (see `PairedEvidence.instructions`); asking to
+   * judge by them where it can't throws an `OstiaUsageError`. */
+  metric?: "time" | "instructions"
   /** Flag a workload whose median candidate/base ratio moves past this many
    * percent (default: 10). */
   thresholdPct?: number
@@ -150,6 +159,7 @@ const DEFAULTS = {
   keepTrees: 5,
   base: "HEAD",
   rounds: 15,
+  metric: "time" as AbSummary["metric"],
   thresholdPct: 10,
   geomeanThresholdPct: 1.5,
   memThresholdPct: 10,
@@ -516,6 +526,7 @@ export function poolOrders(
   a: ProfileDocument,
   b: ProfileDocument,
   thresholdPct: number,
+  metric: AbSummary["metric"] = DEFAULTS.metric,
 ): ProfileDocument {
   const second = new Map(b.measurements.map((m) => [m.workloadId, m]))
   const pooled = a.measurements.map((m): Measurement => {
@@ -535,9 +546,6 @@ export function poolOrders(
     const p = m.paired
     const q = other.paired
     if (!p || !q || !m.timing || !other.timing) return m
-    const ratios = [...p.ratios, ...q.ratios]
-    const baseSamples = [...p.baseSamples, ...q.baseSamples]
-    const stats = ratioStats(ratios, thresholdPct)
     const timing = computeTimingStats([
       ...m.timing.samples,
       ...other.timing.samples,
@@ -548,26 +556,47 @@ export function poolOrders(
       timing,
       diagnosticWallNs:
         (m.diagnosticWallNs ?? 0) + (other.diagnosticWallNs ?? 0),
-      paired: {
-        rounds: p.rounds + q.rounds,
-        batch: p.batch,
-        baseSamples,
-        baseMedianNs: median(baseSamples),
-        ratios,
-        ...stats,
-        verdict: stats.flagged ?? "unchanged",
-        sameOutput: p.sameOutput && q.sameOutput,
-      },
+      paired: pairedEvidence(
+        {
+          rounds: p.rounds + q.rounds,
+          batch: p.batch,
+          baseSamples: [...p.baseSamples, ...q.baseSamples],
+          ratios: [...p.ratios, ...q.ratios],
+          ...(p.instructions &&
+            q.instructions && {
+              instructions: {
+                baseSamples: [
+                  ...p.instructions.baseSamples,
+                  ...q.instructions.baseSamples,
+                ],
+                candSamples: [
+                  ...p.instructions.candSamples,
+                  ...q.instructions.candSamples,
+                ],
+              },
+            }),
+          sameOutput: p.sameOutput && q.sameOutput,
+        },
+        thresholdPct,
+        metric,
+      ),
     }
   })
   return { ...a, measurements: pooled }
 }
 
-/** Median over the main run and any fresh-process repeats, so one process's
- * JIT luck moves the geomean less. */
-function ratioEstimate(p: PairedEvidence): number {
-  if (!p.repeats?.length) return p.medianRatio
-  return median([p.medianRatio, ...p.repeats.map((r) => r.medianRatio)])
+/** `metric`'s median ratio over the main run and any fresh-process repeats,
+ * so one process's JIT luck moves the geomean less; undefined when the task
+ * has no `metric` reading. */
+function ratioEstimate(
+  p: PairedEvidence,
+  metric: AbSummary["metric"],
+): number | undefined {
+  const [main, ...repeats] = [p, ...(p.repeats ?? [])].map(
+    (r) => metricRatios(r, metric)?.medianRatio,
+  )
+  if (main === undefined) return undefined
+  return median([main, ...repeats.filter((r) => r !== undefined)])
 }
 
 export function summarizePaired(
@@ -576,6 +605,7 @@ export function summarizePaired(
     base: AbSummary["base"]
     newSuites?: string[]
     rounds: number
+    metric?: AbSummary["metric"]
     thresholdPct: number
     geomeanThresholdPct: number
     memThresholdPct?: number
@@ -588,10 +618,16 @@ export function summarizePaired(
     .filter((p): p is PairedEvidence => p !== undefined)
   const count = (verdict: PairedEvidence["verdict"]) =>
     paired.filter((p) => p.verdict === verdict).length
+  const metric = settings.metric ?? DEFAULTS.metric
   const judged = paired.filter(comparable)
-  const logSum = judged.reduce((sum, p) => sum + Math.log(ratioEstimate(p)), 0)
+  const estimates = judged
+    .map((p) => ratioEstimate(p, metric))
+    .filter((r) => r !== undefined)
+  const logSum = estimates.reduce((sum, r) => sum + Math.log(r), 0)
   const geomeanPct =
-    judged.length > 0 ? (Math.exp(logSum / judged.length) - 1) * 100 : null
+    estimates.length > 0
+      ? (Math.exp(logSum / estimates.length) - 1) * 100
+      : null
   const regressed = count("regressed")
   const improved = count("improved")
   const threw = measurements.filter((m) => m.threw)
@@ -611,6 +647,7 @@ export function summarizePaired(
   }
   return {
     ...rest,
+    metric,
     matched: paired.length,
     regressed,
     improved,
@@ -641,6 +678,7 @@ export function summarizePaired(
 export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const ref = opts.base ?? DEFAULTS.base
   const rounds = opts.rounds ?? DEFAULTS.rounds
+  const metric = opts.metric ?? DEFAULTS.metric
   const thresholdPct = opts.thresholdPct ?? DEFAULTS.thresholdPct
   const geomeanThresholdPct =
     opts.geomeanThresholdPct ?? DEFAULTS.geomeanThresholdPct
@@ -657,6 +695,18 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   }
   if (!Number.isInteger(confirm) || confirm < 0) {
     throw new RangeError(`ab: confirm must be an integer >= 0, got ${confirm}`)
+  }
+  if (metric !== "time" && metric !== "instructions") {
+    throw new RangeError(
+      `ab: metric must be "time" or "instructions", got ${JSON.stringify(metric)}`,
+    )
+  }
+  const uncounted =
+    metric === "instructions" && instructionCounter().unavailable
+  if (uncounted) {
+    throw new OstiaUsageError(
+      `ab: can't judge by instructions on this machine: ${uncounted}.`,
+    )
   }
   for (const [key, value] of Object.entries({
     thresholdPct,
@@ -705,6 +755,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   const settings = {
     base: { ref, sha },
     rounds,
+    metric,
     thresholdPct,
     geomeanThresholdPct,
     memThresholdPct,
@@ -758,6 +809,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       filter: opts.filter,
       rounds,
       thresholdPct,
+      metric,
       preload,
       // Per task only on the first pass; repeats report themselves.
       progress:
@@ -831,6 +883,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       await loadDocument(first),
       await loadDocument(second),
       thresholdPct,
+      metric,
     )
   }
 
@@ -897,10 +950,18 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         }
         const repeat = run?.paired
         if (!repeat) break
+        const i = repeat.instructions
         p.repeats.push({
           medianRatio: repeat.medianRatio,
           ratioP25: repeat.ratioP25,
           ratioP75: repeat.ratioP75,
+          ...(i && {
+            instructions: {
+              medianRatio: i.medianRatio,
+              ratioP25: i.ratioP25,
+              ratioP75: i.ratioP75,
+            },
+          }),
           ...(repeat.flagged && { flagged: repeat.flagged }),
         })
       }

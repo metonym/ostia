@@ -60,6 +60,7 @@ digits.
 | `userNs`, `systemNs` | subprocess commands | Median user / system CPU time per trial. |
 | `retainedBytesPerOp` | `--alloc` | Heap each call keeps alive after a full GC, whole bytes. |
 | `peakBytes` | `--peak-mem` | How far the task's first call raised RSS, bytes (median of 3 fresh processes). A `peak-hidden` warning says when it may read low. |
+| `instructions` | in-process tasks, where the machine counts them | Median instructions retired per call, on the thread that ran the task; for `ab`, the candidate's. |
 | `relative` | 2+ runs | Median over the group's reference (its `baseline: true` task, else its fastest). |
 | `baseline` | when set | `true` for the group's reference task. |
 | `noiseFloorPct` | noise check ran | The machine's noise floor for this document. |
@@ -91,7 +92,8 @@ digits.
 | `verdict` | `"regressed"`, `"improved"` or `"unchanged"`, after confirmation. |
 | `flagged` | What the first process saw, when it crossed the threshold. |
 | `confirmed` | With `flagged`: whether every fresh-process repeat flagged the same way. |
-| `repeats` | With `flagged`: each repeat's median ratio. |
+| `repeats` | With `flagged`: each repeat's median ratio, by the summary's `metric`. |
+| `instructions` | Where the machine counts them: `{ baseMedian, medianRatio, ratioP25, ratioP75 }`, the base's median instructions per call and the per-round instruction ratios. The `run` line's `instructions` is the candidate's. |
 | `sameOutput` | Whether the first call returned deep-equal values on both sides. |
 | `suiteChanged` | `true` when the suite file differs from the base's copy. With `sameOutput: false`, the task is not comparable: `verdict` is `"unchanged"` and it's left out of `geomeanPct`. |
 | `retained` | `--alloc`: `{ base, cand, verdict, floor }`, retained heap per call on each side, bytes, each the median of 3 fresh processes. `verdict` is `"regressed"`, `"improved"` or `"unchanged"`; `floor` is the smallest change that counts. The `run` line's `retainedBytesPerOp` is `cand`. |
@@ -120,6 +122,7 @@ digits.
 | `effectiveTimingPct` | Threshold after noise-floor and drift widening; for `ab`, `--threshold` as given. |
 | `driftPct` | `compare`/`ci`, when both runs measured their noise floor: the machine drift added to the threshold. |
 | `base` | `ab` only: `{ ref, sha }` the working tree was paired against. |
+| `metric` | `ab` only: `"time"` or `"instructions"`, the ratios that verdicts and `geomeanPct` judge. |
 | `geomeanThresholdPct` | `ab` only: the run fails when `geomeanPct` exceeds it. |
 | `unconfirmed` | `ab` only: flagged in the first process, not reproduced by the repeats; counted in `unchanged`. |
 | `outputDiffers` | `ab` only: tasks whose first call returned different values on each side. |

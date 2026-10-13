@@ -5,6 +5,7 @@ import {
   measureTask,
   rigorFloor,
 } from "../../src/measure/inprocess"
+import { instructionCounter } from "../../src/measure/instructions"
 
 function spin(ms: number): number {
   const end = Bun.nanoseconds() + ms * 1e6
@@ -29,6 +30,24 @@ describe("measure/inprocess", () => {
     expect(result.timing.samples.length).toBe(result.trials.length)
     expect(result.timing.unit).toBe("ns")
   })
+
+  test.skipIf(instructionCounter().unavailable !== undefined)(
+    "counts instructions per call, one sample per trial",
+    async () => {
+      let acc = 0
+      const result = await measureTask(
+        () => {
+          for (let i = 0; i < 1000; i++) acc = (acc + i * 31) % 1000000007
+          return acc
+        },
+        { budgetMs: 20, minSamples: 5 },
+      )
+      const { samples, median } = result.instructions!
+      expect(samples).toHaveLength(result.trials.length)
+      expect(median).toBeGreaterThan(1000)
+      expect(median).toBeLessThan(100_000)
+    },
+  )
 
   test("handles async functions", async () => {
     const result = await measureTask(

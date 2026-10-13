@@ -116,6 +116,9 @@ export interface Measurement {
   heap?: HeapEvidence
   memory?: MemoryEvidence
   jit?: JitTierBreakdown
+  /** In-process timing, where the machine counts them: instructions the
+   * task retired per call, one sample per trial (see `InstructionStats`). */
+  instructions?: InstructionStats
   /** `phase: "paired"` only; `timing` is then the candidate side. */
   paired?: PairedEvidence
   /** `phase: "paired"` only: the task threw on one side or both
@@ -169,6 +172,16 @@ export interface TimingStats {
   /** Calls batched into one timed block; absent (read as 1) unless batching
    * occurred, and always absent for subprocess timing. */
   batch?: number
+}
+
+/** Instructions retired per call on the thread that ran the task, in user
+ * mode: a system call's kernel work and other threads' (JIT compiler, GC
+ * helpers, I/O pool) don't count. Unlike time, another process taking the
+ * CPU doesn't move it. Includes the timing loop's own few hundred
+ * instructions per batch. */
+export interface InstructionStats {
+  samples: number[]
+  median: number
 }
 
 export interface Frame {
@@ -251,14 +264,19 @@ export interface PairedEvidence {
   /** 25th/75th percentile of `ratios`. */
   ratioP25: number
   ratioP75: number
-  /** Median ratio past `1 ± threshold` and on the same side of 1 in at least
-   * three quarters of rounds. */
+  /** Instructions retired per call on each side, where the machine counts
+   * them; what `AbSummary.metric: "instructions"` judges. */
+  instructions?: PairedInstructions
+  /** `AbSummary.metric`'s median ratio past `1 ± threshold` and on the same
+   * side of 1 in at least three quarters of rounds. */
   flagged?: "regressed" | "improved"
-  /** Each fresh-process re-measurement of a flagged workload. */
+  /** Each fresh-process re-measurement of a flagged workload; `flagged` by
+   * `AbSummary.metric`. */
   repeats?: {
     medianRatio: number
     ratioP25: number
     ratioP75: number
+    instructions?: { medianRatio: number; ratioP25: number; ratioP75: number }
     flagged?: "regressed" | "improved"
   }[]
   /** Set when `flagged` is: whether every repeat flagged the same way. */
@@ -281,6 +299,21 @@ export interface PairedEvidence {
   peak?: MemoryChange
 }
 
+/** Instructions a paired task retired per call (see `InstructionStats`),
+ * from the same rounds as `PairedEvidence`'s times. */
+export interface PairedInstructions {
+  /** Per round, index-aligned with `PairedEvidence.baseSamples`. */
+  baseSamples: number[]
+  candSamples: number[]
+  baseMedian: number
+  candMedian: number
+  /** Candidate/base instructions per round. */
+  ratios: number[]
+  medianRatio: number
+  ratioP25: number
+  ratioP75: number
+}
+
 /** One memory reading on both sides of an `ab()` task, bytes. */
 export interface MemoryChange {
   baseBytes: number
@@ -301,6 +334,9 @@ export interface AbSummary {
    * are all candidate-only. */
   newSuites?: string[]
   rounds: number
+  /** What verdicts, confirmation and `geomeanPct` judge: each round's time
+   * ratio, or its instruction ratio (`PairedEvidence.instructions`). */
+  metric: "time" | "instructions"
   thresholdPct: number
   geomeanThresholdPct: number
   /** Workloads measured on both sides. */
@@ -324,9 +360,9 @@ export interface AbSummary {
   /** Present when any task had a memory reading (`--alloc`, `--peak-mem`):
    * how many tasks' memory regressed or improved, on either reading. */
   memory?: { thresholdPct: number; regressed: number; improved: number }
-  /** Geometric mean of the workloads' median ratios, signed percent (negative:
-   * candidate faster); a flagged workload contributes its median over its main
-   * run and repeats. `null` when nothing was paired. */
+  /** Geometric mean of the workloads' median `metric` ratios, signed
+   * percent (negative: candidate faster); a flagged workload contributes its
+   * median over its main run and repeats. `null` when nothing was paired. */
   geomeanPct: number | null
   /** `"fail"` when any workload regressed (confirmed), threw on the
    * candidate side only, or `geomeanPct` exceeds `geomeanThresholdPct`, or

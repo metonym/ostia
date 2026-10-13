@@ -120,6 +120,7 @@ export async function measureTasks(
         }),
         trials: result.trials,
         timing: result.timing,
+        instructions: result.instructions,
         warnings:
           noiseWarning && measurements.length === 0
             ? [...result.warnings, noiseWarning]

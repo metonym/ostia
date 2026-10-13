@@ -10,6 +10,7 @@ import {
 } from "../../src/ab/index.ts"
 import { OstiaUsageError } from "../../src/errors.ts"
 import { bench } from "../../src/index.ts"
+import { instructionCounter } from "../../src/measure/instructions.ts"
 import type { MinimalEvent } from "../../src/renderers/minimal/index.ts"
 
 const SRC = `${import.meta.dir}/../../src`
@@ -166,6 +167,50 @@ describe("ab() - paired A/B against a git ref", () => {
     expect(doc.ab!.verdict).toBe("fail")
     expect(doc.unmatched).toEqual({ baseOnly: [], candOnly: [] })
   }, 60_000)
+
+  test.skipIf(instructionCounter().unavailable !== undefined)(
+    "metric instructions judges each round's instruction ratio",
+    async () => {
+      await Bun.write(`${REPO}/src/lib.ts`, SLOW_LIB)
+      const doc = await ab({
+        ...QUICK,
+        suites: ["bench/s.bench.ts"],
+        metric: "instructions",
+        thresholdPct: 3,
+      })
+      const pairedOf = (task: string) =>
+        doc.measurements.find(
+          (m) =>
+            doc.workloads.find((w) => w.id === m.workloadId)!.entry!.task ===
+            task,
+        )!.paired!
+      const work = pairedOf("g/work")
+      // Four times the work: four times the instructions, whatever the load.
+      expect(work.instructions!.medianRatio).toBeGreaterThan(3.5)
+      expect(work.instructions!.medianRatio).toBeLessThan(4.5)
+      expect(work.instructions!.baseSamples).toHaveLength(7)
+      expect(work.verdict).toBe("regressed")
+      expect(work.repeats!.every((r) => r.instructions!.ratioP25 > 1)).toBe(
+        true,
+      )
+      const stable = pairedOf("g/stable")
+      expect(Math.abs(stable.instructions!.medianRatio - 1)).toBeLessThan(0.03)
+      expect(stable.verdict).toBe("unchanged")
+      expect(doc.ab!.metric).toBe("instructions")
+      expect(doc.ab!.geomeanPct!).toBeGreaterThan(50)
+    },
+    60_000,
+  )
+
+  test("rejects an unknown metric", async () => {
+    await expect(
+      ab({
+        ...QUICK,
+        suites: ["bench/s.bench.ts"],
+        metric: "cycles" as never,
+      }),
+    ).rejects.toThrow(RangeError)
+  })
 
   test("an unchanged working tree passes", async () => {
     const doc = await ab({

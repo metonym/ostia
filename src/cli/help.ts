@@ -87,6 +87,8 @@ Flags:
   --base-setup CMD     shell command run once in a freshly extracted base tree, e.g. to build
                        gitignored files the suites import (repeatable, in order)
   --rounds N           base/candidate rounds per task (default: 15)
+  --metric METRIC      judge each round's time or instructions ratio (default: time);
+                       instructions retired per call barely move on a loaded machine
   --threshold PCT      flag a task whose median ratio moves past PCT (default: 10)
   --geomean-threshold PCT  fail when the geometric mean of all ratios is slower than PCT
                        (default: 1.5)
@@ -114,8 +116,9 @@ Flags:
 
 The base tree is cached per commit (and --base-setup commands) under --out-dir. Setup runs
 with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR (the
-working tree) set. A flagged task counts only when every fresh-process repeat flags it the
-same way. A task that throws isn't timed; one that throws on the candidate side only fails
+working tree) set. Instructions per call are counted where the machine allows (macOS;
+Linux with perf_event_paranoid <= 2 and a hardware counter) and shown next to time. A
+flagged task counts only when every fresh-process repeat flags it the same way. A task that throws isn't timed; one that throws on the candidate side only fails
 the run. A task whose suite file and output both changed reads "not comparable" and stays
 out of the verdict. Exit codes: 0 pass, 1 a confirmed regression, a candidate-only throw,
 the geomean over its threshold or a memory regression, 2 nothing paired or a harness error (not a git repo,
@@ -125,6 +128,7 @@ Examples:
   ostia ab bench/parse.bench.ts
   ostia ab bench/*.ts --base origin/main --rounds 21
   ostia ab bench/*.ts --filter parse --format minimal
+  ostia ab bench/*.ts --metric instructions --threshold 3
   ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
   ostia ab bench/paint.bench.ts --alloc --peak-mem
 `

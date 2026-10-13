@@ -8,6 +8,7 @@ import type {
   Warning,
   Workload,
 } from "../../ir/types.ts"
+import { metricRatios } from "../../measure/paired.ts"
 import { cpuTimes, labelOrId } from "../format.ts"
 import { pairedRuns, threwRuns } from "../paired.ts"
 import { relativeRatios } from "../relative.ts"
@@ -62,8 +63,16 @@ interface MinimalPaired {
   /** What the first process saw, before confirmation. */
   flagged?: "regressed" | "improved"
   confirmed?: boolean
-  /** Median ratio of each fresh-process repeat. */
+  /** Median ratio of each fresh-process repeat, by the summary's `metric`. */
   repeats?: number[]
+  /** Where the machine counts them: the base's median instructions per call
+   * and the candidate/base instruction ratios. */
+  instructions?: {
+    baseMedian: number
+    medianRatio: number
+    ratioP25: number
+    ratioP75: number
+  }
   sameOutput: boolean
   /** The suite file differs from the base's copy. */
   suiteChanged?: true
@@ -120,6 +129,9 @@ interface MinimalRunLine {
   retainedBytesPerOp?: number
   /** `--peak-mem`: how far the task's first call raised RSS, bytes. */
   peakBytes?: number
+  /** In-process tasks, where the machine counts them: median instructions
+   * retired per call (`ab`: the candidate's). */
+  instructions?: number
   /** Median over the group's reference median (its baseline task, else its
    * fastest); only when the document has more than one timing run. */
   relative?: number
@@ -172,6 +184,9 @@ interface MinimalSummaryLine {
   baseline?: { name: string; path: string }
   /** `ab` only: the git ref the working tree was paired against. */
   base?: { ref: string; sha: string }
+  /** `ab` only: what the verdicts and `geomeanPct` judge, each round's time
+   * or instruction ratio. */
+  metric?: "time" | "instructions"
   /** `ab` only: the gate on `geomeanPct`. */
   geomeanThresholdPct?: number
   /** `ab` only: flagged in the first process but not reproduced; counted in `unchanged`. */
@@ -393,6 +408,9 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
     if (retained !== undefined) line.retainedBytesPerOp = Math.round(retained)
     const peak = readings?.peak ?? run.paired?.peak?.candBytes
     if (peak !== undefined) line.peakBytes = Math.round(peak)
+    const instructions =
+      run.instructions?.median ?? run.paired?.instructions?.candMedian
+    if (instructions !== undefined) line.instructions = Math.round(instructions)
     addWorkloadFields(line, workload)
     const ratio = ratios?.get(row)
     if (ratio !== undefined) line.relative = sig(ratio)
@@ -411,7 +429,22 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
         verdict: p.verdict,
         ...(p.flagged && { flagged: p.flagged }),
         ...(p.confirmed !== undefined && { confirmed: p.confirmed }),
-        ...(p.repeats && { repeats: p.repeats.map((r) => sig(r.medianRatio)) }),
+        ...(p.repeats && {
+          repeats: p.repeats.map((r) =>
+            sig(
+              metricRatios(r, doc.ab?.metric ?? "time")?.medianRatio ??
+                Number.NaN,
+            ),
+          ),
+        }),
+        ...(p.instructions && {
+          instructions: {
+            baseMedian: Math.round(p.instructions.baseMedian),
+            medianRatio: sig(p.instructions.medianRatio),
+            ratioP25: sig(p.instructions.ratioP25),
+            ratioP75: sig(p.instructions.ratioP75),
+          },
+        }),
         sameOutput: p.sameOutput,
         ...(p.suiteChanged && { suiteChanged: true as const }),
         ...(p.retained && { retained: minimalMemory(p.retained) }),
@@ -496,6 +529,7 @@ function summaryLine(
   }
   if (protocol.command === "ab" && doc.ab) {
     line.base = doc.ab.base
+    line.metric = doc.ab.metric
     line.geomeanThresholdPct = doc.ab.geomeanThresholdPct
     line.unconfirmed = doc.ab.unconfirmed
     line.outputDiffers = doc.ab.outputDiffers

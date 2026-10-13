@@ -13,6 +13,7 @@ import {
   formatEnvironmentLine,
   formatGit,
   formatHeapSummary,
+  formatInstructions,
   formatNsAsMs,
   formatRelative,
   formatSignedPct,
@@ -24,6 +25,7 @@ import {
 } from "../format.ts"
 import {
   abNotes,
+  alsoHeader,
   formatAbHeader,
   formatAbSummary,
   formatNewSuites,
@@ -134,17 +136,27 @@ function abSection(
   const paired = pairedRuns(doc)
   const lines = ["## A/B", "", formatAbHeader(ab), ""]
   if (paired.length > 0) {
+    const also = alsoHeader(doc, ab.metric)
     lines.push(
       ...mdTable(
-        ["Task", "Base", "Candidate", "Change", "p25…p75", "Verdict"],
+        [
+          "Task",
+          "Base",
+          "Candidate",
+          "Change",
+          "p25…p75",
+          ...(also ? [also] : []),
+          "Verdict",
+        ],
         paired.map((run) => {
-          const c = pairedCells(run)
+          const c = pairedCells(run, ab.metric)
           return [
             taskCell(byWorkload.get(run.workloadId), run.workloadId),
             c.base,
             c.candidate,
             c.change,
             c.spread,
+            ...(also ? [c.also] : []),
             c.verdict ? `**${cell(c.verdict)}**` : "",
           ]
         }),
@@ -267,6 +279,15 @@ function timingSection(
           const times = cpuByRow.get(row)
           return times ? formatCpuTimes(times) : "-"
         },
+      })
+    }
+    if (flat.some((row) => row.run.instructions)) {
+      optional.push({
+        header: "Instr/call",
+        cell: (row) =>
+          row.run.instructions
+            ? formatInstructions(row.run.instructions.median)
+            : "-",
       })
     }
     for (const col of memoryColumns(memory)) {

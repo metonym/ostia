@@ -69,6 +69,9 @@ export interface AbConfig {
   /** Base trees to keep cached; see `AbOptions.keepTrees`. `--keep-trees`
    * overrides. Default: 5. */
   keepTrees?: number
+  /** Judge rounds by `"time"` or `"instructions"`; see `AbOptions.metric`.
+   * `--metric` overrides. Default: `"time"`. */
+  metric?: "time" | "instructions"
   /** Compare retained heap per call; see `AbOptions.alloc`. `--alloc` /
    * `--no-alloc` override. `bench.alloc` doesn't apply to `ab`. */
   alloc?: boolean

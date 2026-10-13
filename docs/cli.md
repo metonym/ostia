@@ -363,7 +363,9 @@ Space-separated flags within one value are split and all passed.
 
 Grouped tasks print under their group name; ungrouped tasks and subprocess commands
 print flat. `Relative` compares each task with its group's `{ baseline: true }` task, or
-else the group's fastest task.
+else the group's fastest task. `Instr/call` is the median number of instructions each call
+retired, where the machine counts them (see `ostia ab`'s "Instructions"): unlike time,
+it barely moves on a loaded machine.
 
 There's no watch mode. Pair `ostia bench` with a file watcher and a small budget:
 
@@ -382,6 +384,7 @@ ostia ab [flags] <suite.ts...>
 | `--base REF` | Git ref whose committed tree is the base side (default: `HEAD`). |
 | `--base-setup CMD` | Shell command run once in a freshly extracted base tree (repeatable, in order). See "The base tree". |
 | `--rounds N` | Rounds per task, each one base batch and one candidate batch (default: 15, at least 3). |
+| `--metric METRIC` | Judge each round's `time` ratio or its `instructions` ratio (default: `time`). See "Instructions". |
 | `--threshold PCT` | Flag a task whose median candidate/base ratio moves more than `PCT` percent (default: 10). |
 | `--geomean-threshold PCT` | Fail when the geometric mean of all tasks' ratios is more than `PCT` percent slower (default: 1.5). |
 | `--confirm N` | Re-measure each flagged task in `N` fresh processes (default: 2; 0 trusts the first process). |
@@ -421,11 +424,11 @@ ostia ab bench/*.ts --filter 'source map' --rounds 21
 ```
 A/B: working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%
 
-Task     Base       Candidate  Change    p25…p75            Verdict
--------------------------------------------------------------------
+Task     Base       Candidate  Change    p25…p75            Instr    Verdict
+----------------------------------------------------------------------------
 g:
-  work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    regressed, confirmed (repeats: +103.1%, +101.8%)
-  same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%
+  work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    +100.1%  regressed, confirmed (repeats: +103.1%, +101.8%)
+  same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%        0.0%
 
 Output differs from the base (1):
   g/work
@@ -547,6 +550,32 @@ the suite file itself is checked, not the files it imports.
 The noise floor is measured and reported as usual but doesn't widen the threshold:
 pairing already cancels the drift it measures.
 
+**Instructions.** Pairing cancels drift that hits both halves of a round alike, but on a
+loaded machine the load changes faster than that: with a load average of 4–6 on 8 cores,
+rounds of identical code spread −40%…+44%, and a real 5% change can't be told apart. The
+number of instructions a call retires barely moves with load, since another process
+taking the CPU doesn't change what this thread executes. So where the machine can count
+them, `ostia ab` reads the hardware counter of the thread running the task around each
+batch, and shows the change in instructions per call next to time (the `Instr` column).
+Counts are per thread and user mode only: the kernel's work for a system call, and the
+work of other threads (the JIT compiler, GC helpers, Bun's I/O pool), don't count.
+
+`--metric instructions` judges by them instead. Everything else stays the same: the
+per-round ratio, the quartile rule, both import orders, fresh-process confirmation and the
+geomean all use instruction ratios, and the table leads with instructions per call and
+shows the time change in a `Time` column. On the same loaded machine, identical code's
+quartiles stayed within ±0.8%, and a 5% change read +4.9% to +5.0% and was confirmed in
+each of three runs, where time flagged nothing. So a lower `--threshold`, such as 3, holds. What it can't see is a change that costs time without
+costing instructions: cache misses, branch mispredictions, lock contention, I/O, work
+moved to another thread. And it still depends on the JIT: a round that runs before the
+code reaches its top tier retires more instructions, which is what the median and the
+quartile rule are for.
+
+Instructions are counted on macOS (through `thread_selfcounts`) and on Linux (through
+`perf_event_open`, which needs `/proc/sys/kernel/perf_event_paranoid` at 2 or lower and a
+machine that exposes a hardware counter, which many VMs and containers don't). Elsewhere
+the column is left out, and `--metric instructions` stops with exit 2 and the reason.
+
 **Memory.** `--alloc` and `--peak-mem` measure the same things as under `ostia bench`, on
 both sides. After timing, each task that timed without throwing runs in fresh processes
 that load only one side's suite, three per side, alternating sides; the median of each
@@ -602,12 +631,13 @@ Progress never goes to stdout, so `--format minimal` output stays clean.
 Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
 only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git
 repository, an unknown ref, or a suite file that doesn't exist or lies outside the
-repository (`invalid-flag`), a setup command failed (`command-failed`), a suite failed on
+repository (`invalid-flag`), `--metric instructions` where instructions can't be counted, a setup command failed (`command-failed`), a suite failed on
 one side outside any task (`suite-failed`, with `data.side`), or a suite crashed or timed
 out (`spawn-failed`); `130` Ctrl-C.
 
 With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
-`preload`, `bunFlags`, `outDir` and `timeoutMs`, and its setup commands from `ab.setup`.
+`preload`, `bunFlags`, `outDir` and `timeoutMs`, and its setup commands from `ab.setup`
+(and `ab.metric`, `ab.alloc`, ...; see [config.md](config.md)).
 The sampling settings (`budgetMs`, `samples`, `isolate`, ...) don't apply.
 
 ## `ostia compare`

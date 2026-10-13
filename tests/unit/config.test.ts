@@ -450,6 +450,11 @@ describe("loadConfig - shape validation", () => {
       { ab: { memThresholdPct: -5 } },
       `"ab.memThresholdPct" must be a non-negative number`,
     ],
+    [
+      "an unknown ab.metric",
+      { ab: { metric: "cycles" } },
+      `"ab.metric" must be "time" or "instructions"`,
+    ],
   ]
   for (const [name, config, message] of rejects) {
     test(`rejects ${name}, naming the key`, async () => {
@@ -494,6 +499,7 @@ describe("loadConfig - shape validation", () => {
       ab: {
         setup: ["bun scripts/gen.ts"],
         keepTrees: 3,
+        metric: "instructions",
         alloc: true,
         peakMem: false,
         memThresholdPct: 20,

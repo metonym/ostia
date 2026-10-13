@@ -11,6 +11,7 @@ import {
   formatCpuTimes,
   formatEnvironmentLine,
   formatHeapSummary,
+  formatInstructions,
   formatNsAsMs,
   formatRelative,
   formatSignedPct,
@@ -23,6 +24,7 @@ import {
 import {
   abNotes,
   abRows,
+  alsoHeader,
   formatAbHeader,
   formatAbSummary,
   formatNewSuites,
@@ -213,6 +215,16 @@ function renderTiming(
       },
     })
   }
+  if (measured.some((row) => row.run.instructions)) {
+    columns.push({
+      header: "Instr/call",
+      width: 10,
+      cell: (row) =>
+        row.run.instructions
+          ? formatInstructions(row.run.instructions.median)
+          : "",
+    })
+  }
   for (const col of memoryColumns(memory)) {
     columns.push({
       header: col.header,
@@ -248,14 +260,22 @@ function renderPaired(
       if (kind === "threw") {
         const verdict = formatThrew(run.threw)
         threw.push({ label, verdict, message: run.threw.message })
-        data = { base: "-", candidate: "-", change: "", spread: "", verdict }
+        data = {
+          base: "-",
+          candidate: "-",
+          change: "",
+          spread: "",
+          also: "",
+          verdict,
+        }
       } else {
-        data = pairedCells(run)
+        data = pairedCells(run, ab.metric)
       }
       return { label, group: groupOf(workload), data, warnings: run.warnings }
     },
   )
   if (rows.length > 0) {
+    const also = alsoHeader(doc, ab.metric)
     lines.push(
       ...textTable<ReturnType<typeof pairedCells>>(
         [
@@ -263,6 +283,15 @@ function renderPaired(
           { header: "Candidate", width: 10, cell: (c) => c.candidate },
           { header: "Change", width: 9, cell: (c) => c.change },
           { header: "p25…p75", width: 18, cell: (c) => c.spread },
+          ...(also
+            ? [
+                {
+                  header: also,
+                  width: 8,
+                  cell: (c: ReturnType<typeof pairedCells>) => c.also,
+                },
+              ]
+            : []),
           { header: "Verdict", width: 7, cell: (c) => c.verdict },
         ],
         rows,

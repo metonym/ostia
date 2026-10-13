@@ -71,6 +71,7 @@ const AB_FIELDS: Record<string, Field> = {
     "a command string or an array of them",
   ),
   keepTrees: posInt,
+  metric: field(oneOf("time", "instructions"), `"time" or "instructions"`),
   alloc: flag,
   peakMem: flag,
   memThresholdPct: field(isNum(0), "a non-negative number"),

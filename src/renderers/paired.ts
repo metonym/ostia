@@ -100,18 +100,19 @@ export function pairedCells(run: PairedRun, metric: AbSummary["metric"]) {
   const i = p.instructions
   const judged = metricRatios(p, metric)
   const other = metricRatios(p, metric === "time" ? "instructions" : "time")
-  const unit = pickDurationUnit(Math.min(p.baseMedianNs, run.timing.median))
-  const [base, candidate] =
-    metric === "time"
-      ? [p.baseMedianNs, run.timing.median].map((ns) =>
-          formatDuration(ns, unit),
-        )
-      : i
-        ? [i.baseMedian, i.candMedian].map(formatInstructions)
-        : ["-", "-"]
+  let base = "-"
+  let candidate = "-"
+  if (metric === "time") {
+    const unit = pickDurationUnit(Math.min(p.baseMedianNs, run.timing.median))
+    base = formatDuration(p.baseMedianNs, unit)
+    candidate = formatDuration(run.timing.median, unit)
+  } else if (i) {
+    base = formatInstructions(i.baseMedian)
+    candidate = formatInstructions(i.candMedian)
+  }
   return {
-    base: base!,
-    candidate: candidate!,
+    base,
+    candidate,
     change: judged ? formatRatio(judged.medianRatio) : "",
     spread: judged
       ? `${formatRatio(judged.ratioP25)}…${formatRatio(judged.ratioP75)}`
@@ -128,7 +129,7 @@ export function alsoHeader(
   metric: AbSummary["metric"],
 ): string | undefined {
   if (metric === "instructions") return "Time"
-  return pairedRuns(doc).some((run) => run.paired.instructions)
+  return doc.measurements.some((m) => m.paired?.instructions)
     ? "Instr"
     : undefined
 }

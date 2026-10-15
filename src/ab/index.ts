@@ -2,6 +2,7 @@ import {
   appendFileSync,
   existsSync,
   lstatSync,
+  mkdirSync,
   readdirSync,
   realpathSync,
   renameSync,
@@ -9,6 +10,7 @@ import {
   symlinkSync,
   unlinkSync,
   utimesSync,
+  writeFileSync,
 } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { relative, sep } from "node:path"
@@ -119,7 +121,7 @@ export interface AbOptions {
    * `OSTIA_AB_SHA` / `OSTIA_AB_CANDIDATE_DIR` (the working tree's `cwd`) in
    * its environment. The tree is cached per commit and command list. */
   baseSetup?: string | string[]
-  /** Base trees to keep under `<outDir>/ab`, counting this run's: after a
+  /** Base trees to keep under `.ostia/ab`, counting this run's: after a
    * run, older ones go, least recently used first, unless one was used in
    * the last hour (another run may still need it). Default: 5. */
   keepTrees?: number
@@ -216,10 +218,28 @@ interface TreeSetup {
 }
 
 /** Where the base tree for `sha` lives: `<sha>`, or with setup commands,
- * `<sha>-<hash of the commands>`, so changing them builds a new tree. */
+ * `<sha>-<hash of the commands>`, so changing them builds a new tree. The
+ * sha is shortened: code that works on absolute paths costs more on the
+ * longer ones, so every character the base tree adds reads as a slowdown. */
 function treeDir(abDir: string, sha: string, commands: string[]): string {
-  if (commands.length === 0) return `${abDir}/${sha}`
-  return `${abDir}/${sha}-${fp("ab-setup", commands).slice(-8)}`
+  const short = sha.slice(0, 12)
+  if (commands.length === 0) return `${abDir}/${short}`
+  return `${abDir}/${short}-${fp("ab-setup", commands).slice(-8)}`
+}
+
+/** Where the base trees of the project at `toplevel` live: inside it, so
+ * a bare import walks up to the project's own `node_modules` by its real
+ * path, but not under `node_modules`, which code under test (bundler
+ * plugins, resolvers, globbers) often skips or treats differently. */
+export function abTreesDir(toplevel: string): string {
+  return `${toplevel}/.ostia/ab`
+}
+
+/** Keeps git, and tools that read `.gitignore`, out of the base trees. */
+function ignoreTrees(abDir: string): void {
+  if (existsSync(`${abDir}/.gitignore`)) return
+  mkdirSync(abDir, { recursive: true })
+  writeFileSync(`${abDir}/.gitignore`, "*\n")
 }
 
 const SETUP_OUTPUT_LINES = 20
@@ -447,6 +467,7 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   const doomed: string[] = []
   const trees: { path: string; mtimeMs: number }[] = []
   for (const name of readdirSync(abDir)) {
+    if (name === ".gitignore") continue
     const path = `${abDir}/${name}`
     const tmp = /\.tmp-(\d+)(?:-\w+)?$/.exec(name)
     if (tmp) {
@@ -467,16 +488,38 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   return doomed.length
 }
 
-/** Removes every base tree `ab()` has cached under `<outDir>/ab`. Returns
+// A base tree's name under `<outDir>/ab`, where they were cached before
+// they moved out of node_modules: `<sha>` or `<sha>-<hash>`, or a temp
+// directory for one.
+const LEGACY_TREE = /^[0-9a-f]{40}(?:-[0-9a-f]{8})?(?:\.tmp-\d+(?:-\w+)?)?$/
+
+/** Removes the base trees left under `dir` by earlier versions, and `dir`
+ * once nothing else is in it. Returns how many it removed. */
+async function removeLegacyTrees(dir: string): Promise<number> {
+  if (!existsSync(dir)) return 0
+  const names = readdirSync(dir)
+  const trees = names.filter((name) => LEGACY_TREE.test(name))
+  for (const name of trees) await removeDir(`${dir}/${name}`)
+  if (trees.length === names.length) await removeDir(dir)
+  return trees.length
+}
+
+/** Removes every base tree `ab()` has cached for the project at `cwd`,
+ * and any left under `<outDir>/ab`, where they were cached before. Returns
  * how many there were. */
 export async function cleanAbTrees(
   opts: { outDir?: string; cwd?: string } = {},
 ): Promise<number> {
   const cwd = opts.cwd ?? process.cwd()
-  const abDir = `${absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR)}/ab`
-  if (!existsSync(abDir)) return 0
-  const count = readdirSync(abDir).length
-  await removeDir(abDir)
+  let count = await removeLegacyTrees(
+    `${absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR)}/ab`,
+  )
+  const toplevel = git(["rev-parse", "--show-toplevel"], cwd)
+  const dir = toplevel === undefined ? undefined : abTreesDir(toplevel)
+  if (dir && existsSync(dir)) {
+    count += readdirSync(dir).filter((name) => name !== ".gitignore").length
+    await removeDir(dir)
+  }
   return count
 }
 
@@ -737,13 +780,13 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
   if (sha === undefined) {
     throw new AbBaseError(`"${ref}" is not a commit in ${toplevel}.`)
   }
-  // Under the project's node_modules, so a bare import from the base tree
-  // resolves to the same packages (and `ostia` itself) as the working tree.
   const setup =
     typeof opts.baseSetup === "string"
       ? [opts.baseSetup]
       : (opts.baseSetup ?? [])
-  const checkout = treeDir(`${absOutDir}/ab`, sha, setup)
+  const treesDir = abTreesDir(toplevel)
+  ignoreTrees(treesDir)
+  const checkout = treeDir(treesDir, sha, setup)
   const extracted = await extractTree(sha, checkout, {
     commands: setup,
     toplevel,
@@ -1022,7 +1065,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       ...settings,
       newSuites: opts.suites.filter((_, s) => !baseSuites[s]),
     })
-    await pruneAbTrees(`${absOutDir}/ab`, keepTrees)
+    await pruneAbTrees(treesDir, keepTrees)
+    await removeLegacyTrees(`${absOutDir}/ab`)
     return doc
   } finally {
     await removeDir(tmpDir)

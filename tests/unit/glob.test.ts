@@ -16,6 +16,8 @@ describe("scanGlobs", () => {
       ".hidden.ts",
       "node_modules/dep/index.ts",
       ".git/hooks/pre-commit.ts",
+      ".ostia/ab/0123456789ab/src/a.ts",
+      ".ostia/baselines/main.ts",
     ]) {
       await Bun.write(join(dir, f), "")
     }
@@ -25,10 +27,17 @@ describe("scanGlobs", () => {
     await Bun.$`rm -rf ${dir}`
   })
 
-  test("wildcards match dotfiles but skip node_modules and .git", async () => {
+  test("wildcards match dotfiles but skip node_modules, .git and ab's base trees", async () => {
     expect(await scanGlobs(["**/*.ts"], dir)).toEqual([
       ".hidden.ts",
+      ".ostia/baselines/main.ts",
       "src/a.ts",
+    ])
+    expect(await scanGlobs([".ostia/**/*.ts"], dir)).toEqual([
+      ".ostia/baselines/main.ts",
+    ])
+    expect(await scanGlobs([".ostia/ab/**/*.ts"], dir)).toEqual([
+      ".ostia/ab/0123456789ab/src/a.ts",
     ])
     expect(await scanGlobs([".github/**"], dir)).toEqual([
       ".github/workflows/ci.yml",
@@ -63,7 +72,7 @@ describe("scanGlobs", () => {
 
   test("results are deduped and sorted across patterns", async () => {
     expect(await scanGlobs(["src/*.ts", "**/*.ts", ".hidden.ts"], dir)).toEqual(
-      [".hidden.ts", "src/a.ts"],
+      [".hidden.ts", ".ostia/baselines/main.ts", "src/a.ts"],
     )
   })
 })

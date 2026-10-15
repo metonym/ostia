@@ -395,7 +395,7 @@ ostia ab [flags] <suite.ts...>
 | `--preload PATH` | Import `PATH` before each suite file (repeatable, in order). |
 | `--bun-flags FLAGS` | Extra flags for the `bun` process running each suite (repeatable). |
 | `--timeout MS` | SIGKILL a suite (or repeat) process, or a setup command, after `MS`. No default. |
-| `--out-dir PATH` | Scratch directory and base-tree cache (default: `node_modules/.cache/ostia`). |
+| `--out-dir PATH` | Scratch directory (default: `node_modules/.cache/ostia`). |
 | `--keep-trees N` | Base trees to keep cached (default: 5). See "The base tree". |
 | `--clean` | Remove every cached base tree, then exit. |
 | `--config PATH` | Config file to read instead of discovery. |
@@ -437,15 +437,24 @@ Geomean +41.0% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · 
 ```
 
 **The base tree.** The ref's commit is extracted with `git archive` into
-`<out-dir>/ab/<sha>/` once and reused by later runs against the same commit. The suite
-file is imported from both trees, so its relative imports, and `tsconfig` `paths` such as
-a package importing itself by name, resolve within each tree; bare package imports
-(dependencies, and `ostia` itself) resolve to the project's own `node_modules` from both,
-which is why `--out-dir` should stay inside the project. The consequences: a change to a
+`.ostia/ab/<sha>/` at the project root (the first 12 characters of the sha) once and
+reused by later runs against the same commit. The suite file is imported from both trees,
+so its relative imports, and `tsconfig` `paths` such as a package importing itself by
+name, resolve within each tree; bare package imports (dependencies, and `ostia` itself)
+walk up to the project's own `node_modules` from both, by the same real paths. The tree
+isn't under `node_modules`, which code under test often skips or treats differently
+(bundler plugins, resolvers, globbers). `.ostia/ab/` holds a `.gitignore` that ignores
+everything in it, so git and tools that read `.gitignore` leave the trees alone; exclude
+`.ostia/ab` from test runners and linters that don't. The consequences: a change to a
 dependency's version isn't what's being compared, files that aren't committed (generated
 fixtures, gitignored inputs) don't exist in the base tree until `--base-setup` builds them,
-and git submodules aren't extracted. A suite file that doesn't exist at the ref has nothing
-to pair with: it's listed as a new suite, its tasks are candidate-only and aren't timed,
+git submodules aren't extracted, and only the project root's `node_modules` (not a
+workspace package's own) is reachable from the base tree. The base tree's paths are about
+20 characters longer than the working tree's, so code that does string work on absolute
+paths (joining, relativizing, hashing them) does slightly more on the base side and can
+read as a few percent faster on the candidate; in one path-heavy task, each extra
+character cost 0.3–0.45% more instructions. A suite file that doesn't exist at the ref
+has nothing to pair with: it's listed as a new suite, its tasks are candidate-only and aren't timed,
 and the run goes on with the other suites. Use `ostia bench` to time it.
 
 **Setup.** `--base-setup CMD` (or the config's `ab.setup`) runs `CMD` with `sh -c` once in
@@ -465,7 +474,7 @@ Each command runs in the tree's counterpart of the current directory, with:
   the working tree. When the generated files don't depend on the base's code, copying them
   is cheaper than building them: `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
 
-The tree is cached under `<out-dir>/ab/<sha>-<hash>/`, where the hash covers the commands,
+The tree is cached under `.ostia/ab/<sha>-<hash>/`, where the hash covers the commands,
 so changing them builds a new tree. Setup runs in a temporary directory that is renamed
 into place only when every command succeeds, so a failed or interrupted setup never
 leaves a half-built tree for a later run to reuse. Each command runs in its own process
@@ -842,7 +851,8 @@ settings, the Bun and ostia versions, and the contents of the files matched by `
 - `inputs: []`: depends on nothing, cached until the command or settings change;
 - `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`: reused while the matched files'
   contents are unchanged. Absolute paths work. Globs match dotfiles, but wildcards skip
-  `node_modules` and `.git` unless the pattern names them.
+  `node_modules`, `.git` and `.ostia/ab` (`ostia ab`'s base trees) unless the pattern
+  names them.
 
 A function-form `prepare` hook makes a workload uncacheable. `suites` workloads always
 run. `--full` ignores the cache.

@@ -236,8 +236,9 @@ ostia ab bench/*.ts --threshold 5 --rounds 21
 ```
 
 - The same suite files as `ostia bench`, unchanged. The ref's tree is extracted once per
-  commit under `node_modules/.cache/ostia/ab/`; relative imports resolve within each tree,
-  package imports to the project's `node_modules`.
+  commit under `.ostia/ab/` (which ignores itself in git); relative imports resolve within
+  each tree, package imports to the project's `node_modules`. Exclude `.ostia/ab` from
+  test runners and linters that don't read `.gitignore`.
 - Files git doesn't hold (generated or gitignored sources) aren't in the base tree.
   `--base-setup "bun scripts/generate.ts"` (or `ab.setup` in the config) builds them once
   per tree, with the project's `node_modules` linked in.

@@ -21,6 +21,18 @@
   timing measurements, `instructions: { samples, median }`; `--format minimal` adds
   `instructions` to `run` lines and `paired`, and `metric` to the `ab` summary.
 
+**Fixes**
+
+- `ostia ab` extracts base trees into `.ostia/ab/` at the project root instead of
+  `node_modules/.cache/ostia/ab/`. Code under test that treats paths under `node_modules`
+  differently (bundler plugins, resolvers, globbers) took a different path on the base
+  side, and unchanged code read as "improved, confirmed". Tree directories use the first
+  12 characters of the sha, since longer base paths alone slow path-heavy code on the
+  base side. `.ostia/ab/` ignores itself in git; exclude it from test runners and linters
+  that don't read `.gitignore`; ostia's own suite and `inputs` globs skip it like
+  `node_modules`. Trees left under `<out-dir>/ab/` are removed by the next run, and
+  `--out-dir` no longer holds base trees.
+
 **Performance**
 
 - `--peak-mem` on macOS reads resident size from the kernel instead of spawning `ps`,

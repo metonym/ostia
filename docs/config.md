@@ -142,8 +142,9 @@ and `timeoutMs` from it.
 | `timeoutMs` | none (`ci`: 10 minutes) | `--timeout` |
 
 Suite globs resolve against the current directory. Globs match dotfiles and dot
-directories (`.github/**`), but a wildcard never descends into `node_modules` or `.git`
-unless the pattern names that directory (`node_modules/foo/**`). The same rules apply to a
+directories (`.github/**`), but a wildcard never descends into `node_modules`, `.git` or
+`.ostia/ab` (`ostia ab`'s base trees) unless the pattern names that directory
+(`node_modules/foo/**`). The same rules apply to a
 command workload's `inputs`.
 
 ## `ab`

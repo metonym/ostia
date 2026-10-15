@@ -102,7 +102,7 @@ Flags:
   --preload PATH       import before each suite file (repeatable, in order)
   --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
   --timeout MS         kill a suite (or repeat) process after MS
-  --out-dir PATH       scratch directory and base-tree cache (default: node_modules/.cache/ostia)
+  --out-dir PATH       scratch directory (default: node_modules/.cache/ostia)
   --keep-trees N       base trees to keep cached, least recently used go first (default: 5)
   --clean              remove every cached base tree, then exit
   --config PATH        read this config file instead of ostia.config.ts/.json
@@ -114,7 +114,7 @@ Flags:
   --quiet              don't print the report
   --help               show this message
 
-The base tree is cached per commit (and --base-setup commands) under --out-dir. Setup runs
+The base tree is cached per commit (and --base-setup commands) under .ostia/ab. Setup runs
 with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR (the
 working tree) set. Instructions per call are counted where the machine allows (macOS;
 Linux with perf_event_paranoid <= 2 and a hardware counter) and shown next to time. A

@@ -7,6 +7,7 @@ import {
   AbSetupError,
   AbSuiteError,
   ab,
+  abTreesDir,
 } from "../../src/ab/index.ts"
 import { OstiaUsageError } from "../../src/errors.ts"
 import { bench } from "../../src/index.ts"
@@ -16,6 +17,8 @@ import type { MinimalEvent } from "../../src/renderers/minimal/index.ts"
 const SRC = `${import.meta.dir}/../../src`
 const CLI = `${SRC}/cli/main.ts`
 const REPO = `${import.meta.dir}/../../.ostia-test-ab`
+// A base copy of a file tells itself apart by its path.
+const IS_BASE = 'import.meta.path.includes("/.ostia/ab/")'
 
 const LIB = `export function spin(n: number): number {
   let acc = 0
@@ -347,7 +350,7 @@ group("g", () => {
 `
     // `globalThis.__ostia_ab_base__` is only ever read, never set, so the
     // candidate side tells itself apart by its path instead.
-    const isBase = 'import.meta.path.includes("/node_modules/")'
+    const isBase = IS_BASE
     const run = async (cond: string) => {
       await Bun.write(`${REPO}/bench/t.bench.ts`, throwing(cond))
       await commit("throwing suite")
@@ -412,7 +415,7 @@ group("g", () => {
   }, 60_000)
 
   test("prunes base trees past keepTrees, least recently used first, but not ones used in the last hour", async () => {
-    const abDir = `${REPO}/node_modules/.cache/ostia/ab`
+    const abDir = abTreesDir(REPO)
     const fake = (name: string, ageMs: number) => {
       mkdirSync(`${abDir}/${name}`, { recursive: true })
       const t = new Date(Date.now() - ageMs)
@@ -432,7 +435,23 @@ group("g", () => {
       keepTrees: 1,
     })
     const sha = await sh(["git", "rev-parse", "HEAD"])
-    expect(readdirSync(abDir).sort()).toEqual([sha, "recent"].sort())
+    expect(readdirSync(abDir).sort()).toEqual(
+      [".gitignore", sha.slice(0, 12), "recent"].sort(),
+    )
+  }, 60_000)
+
+  test("removes base trees left under <outDir>/ab, and nothing else there", async () => {
+    const legacy = `${REPO}/node_modules/.cache/ostia/ab`
+    const sha = await sh(["git", "rev-parse", "HEAD"])
+    mkdirSync(`${legacy}/${sha}`, { recursive: true })
+    mkdirSync(`${legacy}/${sha}-0123abcd.tmp-99999999-abcd1234`)
+    await ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
+    expect(existsSync(legacy)).toBe(false)
+
+    mkdirSync(`${legacy}/${sha}`, { recursive: true })
+    mkdirSync(`${legacy}/notes`)
+    await ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
+    expect(readdirSync(legacy)).toEqual(["notes"])
   }, 60_000)
 
   test("workload ids match bench()'s for the same suite, and the base tree is cached per commit", async () => {
@@ -448,8 +467,44 @@ group("g", () => {
     )
     const sha = await sh(["git", "rev-parse", "HEAD"])
     expect(
-      existsSync(`${REPO}/node_modules/.cache/ostia/ab/${sha}/src/lib.ts`),
+      existsSync(`${abTreesDir(REPO)}/${sha.slice(0, 12)}/src/lib.ts`),
     ).toBe(true)
+  }, 60_000)
+
+  test("against an unchanged tree, path-sensitive code takes the same path on both sides", async () => {
+    // Like a bundler plugin that skips files under node_modules: a base
+    // tree there would skip the work and read as a regression.
+    await Bun.write(
+      `${REPO}/bench/path.bench.ts`,
+      `import { task } from "${SRC}/index.ts"
+import { scale } from "dep"
+import { spin } from "../src/lib.ts"
+const vendored = import.meta.dir.split("/").includes("node_modules")
+task("path", () => (vendored ? 0 : spin(scale(10_000))))
+`,
+    )
+    await commit("path suite")
+    // Gitignored, so only the working tree has it: the base side must
+    // resolve it through the same node_modules.
+    await Bun.write(
+      `${REPO}/node_modules/dep/package.json`,
+      '{ "name": "dep", "module": "index.ts" }',
+    )
+    await Bun.write(
+      `${REPO}/node_modules/dep/index.ts`,
+      "export const scale = (n: number) => n * 2\n",
+    )
+    const doc = await ab({
+      ...QUICK,
+      suites: ["bench/path.bench.ts"],
+      geomeanThresholdPct: 25,
+    })
+    expect(doc.ab!.matched).toBe(1)
+    expect(doc.ab!.outputDiffers).toBe(0)
+    expect(doc.measurements[0]!.paired!.verdict).toBe("unchanged")
+    expect(doc.ab!.verdict).toBe("pass")
+    // The trees ignore themselves.
+    expect(await sh(["git", "status", "--porcelain"])).toBe("")
   }, 60_000)
 
   test("salts every script in the base tree, but not declarations or symlinks", async () => {
@@ -472,7 +527,7 @@ group("g", () => {
     await ab({ ...QUICK, suites: ["bench/s.bench.ts"], confirm: 0 })
 
     const sha = await sh(["git", "rev-parse", "HEAD"])
-    const tree = `${REPO}/node_modules/.cache/ostia/ab/${sha}`
+    const tree = `${abTreesDir(REPO)}/${sha.slice(0, 12)}`
     const salt = "\n;globalThis.__ostia_ab_base__;\n"
     expect(await Bun.file(`${tree}/src/lib.ts`).text()).toBe(LIB + salt)
     expect(await Bun.file(`${tree}/bench/s.bench.ts`).text()).toBe(SUITE + salt)
@@ -516,11 +571,11 @@ task("gen", () => spin(N))
     expect(doc.ab!.matched).toBe(1)
 
     const sha = await sh(["git", "rev-parse", "HEAD"])
-    const trees = (await sh(["ls", `${REPO}/node_modules/.cache/ostia/ab`]))
-      .split("\n")
-      .filter((d) => d.startsWith(`${sha}-`))
+    const trees = readdirSync(abTreesDir(REPO)).filter((d) =>
+      d.startsWith(`${sha.slice(0, 12)}-`),
+    )
     expect(trees).toHaveLength(1)
-    const tree = `${REPO}/node_modules/.cache/ostia/ab/${trees[0]}`
+    const tree = `${abTreesDir(REPO)}/${trees[0]}`
     expect(await Bun.file(`${tree}/src/gen.ts`).text()).toBe(
       "export const N = 20_000\n\n;globalThis.__ostia_ab_base__;\n",
     )
@@ -536,8 +591,7 @@ task("gen", () => spin(N))
     expect(err).toBeInstanceOf(AbSetupError)
     expect((err as Error).message).toContain("exited 3")
     expect((err as Error).message).toContain("no such script")
-    const left = await sh(["ls", `${REPO}/node_modules/.cache/ostia/ab`])
-    expect(left).toBe("")
+    expect(readdirSync(abTreesDir(REPO))).toEqual([".gitignore"])
   }, 20_000)
 
   test("runs each suite once with each side imported first, and pools the rounds", async () => {
@@ -546,7 +600,7 @@ task("gen", () => spin(N))
       `${REPO}/bench/order.bench.ts`,
       `import { appendFileSync } from "node:fs"
 import { task } from "${SRC}/index.ts"
-appendFileSync("${REPO}/order.log", import.meta.path.includes("/.cache/") ? "base\\n" : "cand\\n")
+appendFileSync("${REPO}/order.log", ${IS_BASE} ? "base\\n" : "cand\\n")
 task("t", () => 1)
 `,
     )
@@ -877,8 +931,8 @@ describe("ostia ab", () => {
       "0",
       "--no-noise-check",
     ])
-    const abDir = `${REPO}/node_modules/.cache/ostia/ab`
-    expect(readdirSync(abDir)).toHaveLength(1)
+    const abDir = abTreesDir(REPO)
+    expect(readdirSync(abDir)).toHaveLength(2) // the tree and .gitignore
     const { exitCode, stderr } = await runCli(["--clean"])
     expect(exitCode).toBe(0)
     expect(stderr).toContain("Removed 1 cached base tree(s).")
@@ -977,9 +1031,7 @@ describe("ab() - exceptions and teardown", () => {
     await Bun.spawn(["rm", "-rf", REPO]).exited
   })
 
-  // Each copy of a suite tells its side by path: the base copy lives in the
-  // cached tree under node_modules.
-  const SIDE = `const side = import.meta.path.includes("/node_modules/") ? "base" : "cand"`
+  const SIDE = `const side = ${IS_BASE} ? "base" : "cand"`
 
   /** Runs `suite` (committed, so both sides have it) as the only suite. */
   async function runSuite(suite: string, opts: Partial<AbOptions> = {}) {
@@ -1177,7 +1229,7 @@ describe("ab() - setup timeout and cancellation", () => {
       expect(performance.now() - start).toBeLessThan(1300)
       await Bun.sleep(1600)
       expect(existsSync(`${REPO}/late`)).toBe(false)
-      expect(readdirSync(`${REPO}/node_modules/.cache/ostia/ab`)).toEqual([])
+      expect(readdirSync(abTreesDir(REPO))).toEqual([".gitignore"])
     } finally {
       await killLate()
     }
@@ -1198,7 +1250,7 @@ describe("ab() - setup timeout and cancellation", () => {
       expect(doc.ab!.matched).toBe(0)
       await Bun.sleep(1600)
       expect(existsSync(`${REPO}/late`)).toBe(false)
-      expect(readdirSync(`${REPO}/node_modules/.cache/ostia/ab`)).toEqual([])
+      expect(readdirSync(abTreesDir(REPO))).toEqual([".gitignore"])
     } finally {
       await killLate()
     }

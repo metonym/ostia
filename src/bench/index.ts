@@ -1,4 +1,8 @@
-import { type BenchConfig, DEFAULT_OUT_DIR } from "../config/index.ts"
+import {
+  type BenchConfig,
+  type BenchProject,
+  DEFAULT_OUT_DIR,
+} from "../config/index.ts"
 import { scanGlobs } from "../glob.ts"
 import {
   configFingerprint,
@@ -10,6 +14,7 @@ import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
 import { stampDrift } from "../measure/environment.ts"
 import type { PeakMemResult } from "../measure/peak.ts"
 import { assertSamplingOptions } from "../measure/timing.ts"
+import { resolveSuiteLaunches } from "./projects.ts"
 import type { RunnerOpts } from "./runner.ts"
 import {
   absolutePath,
@@ -70,6 +75,12 @@ export interface BenchOptions {
   /** Extra flags for the `bun` invocation that runs each suite file (e.g.
    * `["--conditions", "browser"]`), placed before the runner script path. */
   bunFlags?: string[]
+  /** Per-suite `preload` / `bunFlags`: the first project whose `suites` globs
+   * match a suite file (by its path relative to `cwd`) replaces those two
+   * fields for that file, so suites that need no setup don't pay for the
+   * others'. A field a project leaves unset keeps the top-level value above;
+   * `[]` clears it. */
+  projects?: BenchProject[]
   /** Measure this machine's noise floor once, before any suite runs
    * (default: true), and stamp it on the document as `environment`. */
   noiseCheck?: boolean
@@ -115,17 +126,23 @@ export interface BenchCliOverrides {
 /** Merges CLI flags with `ostia.config.json`'s `bench` section: a CLI value
  * wins per field, then the config's, then `bench()`'s own defaults (left
  * undefined). `suites`, `preload` and `bunFlags` are replaced wholesale, not
- * merged. */
+ * merged. With no CLI suites, the files to run are the config's `suites`
+ * plus whatever its `projects` match. A CLI `preload` / `bunFlags` also
+ * replaces that field in every project. */
 export async function resolveBenchOptions(
   cli: BenchCliOverrides,
   config: BenchConfig | undefined,
   cwd: string = process.cwd(),
 ): Promise<BenchOptions> {
+  const globs = [
+    ...(config?.suites ?? []),
+    ...(config?.projects?.flatMap((p) => p.suites) ?? []),
+  ]
   const suites =
     cli.suites.length > 0
       ? cli.suites
-      : config?.suites
-        ? await scanGlobs(config.suites, cwd)
+      : globs.length > 0
+        ? await scanGlobs(globs, cwd)
         : []
 
   return {
@@ -144,6 +161,11 @@ export async function resolveBenchOptions(
     isolate: cli.isolate ?? config?.isolate ?? false,
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
     bunFlags: cli.bunFlags.length > 0 ? cli.bunFlags : (config?.bunFlags ?? []),
+    projects: config?.projects?.map((project) => ({
+      ...project,
+      ...(cli.preload.length > 0 && { preload: undefined }),
+      ...(cli.bunFlags.length > 0 && { bunFlags: undefined }),
+    })),
     outDir: cli.outDir ?? config?.outDir,
     noiseCheck: cli.noiseCheck,
     timeoutMs: cli.timeoutMs ?? config?.timeoutMs,
@@ -201,8 +223,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   for (const [i, suite] of suites.entries()) {
     assertSuiteExists(opts.suites[i]!, suite)
   }
-  const preload = (opts.preload ?? []).map((file) => absolutePath(cwd, file))
-  const bunFlags = opts.bunFlags ?? []
+  const launches = resolveSuiteLaunches(suites, cwd, opts, opts.projects)
   const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck)
 
   const measureOpts = {
@@ -244,7 +265,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           const ran = await runRunnerProcess(
             [
               "bun",
-              ...bunFlags,
+              ...launches[job.suiteIndex]!.bunFlags,
               RUNNER_PATH,
               suites[job.suiteIndex]!,
               job.outPath,
@@ -290,7 +311,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           ...measureOpts,
           filter: opts.filter,
           isolate: opts.isolate,
-          preload,
+          preload: launches[i]!.preload,
           planPath: p.planPath,
         },
       })),
@@ -325,7 +346,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         runnerOpts: {
           ...measureOpts,
           workloadIds: [item.task.workloadId],
-          preload,
+          preload: launches[item.suiteIndex]!.preload,
           markIsolated: true,
         },
       })),
@@ -359,7 +380,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         outPath: peakPaths[i]!,
         runnerOpts: {
           filter: opts.filter,
-          preload,
+          preload: launches[run.suiteIndex]!.preload,
           peakMemFor: run.workloadId,
         },
       })),

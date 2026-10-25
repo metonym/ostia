@@ -125,6 +125,7 @@ and `timeoutMs` from it.
 | Field | Default | CLI flag |
 |---|---|---|
 | `suites` | unset | positional files (used by `ostia bench` only; `ci` uses each workload's own `suites`) |
+| `projects` | unset | none; see [Projects](#projects) |
 | `budgetMs` | 500 | `--budget` |
 | `samples` | unset | `--samples` |
 | `minSamples` | cost-aware | `--min-samples` |
@@ -140,6 +141,41 @@ and `timeoutMs` from it.
 | `bunFlags` | `[]` | `--bun-flags` (CLI list replaces config list), e.g. `["--conditions=browser"]` |
 | `outDir` | `node_modules/.cache/ostia` (`ci`: top-level `outDir`) | `--out-dir` |
 | `timeoutMs` | none (`ci`: 10 minutes) | `--timeout` |
+
+### Projects
+
+`preload` and `bunFlags` apply to every suite file, so a repository that benchmarks both
+DOM components and plain functions pays the DOM setup for the plain ones too. On a
+benchmark suite of pure functions, loading a jsdom preload added about 600ms to each suite
+file's run and made its tasks read 2-5% slower. `projects` gives each group of files its
+own launch settings:
+
+```ts
+bench: {
+  jobs: "auto",
+  projects: [
+    {
+      suites: ["bench/*.dom.bench.ts"],
+      preload: ["./bench/dom-preload.ts"],
+      bunFlags: ["--conditions=browser"],
+    },
+    { suites: ["bench/*.bench.ts"] }, // the rest: no preload
+  ],
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `suites` | Globs, matched against each suite file's path relative to the current directory. |
+| `preload` | Replaces the top-level `preload` for these files. `[]` runs them with none. Unset: the top-level list applies. |
+| `bunFlags` | Replaces the top-level `bunFlags` for these files, the same way. |
+
+A suite file takes the first project that matches it, so list the narrower globs first;
+a file no project matches gets the top-level `preload` and `bunFlags`. Projects apply
+to files named on the command line as well, and to `ostia ab` and `suites` workloads in
+`ostia ci`. With no files named, `ostia bench` and `ostia ab` run the config's `suites` plus
+every file the projects' globs match. `--preload` and `--bun-flags` still win: each
+replaces its field for every file, projects included.
 
 Suite globs resolve against the current directory. Globs match dotfiles and dot
 directories (`.github/**`), but a wildcard never descends into `node_modules`, `.git` or

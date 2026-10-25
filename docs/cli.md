@@ -346,7 +346,9 @@ ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
 ```
 
 Complete jsdom, happy-dom and Svelte-plugin setups are in
-[preload-recipes.md](preload-recipes.md).
+[preload-recipes.md](preload-recipes.md). To give only some suite files a preload (the
+DOM ones, say), set it per group with the config's
+[`bench.projects`](config.md#projects).
 
 `--bun-flags FLAGS` passes flags to the `bun` process that runs each suite. The common
 case is a package whose `exports` map branches on a condition Bun doesn't set by default:

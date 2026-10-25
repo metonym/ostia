@@ -43,8 +43,18 @@ const THRESHOLD_FIELDS: Record<string, Field> = {
   bootstrapIterations: posInt,
 }
 
+const PROJECT_FIELDS: Record<string, Field> = {
+  suites: field(
+    (v) => isStringArray(v) && (v as string[]).length > 0,
+    "a non-empty array of glob strings",
+  ),
+  preload: strings,
+  bunFlags: strings,
+}
+
 const BENCH_FIELDS: Record<string, Field> = {
   suites: strings,
+  projects: field(Array.isArray, "an array of project objects"),
   preload: strings,
   bunFlags: strings,
   jobs: field(
@@ -224,13 +234,16 @@ export function validateConfig(
     )
   }
   if (bench !== undefined) {
-    checkFields(
-      checkObject(bench, "bench", file),
-      BENCH_FIELDS,
-      "bench",
-      file,
-      warn,
-    )
+    const benchObj = checkObject(bench, "bench", file)
+    checkFields(benchObj, BENCH_FIELDS, "bench", file, warn)
+    ;(benchObj.projects as unknown[] | undefined)?.forEach((project, i) => {
+      const where = `bench.projects[${i}]`
+      const obj = checkObject(project, where, file)
+      if (obj.suites === undefined) {
+        throw new ConfigError(`${file}: "${where}" needs "suites".`)
+      }
+      checkFields(obj, PROJECT_FIELDS, where, file, warn)
+    })
   }
   if (ab !== undefined) {
     checkFields(checkObject(ab, "ab", file), AB_FIELDS, "ab", file, warn)

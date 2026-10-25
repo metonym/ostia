@@ -33,11 +33,31 @@ export interface WorkloadConfig {
   ignoreExitCodes?: number[]
 }
 
+/** Launch settings for the suite files matching `suites`; see
+ * `BenchOptions.projects`. */
+export interface BenchProject {
+  /** Globs against the current directory. A suite file takes the first
+   * project one of these matches; `ostia bench` with no files also runs
+   * every file they expand to. */
+  suites: string[]
+  /** Replaces the top-level `preload` for these files; `[]` runs them with
+   * none. Unset: the top-level list applies. */
+  preload?: string[]
+  /** Replaces the top-level `bunFlags` for these files, as `preload` does. */
+  bunFlags?: string[]
+}
+
 export interface BenchConfig {
   /** Suite file globs, resolved against the config's directory (e.g.
    * "bench/**\/*.bench.ts"). Suite files given on the command line replace
    * this list. */
   suites?: string[]
+  /** Per-suite `preload`/`bunFlags`, so one tier (e.g. DOM-dependent suites)
+   * can pay for a setup the others don't need. The first project whose
+   * `suites` match a file wins; a file no project matches gets the top-level
+   * `preload`/`bunFlags`. `--preload` / `--bun-flags` replace the matching
+   * field for every file. */
+  projects?: BenchProject[]
   preload?: string[]
   /** Extra flags for the `bun` process that runs each suite file; see
    * `BenchOptions.bunFlags`. `--bun-flags` replaces this list. */

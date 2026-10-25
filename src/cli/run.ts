@@ -487,8 +487,16 @@ async function abCommand(argv: string[]): Promise<number> {
     return 0
   }
   // The config's suite-level `bench` settings apply; its sampling ones don't (pairing has its own rounds).
-  const { suites, filter, preload, bunFlags, timeoutMs, outDir, noiseCheck } =
-    await resolveBenchOptions(parsed, config?.bench)
+  const {
+    suites,
+    filter,
+    preload,
+    bunFlags,
+    projects,
+    timeoutMs,
+    outDir,
+    noiseCheck,
+  } = await resolveBenchOptions(parsed, config?.bench)
   if (suites.length === 0) return showHelp(AB_HELP, false)
 
   const { isatty } = await import("node:tty")
@@ -519,6 +527,7 @@ async function abCommand(argv: string[]): Promise<number> {
           filter,
           preload,
           bunFlags,
+          projects,
           timeoutMs,
           outDir,
           keepTrees: parsed.keepTrees ?? config?.ab?.keepTrees,

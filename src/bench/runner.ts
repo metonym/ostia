@@ -10,6 +10,7 @@ import {
 } from "../measure/peak.ts"
 import {
   getRegisteredTasks,
+  NO_TASKS_HINT,
   type RegisteredTask,
   resetRegistry,
   runGroupHooks,
@@ -80,7 +81,7 @@ async function main(): Promise<number> {
   const registered = getRegisteredTasks()
   if (registered.length === 0) {
     process.stderr.write(
-      `bench runner: ${suiteFile} registered no tasks (no task() calls found).\n`,
+      `bench runner: ${suiteFile} registered no tasks (no task() calls found).${NO_TASKS_HINT}\n`,
     )
     return 2
   }

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.12 — 2026-10-25
 
 **Features**
 

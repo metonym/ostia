@@ -33,6 +33,10 @@ export async function measureAllocPerOp(
     if (isPromiseLike(result)) await result
     calls++
   }
+  // Return to the event loop first. Bun 1.4.4's conservative GC can still
+  // find the last call's allocation through a stale register or stack slot,
+  // which read as ~800KB retained for a task that keeps nothing.
+  await new Promise((resolve) => setTimeout(resolve, 0))
   Bun.gc(true)
   const after = heapStats().heapSize
   const diagnosticWallNs = Bun.nanoseconds() - start

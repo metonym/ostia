@@ -70,6 +70,21 @@ describe("scanGlobs", () => {
     expect(await scanGlobs(["src"], dir)).toEqual([])
   })
 
+  test("extglobs are patterns, a bare ( is literal", async () => {
+    expect(await scanGlobs(["@(src)/*.ts", "+(src)/*.ts"], dir)).toEqual([
+      "src/a.ts",
+    ])
+    expect(await scanGlobs(["src/!(nested)"], dir)).toEqual(["src/a.ts"])
+    await Bun.write(join(dir, "app/(marketing)/page.ts"), "")
+    try {
+      expect(await scanGlobs(["app/(marketing)/page.ts"], dir)).toEqual([
+        "app/(marketing)/page.ts",
+      ])
+    } finally {
+      await Bun.$`rm -rf ${join(dir, "app")}`
+    }
+  })
+
   test("results are deduped and sorted across patterns", async () => {
     expect(await scanGlobs(["src/*.ts", "**/*.ts", ".hidden.ts"], dir)).toEqual(
       [".hidden.ts", ".ostia/baselines/main.ts", "src/a.ts"],

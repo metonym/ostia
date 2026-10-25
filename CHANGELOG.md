@@ -41,6 +41,8 @@
 - "registered no tasks" from `bench` and `ab` now says that a suite importing a different
   copy of ostia than the CLI running it (a global install, another version) registers its
   `task()` calls on that copy, which looks identical to a suite with no tasks.
+- Suite and `inputs` globs that use Bun 1.4.4's `@(a|b)` or `+(a|b)` extglobs matched
+  nothing: ostia took them for literal paths. They now go to `Bun.Glob`.
 - `ostia ab` extracts base trees into `.ostia/ab/` at the project root instead of
   `node_modules/.cache/ostia/ab/`. Code under test that treats paths under `node_modules`
   differently (bundler plugins, resolvers, globbers) took a different path on the base

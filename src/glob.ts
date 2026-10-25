@@ -3,7 +3,8 @@ import { resolve } from "node:path"
 const SKIPPED_DIRS = ["node_modules", ".git"]
 // Where `ostia ab` extracts base trees: copies of the project.
 const AB_TREES = ".ostia/ab"
-const GLOB_CHARS = /[*?[\]{}!]/
+// `@(` and `+(` open extglobs (Bun 1.4.4+); a bare `(` stays literal, as in `app/(marketing)`.
+const GLOB_CHARS = /[*?[\]{}!]|[@+]\(/
 
 /** Segments after the pattern's literal prefix, i.e. the part the wildcards chose. */
 function wildcardSegments(pattern: string, path: string): [string[], string[]] {

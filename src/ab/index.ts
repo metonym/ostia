@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { relative, sep } from "node:path"
+import { resolveSuiteLaunches } from "../bench/projects.ts"
 import {
   absolutePath,
   assertSuiteExists,
@@ -26,7 +27,7 @@ import {
   stampRunWarnings,
   uniqueTmpDir,
 } from "../bench/support.ts"
-import { DEFAULT_OUT_DIR } from "../config/index.ts"
+import { type BenchProject, DEFAULT_OUT_DIR } from "../config/index.ts"
 import { OstiaUsageError } from "../errors.ts"
 import { createDocument, loadDocument } from "../ir/document.ts"
 import { fp } from "../ir/fp.ts"
@@ -101,6 +102,8 @@ export interface AbOptions {
   filter?: string
   preload?: string[]
   bunFlags?: string[]
+  /** Per-suite `preload` / `bunFlags`; see `BenchOptions.projects`. */
+  projects?: BenchProject[]
   outDir?: string
   cwd?: string
   noiseCheck?: boolean
@@ -834,8 +837,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       )
     }),
   )
-  const preload = (opts.preload ?? []).map((file) => absolutePath(cwd, file))
-  const bunFlags = opts.bunFlags ?? []
+  const launches = resolveSuiteLaunches(opts.suites, cwd, opts, opts.projects)
 
   const onProgress = opts.onProgress
   let spawned = 0
@@ -853,7 +855,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       rounds,
       thresholdPct,
       metric,
-      preload,
+      preload: launches[s]!.preload,
       // Per task only on the first pass; repeats report themselves.
       progress:
         onProgress !== undefined && !extra.workloadIds && !extra.memoryFor,
@@ -864,7 +866,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       ran = await runRunnerProcess(
         [
           "bun",
-          ...bunFlags,
+          ...launches[s]!.bunFlags,
           RUNNER_PATH,
           candSuites[s]!,
           baseSuites[s]!,

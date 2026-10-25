@@ -14,6 +14,7 @@ export type { CompareResult, Thresholds } from "./compare/index.ts"
 export { compareDocuments, DEFAULT_THRESHOLDS } from "./compare/index.ts"
 export type {
   AbConfig,
+  BenchProject,
   OstiaConfig,
   OstiaConfigInput,
   WorkloadConfig,

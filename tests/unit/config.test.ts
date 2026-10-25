@@ -436,6 +436,16 @@ describe("loadConfig - shape validation", () => {
       `"bench.suites" must be an array of strings`,
     ],
     [
+      "a bench.projects entry with no suites",
+      { bench: { projects: [{ preload: ["./dom.ts"] }] } },
+      `"bench.projects[0]" needs "suites"`,
+    ],
+    [
+      "a non-array bench.projects[].bunFlags",
+      { bench: { projects: [{ suites: ["a.ts"], bunFlags: "--smol" }] } },
+      `"bench.projects[0].bunFlags" must be an array of strings`,
+    ],
+    [
       "a non-boolean bench.isolate",
       { bench: { isolate: 1 } },
       `"bench.isolate" must be a boolean`,

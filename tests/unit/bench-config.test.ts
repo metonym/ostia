@@ -6,6 +6,7 @@ import {
   type BenchCliOverrides,
   resolveBenchOptions,
 } from "../../src/bench/index.ts"
+import { resolveSuiteLaunches } from "../../src/bench/projects.ts"
 import type { BenchConfig } from "../../src/config/index.ts"
 import { scanGlobs } from "../../src/glob.ts"
 
@@ -199,6 +200,45 @@ describe("resolveBenchOptions", () => {
     expect(resolved.preload).toEqual(["./config-preload.ts"])
   })
 
+  test("projects: their globs add to the files run when no CLI suites are given", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "bench-projects-test-"))
+    try {
+      await Bun.write(join(dir, "bench/a.dom.bench.ts"), "export {}\n")
+      await Bun.write(join(dir, "bench/b.bench.ts"), "export {}\n")
+      const resolved = await resolveBenchOptions(
+        cli(),
+        {
+          projects: [
+            { suites: ["bench/*.dom.bench.ts"], preload: ["./dom.ts"] },
+            { suites: ["bench/*.bench.ts"] },
+          ],
+        },
+        dir,
+      )
+      expect(resolved.suites).toEqual([
+        "bench/a.dom.bench.ts",
+        "bench/b.bench.ts",
+      ])
+    } finally {
+      await Bun.$`rm -rf ${dir}`
+    }
+  })
+
+  test("projects: a CLI preload or bunFlags replaces that field in every project", async () => {
+    const resolved = await resolveBenchOptions(
+      cli({ preload: ["./cli.ts"] }),
+      {
+        projects: [
+          { suites: ["a.ts"], preload: ["./dom.ts"], bunFlags: ["--smol"] },
+        ],
+      },
+      "/tmp",
+    )
+    expect(resolved.projects).toEqual([
+      { suites: ["a.ts"], preload: undefined, bunFlags: ["--smol"] },
+    ])
+  })
+
   test("cpuIntervalUs and peakMem: CLI wins, else config, else unset/false", async () => {
     const config: BenchConfig = { cpuIntervalUs: 50, peakMem: true }
     const fromConfig = await resolveBenchOptions(cli(), config, "/tmp")
@@ -216,5 +256,45 @@ describe("resolveBenchOptions", () => {
     const neither = await resolveBenchOptions(cli(), undefined, "/tmp")
     expect(neither.cpuIntervalUs).toBeUndefined()
     expect(neither.peakMem).toBe(false)
+  })
+})
+
+describe("resolveSuiteLaunches", () => {
+  const base = { preload: ["base.ts"], bunFlags: ["--smol"] }
+  const projects = [
+    {
+      suites: ["bench/*.dom.bench.ts"],
+      preload: ["bench/dom.ts"],
+      bunFlags: ["--conditions=browser"],
+    },
+    { suites: ["bench/*.bench.ts"], preload: [] },
+  ]
+
+  test("the first matching project replaces preload and bunFlags for its files", () => {
+    const [dom, logic] = resolveSuiteLaunches(
+      ["bench/a.dom.bench.ts", "./bench/b.bench.ts"],
+      "/repo",
+      base,
+      projects,
+    )
+    expect(dom).toEqual({
+      preload: ["/repo/bench/dom.ts"],
+      bunFlags: ["--conditions=browser"],
+    })
+    // `preload: []` clears the base; an unset `bunFlags` inherits it.
+    expect(logic).toEqual({ preload: [], bunFlags: ["--smol"] })
+  })
+
+  test("a file no project matches keeps the top-level settings", () => {
+    const [other] = resolveSuiteLaunches(
+      ["/repo/other/c.ts"],
+      "/repo",
+      base,
+      projects,
+    )
+    expect(other).toEqual({
+      preload: ["/repo/base.ts"],
+      bunFlags: ["--smol"],
+    })
   })
 })

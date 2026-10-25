@@ -413,6 +413,34 @@ describe("bench() - real in-process suite, one spawned child per suite file", ()
     await Bun.spawn(["rm", "-rf", `${OUT_DIR}-preload-dom`]).exited
   }, 20_000)
 
+  test("a project's preload applies only to the suites it matches", async () => {
+    const fixtures = `${import.meta.dir}/../fixtures`
+    const doc = await bench({
+      noiseCheck: false,
+      suites: [
+        `${fixtures}/bench-suite-needs-dom.ts`,
+        `${fixtures}/bench-suite-no-dom.ts`,
+      ],
+      budgetMs: 10,
+      minSamples: 3,
+      projects: [
+        {
+          suites: ["tests/fixtures/bench-suite-needs-dom.ts"],
+          preload: [`${fixtures}/bench-preload-dom-setup.ts`],
+        },
+      ],
+      outDir: `${OUT_DIR}-projects`,
+    })
+
+    // The second suite throws if the first's preload leaked into it.
+    expect(doc.workloads.map((w) => w.label)).toEqual([
+      "reads-document-title",
+      "runs-without-document",
+    ])
+
+    await Bun.spawn(["rm", "-rf", `${OUT_DIR}-projects`]).exited
+  }, 20_000)
+
   test("multiple --preload scripts run in order, sharing state with each other and the suite", async () => {
     const doc = await bench({
       noiseCheck: false,

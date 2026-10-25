@@ -20,6 +20,14 @@
   `PairedEvidence.instructions`, `repeats[].instructions`, `ab.metric` and, on in-process
   timing measurements, `instructions: { samples, median }`; `--format minimal` adds
   `instructions` to `run` lines and `paired`, and `metric` to the `ab` summary.
+- `bench.projects` in the config gives groups of suite files their own `preload` and
+  `bunFlags`: the first project whose `suites` globs match a file replaces the top-level
+  values for it. A repository with DOM-dependent and plain suites no longer loads the DOM
+  setup into the plain ones, which cost about 600ms per suite file and made its tasks read
+  2-5% slower (a jsdom + Svelte-compiler preload on carbon-components-svelte's pure-logic
+  benches). Applies to `bench`, `ab` and `ci` suites workloads; the flat `preload` /
+  `bunFlags` config keeps working, and `--preload` / `--bun-flags` still replace the
+  field for every file. `BenchOptions` and `AbOptions` take `projects` too.
 
 **Fixes**
 

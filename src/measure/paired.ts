@@ -87,6 +87,18 @@ const ROUND_BATCH_NS = 10_000_000
 const WARMUP_CHUNK_NS = 1_000_000
 const WARM_ROUNDS = 3
 
+/** Whether two first-call results are deep-equal. A result too deeply nested
+ * to compare (a 10,000-level chain overflows the stack) counts as equal:
+ * the check is informational and must not take the run down. */
+function sameResult(a: unknown, b: unknown): boolean {
+  try {
+    return Bun.deepEquals(a, b)
+  } catch (err) {
+    if (err instanceof RangeError) return true
+    throw err
+  }
+}
+
 /** Times `base` and `cand` against each other in one process: after warmup,
  * `rounds` rounds of one ~10ms batch per side, alternating which goes first.
  * Drift (load, thermal throttling) hits both halves of a round alike and
@@ -110,7 +122,7 @@ export async function measurePaired(
   for (const name of order) {
     probes[name] = await onSide(name, () => probeFirstCall(fns[name]))
   }
-  const sameOutput = Bun.deepEquals(probes.base.result, probes.cand.result)
+  const sameOutput = sameResult(probes.base.result, probes.cand.result)
 
   const side = (name: Side) => {
     const time = batchTimer(fns[name], probes[name].isAsync)

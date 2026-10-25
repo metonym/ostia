@@ -26,6 +26,10 @@
 - `--alloc` (retained heap per call) no longer reads ~800KB for a task that keeps nothing
   on Bun 1.4.4. Its final GC could still find the last call's allocation through a stale
   register or stack slot; it now returns to the event loop before collecting.
+- `ostia ab` no longer crashes a suite whose task returns a value too deeply nested for
+  `Bun.deepEquals` (a 10,000-level chain overflowed the stack, "Maximum call stack size
+  exceeded", exit 2). The output comparison is informational, so such a result counts as
+  equal.
 - `ostia ab` extracts base trees into `.ostia/ab/` at the project root instead of
   `node_modules/.cache/ostia/ab/`. Code under test that treats paths under `node_modules`
   differently (bundler plugins, resolvers, globbers) took a different path on the base

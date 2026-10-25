@@ -30,6 +30,9 @@
   `Bun.deepEquals` (a 10,000-level chain overflowed the stack, "Maximum call stack size
   exceeded", exit 2). The output comparison is informational, so such a result counts as
   equal.
+- "registered no tasks" from `bench` and `ab` now says that a suite importing a different
+  copy of ostia than the CLI running it (a global install, another version) registers its
+  `task()` calls on that copy, which looks identical to a suite with no tasks.
 - `ostia ab` extracts base trees into `.ostia/ab/` at the project root instead of
   `node_modules/.cache/ostia/ab/`. Code under test that treats paths under `node_modules`
   differently (bundler plugins, resolvers, globbers) took a different path on the base

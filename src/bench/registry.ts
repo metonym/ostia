@@ -1,3 +1,9 @@
+/** Appended to "registered no tasks": the usual cause besides a missing
+ * `task()` call is a suite importing a different copy of ostia than the CLI
+ * running it, so its calls register on that copy. */
+export const NO_TASKS_HINT =
+  " If the suite does call task(), it imports a different copy of ostia than the CLI running it (a global install, or another version): run the one from the project's node_modules."
+
 type Hook = () => unknown | Promise<unknown>
 
 export interface TaskOptions {

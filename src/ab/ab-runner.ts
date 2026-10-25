@@ -5,6 +5,7 @@ import {
   formerTaskIds,
   getRegisteredTasks,
   groupEdges,
+  NO_TASKS_HINT,
   type RegisteredTask,
   resetRegistry,
   runGroupHooks,
@@ -330,7 +331,7 @@ async function main(): Promise<number> {
   if (candRegistered.length === 0) {
     return fail(
       outputPath,
-      `${candSuite} registered no tasks (no task() calls found).`,
+      `${candSuite} registered no tasks (no task() calls found).${NO_TASKS_HINT}`,
       "cand",
     )
   }

@@ -153,6 +153,22 @@ describe("measurePaired", () => {
     expect(result.sameOutput).toBe(false)
   }, 20_000)
 
+  test("a result too deeply nested to compare doesn't fail the run", async () => {
+    type Link = { next?: Link }
+    const chain = (depth: number): Link => {
+      const head: Link = {}
+      let tail = head
+      for (let i = 0; i < depth; i++) tail = tail.next = {}
+      return head
+    }
+    const result = await measurePaired(
+      () => chain(200_000),
+      () => chain(200_000),
+      { rounds: 3 },
+    )
+    expect(result.sameOutput).toBe(true)
+  }, 20_000)
+
   test("a slow side isn't over-run while a fast side's warmup catches up", async () => {
     let slowCalls = 0
     const slow = () => {

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { readBoundedText } from "../../src/spawn/index"
 
 function streamOf(text: string): ReadableStream<Uint8Array> {

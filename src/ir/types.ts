@@ -488,11 +488,7 @@ export interface ComparedTask {
    * base's workload id and display name. */
   renamedFrom?: { workloadId: string; task: string }
   verdict:
-    | "improved"
-    | "unchanged"
-    | "regressed"
-    | "missing-base"
-    | "missing-cand"
+    "improved" | "unchanged" | "regressed" | "missing-base" | "missing-cand"
   /** The `Comparison` holding this task's frame and heap-type deltas and
    * warnings; absent on a one-sided task. */
   comparisonId?: string

@@ -1,4 +1,5 @@
 import { relative } from "node:path"
+
 import type { BenchProject } from "../config/index.ts"
 import { absolutePath } from "./support.ts"
 

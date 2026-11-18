@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { bundleDts } from "../../scripts/bundle-dts.ts"
 
 async function bundle(files: Record<string, string>): Promise<string> {

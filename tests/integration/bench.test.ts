@@ -1,5 +1,6 @@
 import { afterAll, describe, expect, test } from "bun:test"
 import { existsSync } from "node:fs"
+
 import { OstiaUsageError } from "../../src/errors.ts"
 import { bench, compareDocuments } from "../../src/index.ts"
 

@@ -36,13 +36,13 @@ export function computeNoiseFloor(samples: number[]): NoiseFloor {
 export function measureNoiseFloor(budgetMs = DEFAULT_BUDGET_MS): NoiseFloor {
   const budgetNs = budgetMs * 1e6
   const trials: number[] = []
-  // biome-ignore lint/correctness/noUnusedVariables: write-only, defeats DCE
   let sink = 0
 
   const start = Bun.nanoseconds()
   while (Bun.nanoseconds() - start < budgetNs) {
     const trialStart = Bun.nanoseconds()
     for (let i = 0; i < HASHES_PER_TRIAL; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- write-only, defeats DCE
       sink ^= hashBuffer(REFERENCE_BUFFER, i)
     }
     trials.push((Bun.nanoseconds() - trialStart) / HASHES_PER_TRIAL)

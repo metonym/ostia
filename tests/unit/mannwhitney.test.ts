@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { mannWhitneyU } from "../../src/stats/mannwhitney.ts"
 
 describe("mannWhitneyU", () => {

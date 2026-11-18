@@ -1,6 +1,7 @@
 import { statSync } from "node:fs"
 import { rm } from "node:fs/promises"
 import { isAbsolute } from "node:path"
+
 import { OstiaUsageError } from "../errors.ts"
 import { loadDocument } from "../ir/document.ts"
 import type { Measurement, ProfileDocument, Warning } from "../ir/types.ts"

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { instructionCounter } from "../../src/measure/instructions"
 import { formatInstructions } from "../../src/renderers/format"
 

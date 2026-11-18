@@ -1,10 +1,11 @@
 import { rename, rm } from "node:fs/promises"
 import { isAbsolute, relative } from "node:path"
+
 import { errorMessage } from "../errors.ts"
 import {
   assertReusableTimeSource,
-  type PrepareHook,
   prepareArgv,
+  type PrepareHook,
   type TimeSource,
   timeSourceSpec,
 } from "../spawn/index.ts"

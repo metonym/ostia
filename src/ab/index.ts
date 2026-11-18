@@ -14,6 +14,7 @@ import {
 } from "node:fs"
 import { mkdir } from "node:fs/promises"
 import { relative, sep } from "node:path"
+
 import { resolveSuiteLaunches } from "../bench/projects.ts"
 import {
   absolutePath,

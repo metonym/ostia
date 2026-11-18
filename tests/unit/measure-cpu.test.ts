@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { cpuSampleCount } from "../../src/ir/cpu"
 import {
   captureTaskCpuProfile,

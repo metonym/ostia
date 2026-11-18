@@ -49,8 +49,7 @@ export function threwRuns(doc: ProfileDocument): ThrewRun[] {
 }
 
 export type AbRow =
-  | { kind: "timed"; run: PairedRun }
-  | { kind: "threw"; run: ThrewRun }
+  { kind: "timed"; run: PairedRun } | { kind: "threw"; run: ThrewRun }
 
 /** Every row of an A/B table, timed or threw, in document order. */
 export function abRows(doc: ProfileDocument): AbRow[] {

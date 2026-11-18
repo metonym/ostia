@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { CliUsageError, parseIntFlag } from "../../src/cli/flags.ts"
 
 describe("parseIntFlag", () => {

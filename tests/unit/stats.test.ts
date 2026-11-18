@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import type { TimingStats } from "../../src/ir/types.ts"
 import { computeTimingStats, timingWarnings } from "../../src/stats/index.ts"
 

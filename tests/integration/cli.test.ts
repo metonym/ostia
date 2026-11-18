@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test"
-import { type ProfileDocument, profile, time } from "../../src/index.ts"
+
+import { profile, type ProfileDocument, time } from "../../src/index.ts"
 import {
   createDocument,
   makeSubprocessWorkload,

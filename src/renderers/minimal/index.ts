@@ -208,9 +208,7 @@ interface MinimalSummaryLine {
 }
 
 export type MinimalEvent =
-  | MinimalRunLine
-  | MinimalUnmatchedLine
-  | MinimalSummaryLine
+  MinimalRunLine | MinimalUnmatchedLine | MinimalSummaryLine
 
 /** What the `unmatched`/`summary` events need beyond one `ProfileDocument`.
  * The CLI builds it for `compare`/`ci`/`ab`; without it `minimal` emits only

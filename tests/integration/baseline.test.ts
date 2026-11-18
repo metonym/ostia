@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { listBaselines, saveBaseline } from "../../src/baseline/index.ts"
 import { measureConfigWorkloads } from "../../src/ci/index.ts"
 import { DEFAULT_CONFIG, type OstiaConfig } from "../../src/config/index.ts"

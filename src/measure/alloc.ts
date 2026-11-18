@@ -1,4 +1,5 @@
 import { heapStats } from "bun:jsc"
+
 import type { MemoryEvidence } from "../ir/types.ts"
 import { isPromiseLike } from "./loop.ts"
 

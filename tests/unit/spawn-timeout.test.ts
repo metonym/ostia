@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { runTimingPhase } from "../../src/measure/timing"
 import { runPrepare, runTrial } from "../../src/spawn/index"
 

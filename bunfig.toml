@@ -1,0 +1,10 @@
+# `bun fmt` and `bun lint` (Bun canary).
+
+[fmt]
+semi = false
+sortImports = true
+# Markdown stays hand-formatted.
+ignorePatterns = ["**/*.md"]
+
+[lint]
+maxWarnings = 0

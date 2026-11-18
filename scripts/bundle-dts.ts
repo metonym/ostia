@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises"
 import { dirname, join, relative, resolve } from "node:path"
+
 import ts from "typescript"
 
 const TS_EXT_RE = /\.tsx?$/
@@ -132,7 +133,9 @@ function rollupDts(entryDts: string, emitted: Map<string, string>): string {
         if (!isRelative(importSpec)) continue
         try {
           visit(resolveDts(file, importSpec, emitted))
-        } catch {}
+        } catch {
+          // No emitted declaration for this `import()` type: nothing to inline.
+        }
       }
     }
   }

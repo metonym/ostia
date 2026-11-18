@@ -7,6 +7,7 @@ import {
   writeFileSync,
 } from "node:fs"
 import { join } from "node:path"
+
 import { bundleDts } from "./bundle-dts.ts"
 
 const root = join(import.meta.dir, "..")

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { runTimingPhase } from "../../src/measure/timing.ts"
 
 const CLI = `${import.meta.dir}/../../src/cli/main.ts`

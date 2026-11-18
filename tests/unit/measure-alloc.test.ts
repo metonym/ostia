@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { measureAllocPerOp } from "../../src/measure/alloc"
 import { measurePeakMem, startRssSampler } from "../../src/measure/peak"
 

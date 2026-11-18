@@ -18,13 +18,19 @@ jobs:
         with:
           fetch-depth: 0
 
+      # `bun fmt` and `bun lint` are only in canary builds.
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: canary
 
       - name: Install dependencies
         run: bun ci
 
-      - name: Lint and format
-        run: bunx biome ci --error-on-warnings
+      - name: Format
+        run: bun fmt --check
+
+      - name: Lint
+        run: bun lint
 
       - name: Unused files and exports
         run: bun run knip

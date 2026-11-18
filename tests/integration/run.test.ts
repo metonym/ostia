@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { time } from "../../src/index.ts"
 
 const FIXTURE = `${import.meta.dir}/../fixtures/work.ts`

@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { createDocument } from "../../src/ir/document.ts"
 import { TOOL_VERSION } from "../../src/version.ts"
 

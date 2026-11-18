@@ -1,5 +1,6 @@
 import { dlopen, FFIType, ptr } from "bun:ffi"
 import { heapStats } from "bun:jsc"
+
 import { isPromiseLike } from "./loop.ts"
 
 export interface MemorySnapshot {
@@ -117,7 +118,9 @@ export async function startRssSampler(
         while (
           Atomics.load(slots, 0) !== CONTROL.sampling &&
           Bun.nanoseconds() < spinUntil
-        ) {}
+        ) {
+          // Spin.
+        }
         const deadline = Date.now() + HANDSHAKE_TIMEOUT_MS
         while (Atomics.load(slots, 0) !== CONTROL.sampling) {
           if (Date.now() > deadline) {

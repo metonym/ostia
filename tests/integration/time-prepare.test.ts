@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
+
 import { runCi } from "../../src/ci/index.ts"
 import {
   baselinePath,

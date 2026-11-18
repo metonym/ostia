@@ -185,7 +185,9 @@ export async function drainTimingPhase(
   phase: TimingPhaseIterator,
 ): Promise<void> {
   await phase.warmup()
-  while (await phase.step()) {}
+  while (await phase.step()) {
+    // Each step runs one trial.
+  }
 }
 
 export async function runTimingPhase(

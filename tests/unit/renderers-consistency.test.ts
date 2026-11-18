@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { compareDocuments } from "../../src/compare/index.ts"
 import {
   createDocument,

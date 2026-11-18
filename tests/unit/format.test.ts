@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { formatDuration, pickDurationUnit } from "../../src/format.ts"
 
 describe("formatDuration - adaptive unit, ~3 significant digits", () => {

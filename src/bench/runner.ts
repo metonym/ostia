@@ -2,8 +2,8 @@
 
 import { saveDocument } from "../ir/document.ts"
 import {
-  type MemorySnapshot,
   measurePeakMem,
+  type MemorySnapshot,
   memorySnapshot,
   type RssSampler,
   startRssSampler,
@@ -19,8 +19,8 @@ import {
   taskPeakMem,
 } from "./registry.ts"
 import {
-  type MeasureTasksOpts,
   measureTasks,
+  type MeasureTasksOpts,
   taskWorkload,
 } from "./run-tasks.ts"
 

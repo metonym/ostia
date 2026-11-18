@@ -27,8 +27,8 @@ import { measureAllocPerOp } from "../measure/alloc.ts"
 import { instructionCounter } from "../measure/instructions.ts"
 import {
   measurePaired,
-  PairedSideError,
   pairedEvidence,
+  PairedSideError,
   type Side,
   sideLabel,
 } from "../measure/paired.ts"

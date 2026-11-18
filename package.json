@@ -18,10 +18,8 @@
     "test": "bun test",
     "typecheck": "bun check",
     "typecheck:package": "bun check -p tests/types",
-    "lint": "biome check .",
-    "lint:fix": "biome check --write . --unsafe",
-    "lint:changed": "biome check --changed --no-errors-on-unmatched .",
-    "lint:fix:changed": "biome check --write --unsafe --changed --no-errors-on-unmatched .",
+    "lint:all": "bun fmt && bun lint --fix",
+    "lint:changed": "bun fmt --changed && bun lint --changed --fix",
     "knip": "knip-bun",
     "bench": "bun src/cli/main.ts bench bench/*.ts",
     "bench:baseline": "bun src/cli/main.ts bench bench/*.ts --budget 3000 --min-samples 30 --export-json .ostia/baselines/bench-main.json",
@@ -30,7 +28,6 @@
     "examples": "bun scripts/run-examples.ts"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.14",
     "@types/bun": "^1.4.4",
     "knip": "^6.38.0",
     "typescript": "npm:@typescript/typescript6@^6.0.2"

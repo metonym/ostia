@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { range } from "../../src/bench/range"
 
 describe("bench/range", () => {

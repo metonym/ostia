@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test"
 import { mkdtemp, readdir, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
+
 import { bench } from "../../src/bench/index.ts"
 import { runCi } from "../../src/ci/index.ts"
 import { baselinePath, DEFAULT_CONFIG } from "../../src/config/index.ts"

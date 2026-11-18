@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { bootstrapMedianDiffCi, mulberry32 } from "../../src/stats/bootstrap.ts"
 
 describe("mulberry32", () => {

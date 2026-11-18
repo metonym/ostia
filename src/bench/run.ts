@@ -6,7 +6,7 @@ import {
   type RegisteredTask,
   selectTasks,
 } from "./registry.ts"
-import { type MeasureTasksOpts, measureTasks } from "./run-tasks.ts"
+import { measureTasks, type MeasureTasksOpts } from "./run-tasks.ts"
 
 export interface RunOptions extends MeasureTasksOpts {
   /** Regex matched against "group/name" task ids, as in `bench({ filter })`. */
@@ -37,7 +37,7 @@ export async function run(opts: RunOptions = {}): Promise<ProfileDocument> {
   try {
     tasks = selectTasks(registered, opts.filter, suiteFile)
   } catch (err) {
-    throw new Error(`run(): ${(err as Error).message}`)
+    throw new Error(`run(): ${(err as Error).message}`, { cause: err })
   }
   const doc = await measureTasks(suiteFile, tasks, opts)
 

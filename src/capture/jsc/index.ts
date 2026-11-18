@@ -1,4 +1,5 @@
 import { profile as jscProfile } from "bun:jsc"
+
 import type { CpuEvidence, JitTierBreakdown } from "../../ir/types.ts"
 import {
   DEFAULT_SAMPLING_INTERVAL_US,

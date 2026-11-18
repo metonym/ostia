@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { WARNING_CODES } from "../../src/ir/types.ts"
 
 describe("WarningCode - no member can go dead silently", () => {

@@ -1,10 +1,11 @@
 import { writeSync } from "node:fs"
+
 import {
+  ab,
   AbBaseError,
   type AbProgress,
   AbSetupError,
   AbSuiteError,
-  ab,
   cleanAbTrees,
 } from "../ab/index.ts"
 import { listBaselines, saveBaseline } from "../baseline/index.ts"

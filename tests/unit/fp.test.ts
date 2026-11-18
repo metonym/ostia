@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { canonicalJSON, fp } from "../../src/ir/fp.ts"
 
 describe("canonicalJSON", () => {

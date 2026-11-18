@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test"
+
 import { poolOrders, summarizePaired } from "../../src/ab/index"
 import { createDocument } from "../../src/ir/document"
 import type { Measurement, PairedEvidence } from "../../src/ir/types"
@@ -6,16 +7,16 @@ import { instructionCounter } from "../../src/measure/instructions"
 import {
   measurePaired,
   memoryChange,
-  PairedSideError,
   pairedEvidence,
+  PairedSideError,
   ratioStats,
 } from "../../src/measure/paired"
 import {
   formatAbHeader,
   formatAbSummary,
   memoryCells,
-  type PairedRun,
   pairedCells,
+  type PairedRun,
 } from "../../src/renderers/paired"
 import { computeTimingStats } from "../../src/stats/index"
 
@@ -174,7 +175,9 @@ describe("measurePaired", () => {
     const slow = () => {
       slowCalls++
       const end = Bun.nanoseconds() + 2_000_000
-      while (Bun.nanoseconds() < end) {}
+      while (Bun.nanoseconds() < end) {
+        // Busy-wait.
+      }
     }
     await measurePaired(() => 1, slow, { rounds: 3 })
     // Probe + one calibration call + ~5-call batches for 3 warm and 3 timed rounds.

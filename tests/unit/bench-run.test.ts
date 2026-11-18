@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, test } from "bun:test"
+
 import { resetRegistry } from "../../src/bench/registry.ts"
 import { group, run, task } from "../../src/index.ts"
 
@@ -66,8 +67,7 @@ describe("run() - in-file entrypoint, no subprocess/CLI", () => {
     let wrote = false
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       wrote = true
-      // biome-ignore lint/suspicious/noExplicitAny: forwarding to the real writer
-      return (original as any)(chunk, ...rest)
+      return (original as (...args: unknown[]) => boolean)(chunk, ...rest)
     }) as typeof process.stdout.write
     try {
       const doc = await run({
@@ -89,8 +89,7 @@ describe("run() - in-file entrypoint, no subprocess/CLI", () => {
     let printed = ""
     process.stdout.write = ((chunk: unknown, ...rest: unknown[]) => {
       printed += String(chunk)
-      // biome-ignore lint/suspicious/noExplicitAny: forwarding to the real writer
-      return (original as any)(chunk, ...rest)
+      return (original as (...args: unknown[]) => boolean)(chunk, ...rest)
     }) as typeof process.stdout.write
     try {
       await run({ budgetMs: 20, minSamples: 3, noiseCheck: false })

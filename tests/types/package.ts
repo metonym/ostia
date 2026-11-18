@@ -3,18 +3,18 @@
 // the bundled declarations are wrong: 0.2.6 shipped `task` as a zero-arg
 // function.
 import {
-  type AbOptions,
   ab,
-  type BenchOptions,
+  type AbOptions,
   bench,
+  type BenchOptions,
   group,
   keep,
   type MermaidOptions,
   type MinimalProtocolContext,
   type MinimalRenderOptions,
+  profile,
   type ProfileOptions,
   type ProfileResult,
-  profile,
   renderers,
   task,
 } from "ostia"

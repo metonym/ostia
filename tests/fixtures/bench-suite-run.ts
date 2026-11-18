@@ -1,5 +1,6 @@
 import { run, task } from "../../src/index.ts"
 
+// eslint-disable-next-line no-useless-assignment -- the finally must overwrite it
 let cleanedUp = false
 
 task("solo", () => 1)

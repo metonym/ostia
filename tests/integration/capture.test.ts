@@ -1,4 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test"
+
 import { createDocument, profile, renderers, time } from "../../src/index.ts"
 import { fp } from "../../src/ir/fp.ts"
 

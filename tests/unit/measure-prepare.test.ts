@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test"
+
 import { runTimingPhase } from "../../src/measure/timing"
 import {
   assertReusableTimeSource,
-  type PrepareRun,
   parseReportedTime,
   prepareArgv,
+  type PrepareRun,
   timeSourceSpec,
 } from "../../src/spawn/index"
 

@@ -76,7 +76,7 @@ export function defaultSampleFloor(
 }
 
 // Write-only on purpose: a store to module state is never provably dead.
-// biome-ignore lint/correctness/noUnusedVariables: see above
+// eslint-disable-next-line @typescript-eslint/no-unused-vars -- see above
 let kept: unknown
 
 /** Pins `value` against dead-code elimination for an intermediate inside a

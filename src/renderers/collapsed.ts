@@ -1,7 +1,7 @@
-import type { ProfileDocument } from "../../ir/types.ts";
-import { buildDenseTree, renderCpuFiles } from "../cpu-tree.ts";
-import { frameName } from "../format.ts";
-import type { Renderer, RenderResult, VizOptions } from "../types.ts";
+import type { ProfileDocument } from "../ir/types.ts";
+import { buildDenseTree, renderCpuFiles } from "./cpu-tree.ts";
+import { frameName } from "./format.ts";
+import type { Renderer, RenderResult, VizOptions } from "./types.ts";
 
 export const collapsedRenderer: Renderer<VizOptions> = {
   name: "collapsed",

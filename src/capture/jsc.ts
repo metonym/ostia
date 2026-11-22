@@ -1,11 +1,11 @@
 import { profile as jscProfile } from "bun:jsc";
 
-import type { CpuEvidence, JitTierBreakdown } from "../../ir/types.ts";
+import type { CpuEvidence, JitTierBreakdown } from "../ir/types.ts";
+import { parseJscProfile, type RawStackTraces } from "./jsc-parse.ts";
 import {
   DEFAULT_SAMPLING_INTERVAL_US,
   type SamplingOptions,
-} from "../sampling.ts";
-import { parseJscProfile, type RawStackTraces } from "./parse.ts";
+} from "./sampling.ts";
 
 export interface JscCaptureResult<T> {
   result: T;

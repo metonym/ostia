@@ -1,6 +1,6 @@
-import type { HeapEvidence, Warning } from "../../ir/types.ts";
-import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts";
-import { parseHeapSnapshot, type RawHeapSnapshot } from "./parse.ts";
+import type { HeapEvidence, Warning } from "../ir/types.ts";
+import { type ProfiledRunOptions, runProfiled } from "./bunflags.ts";
+import { parseHeapSnapshot, type RawHeapSnapshot } from "./heap-parse.ts";
 
 export type HeapCaptureOptions = ProfiledRunOptions;
 

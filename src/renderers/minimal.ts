@@ -7,11 +7,11 @@ import type {
   ProfileDocument,
   Warning,
   Workload,
-} from "../../ir/types.ts";
-import { metricRatios } from "../../measure/paired.ts";
-import { cpuTimes, labelOrId } from "../format.ts";
-import { pairedRuns, threwRuns } from "../paired.ts";
-import { relativeRatios } from "../relative.ts";
+} from "../ir/types.ts";
+import { metricRatios } from "../measure/paired.ts";
+import { cpuTimes, labelOrId } from "./format.ts";
+import { pairedRuns, threwRuns } from "./paired.ts";
+import { relativeRatios } from "./relative.ts";
 import {
   comparedRows,
   memoryReadings,
@@ -19,8 +19,8 @@ import {
   skippedWorkloads,
   timingRuns,
   workloadsById,
-} from "../select.ts";
-import type { Renderer, RenderResult } from "../types.ts";
+} from "./select.ts";
+import type { Renderer, RenderResult } from "./types.ts";
 
 /**
  * Bumped only on a breaking change to the event shapes (a key renamed or

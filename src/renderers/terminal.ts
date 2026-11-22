@@ -1,11 +1,11 @@
-import { formatDuration, pickDurationUnit } from "../../format.ts";
-import { cpuSampleCount } from "../../ir/cpu.ts";
+import { formatDuration, pickDurationUnit } from "../format.ts";
+import { cpuSampleCount } from "../ir/cpu.ts";
 import type {
   AbSummary,
   ProfileDocument,
   Warning,
   Workload,
-} from "../../ir/types.ts";
+} from "../ir/types.ts";
 import {
   cpuTimes,
   formatCpuTimes,
@@ -20,7 +20,7 @@ import {
   labelOrId,
   topSelfFrames,
   workloadLabel,
-} from "../format.ts";
+} from "./format.ts";
 import {
   abNotes,
   abRows,
@@ -32,13 +32,13 @@ import {
   memoryCells,
   memoryRows,
   pairedCells,
-} from "../paired.ts";
+} from "./paired.ts";
 import {
   groupOf,
   labelInGroup,
   relativeRatios,
   type TimingRow,
-} from "../relative.ts";
+} from "./relative.ts";
 import {
   comparedRows,
   environmentMismatch,
@@ -55,8 +55,8 @@ import {
   thresholdNote,
   timingRuns,
   workloadsById,
-} from "../select.ts";
-import type { Renderer, RenderResult } from "../types.ts";
+} from "./select.ts";
+import type { Renderer, RenderResult } from "./types.ts";
 
 const TOP_FRAMES = 5;
 const TOP_TYPES = 5;

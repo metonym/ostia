@@ -1,5 +1,5 @@
-import { captureInspectorProfile } from "./capture/inspector/index.ts";
-import { captureJscProfile } from "./capture/jsc/index.ts";
+import { captureInspectorProfile } from "./capture/inspector.ts";
+import { captureJscProfile } from "./capture/jsc.ts";
 import {
   configFingerprint,
   createDocument,

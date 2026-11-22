@@ -36,15 +36,15 @@ export { keep } from "./measure/inprocess.ts";
 export type { ProfileOptions, ProfileResult } from "./profile.ts";
 export { profile } from "./profile.ts";
 export { renderers } from "./renderers/index.ts";
-export type { MermaidOptions } from "./renderers/mermaid/index.ts";
+export type { MermaidOptions } from "./renderers/mermaid.ts";
 // `MinimalEvent` is one parsed line of `--format minimal` output; narrow
 // on `event`.
 export type {
   MinimalEvent,
   MinimalProtocolContext,
   MinimalRenderOptions,
-} from "./renderers/minimal/index.ts";
-export { MINIMAL_PROTOCOL_VERSION } from "./renderers/minimal/index.ts";
+} from "./renderers/minimal.ts";
+export { MINIMAL_PROTOCOL_VERSION } from "./renderers/minimal.ts";
 export type { VizOptions } from "./renderers/types.ts";
 export type {
   PrepareFn,

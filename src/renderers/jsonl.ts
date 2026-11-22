@@ -1,6 +1,6 @@
-import { canonicalJSON } from "../../ir/fp.ts";
-import type { ProfileDocument } from "../../ir/types.ts";
-import type { Renderer, RenderResult } from "../types.ts";
+import { canonicalJSON } from "../ir/fp.ts";
+import type { ProfileDocument } from "../ir/types.ts";
+import type { Renderer, RenderResult } from "./types.ts";
 
 export const jsonlRenderer: Renderer = {
   name: "jsonl",

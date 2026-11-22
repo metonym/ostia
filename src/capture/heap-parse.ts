@@ -1,4 +1,4 @@
-import type { HeapEvidence } from "../../ir/types.ts";
+import type { HeapEvidence } from "../ir/types.ts";
 
 export interface RawHeapSnapshot {
   snapshot: {

@@ -1,5 +1,5 @@
-import { runCpuCapture } from "./capture/cpu/index.ts";
-import { runHeapCapture } from "./capture/heap/index.ts";
+import { runCpuCapture } from "./capture/cpu.ts";
+import { runHeapCapture } from "./capture/heap.ts";
 import { DEFAULT_OUT_DIR } from "./config/index.ts";
 import {
   configFingerprint,

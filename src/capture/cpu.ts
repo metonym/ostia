@@ -1,6 +1,6 @@
-import type { CpuEvidence, Warning } from "../../ir/types.ts";
-import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts";
-import { parseCpuProfile, type RawCpuProfile } from "./parse.ts";
+import type { CpuEvidence, Warning } from "../ir/types.ts";
+import { type ProfiledRunOptions, runProfiled } from "./bunflags.ts";
+import { parseCpuProfile, type RawCpuProfile } from "./cpu-parse.ts";
 
 export interface CpuCaptureOptions extends ProfiledRunOptions {
   intervalUs: number;

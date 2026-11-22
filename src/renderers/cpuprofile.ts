@@ -1,6 +1,6 @@
-import type { ProfileDocument } from "../../ir/types.ts";
-import { selectCpuRuns } from "../cpu-tree.ts";
-import type { Renderer, RenderResult, VizOptions } from "../types.ts";
+import type { ProfileDocument } from "../ir/types.ts";
+import { selectCpuRuns } from "./cpu-tree.ts";
+import type { Renderer, RenderResult, VizOptions } from "./types.ts";
 
 export const cpuprofileRenderer: Renderer<VizOptions> = {
   name: "cpuprofile",

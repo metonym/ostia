@@ -1,4 +1,4 @@
-import { captureJscProfile } from "../capture/jsc/index.ts";
+import { captureJscProfile } from "../capture/jsc.ts";
 import { cpuSampleCount } from "../ir/cpu.ts";
 import type { CpuEvidence, JitTierBreakdown, Warning } from "../ir/types.ts";
 import { isPromiseLike } from "./loop.ts";

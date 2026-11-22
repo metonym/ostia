@@ -1,5 +1,5 @@
-import type { CallNode, CpuEvidence, FrameTotal } from "../../ir/types.ts";
-import { addFrameTotal, createFrameTable, sortedTotals } from "../frames.ts";
+import type { CallNode, CpuEvidence, FrameTotal } from "../ir/types.ts";
+import { addFrameTotal, createFrameTable, sortedTotals } from "./frames.ts";
 
 interface RawCallFrame {
   functionName: string;

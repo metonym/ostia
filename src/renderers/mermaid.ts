@@ -1,11 +1,11 @@
-import type { ProfileDocument } from "../../ir/types.ts";
+import type { ProfileDocument } from "../ir/types.ts";
 import {
   buildDenseTree,
   computeDenseNodeTimes,
   renderCpuFiles,
-} from "../cpu-tree.ts";
-import { formatUsAsMs, frameName } from "../format.ts";
-import type { Renderer, RenderResult, VizOptions } from "../types.ts";
+} from "./cpu-tree.ts";
+import { formatUsAsMs, frameName } from "./format.ts";
+import type { Renderer, RenderResult, VizOptions } from "./types.ts";
 
 const DEFAULT_TOP_N = 15;
 

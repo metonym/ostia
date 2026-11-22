@@ -37,7 +37,7 @@ import { sideLabel } from "../measure/paired.ts";
 import { isHarnessFailure } from "../measure/timing.ts";
 import { formatGit, workloadLabel } from "../renderers/format.ts";
 import { type FormatName, renderers } from "../renderers/index.ts";
-import type { MinimalProtocolContext } from "../renderers/minimal/index.ts";
+import type { MinimalProtocolContext } from "../renderers/minimal.ts";
 import type { TimeSource, TimeUnit } from "../spawn/index.ts";
 import {
   CliUsageError,

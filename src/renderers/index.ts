@@ -1,12 +1,12 @@
-import { collapsedRenderer } from "./collapsed/index.ts";
-import { cpuprofileRenderer } from "./cpuprofile/index.ts";
-import { jsonRenderer } from "./json/index.ts";
-import { jsonlRenderer } from "./jsonl/index.ts";
-import { markdownRenderer } from "./markdown/index.ts";
-import { mermaidRenderer } from "./mermaid/index.ts";
-import { minimalRenderer } from "./minimal/index.ts";
-import { speedscopeRenderer } from "./speedscope/index.ts";
-import { terminalRenderer } from "./terminal/index.ts";
+import { collapsedRenderer } from "./collapsed.ts";
+import { cpuprofileRenderer } from "./cpuprofile.ts";
+import { jsonRenderer } from "./json.ts";
+import { jsonlRenderer } from "./jsonl.ts";
+import { markdownRenderer } from "./markdown.ts";
+import { mermaidRenderer } from "./mermaid.ts";
+import { minimalRenderer } from "./minimal.ts";
+import { speedscopeRenderer } from "./speedscope.ts";
+import { terminalRenderer } from "./terminal.ts";
 import type { FormatName, Renderer } from "./types.ts";
 
 /** Each format's renderer, typed with its own options. `Renderer<never>` is

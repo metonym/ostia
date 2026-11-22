@@ -10,7 +10,7 @@ import { renderers } from "../renderers/index.ts";
 import {
   MINIMAL_PROTOCOL_VERSION,
   type MinimalRenderOptions,
-} from "../renderers/minimal/index.ts";
+} from "../renderers/minimal.ts";
 
 // Bun.write skips process.stdout/stderr's Node stream setup, which costs
 // startup time.

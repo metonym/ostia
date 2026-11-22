@@ -3,8 +3,8 @@ import type {
   CpuEvidence,
   FrameTotal,
   JitTierBreakdown,
-} from "../../ir/types.ts";
-import { addFrameTotal, createFrameTable, sortedTotals } from "../frames.ts";
+} from "../ir/types.ts";
+import { addFrameTotal, createFrameTable, sortedTotals } from "./frames.ts";
 
 export interface RawJscFrame {
   sourceID: number;

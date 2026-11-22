@@ -1,9 +1,9 @@
-import type { CpuEvidence } from "../../ir/types.ts";
-import { parseCpuProfile, type RawCpuProfile } from "../cpu/parse.ts";
+import type { CpuEvidence } from "../ir/types.ts";
+import { parseCpuProfile, type RawCpuProfile } from "./cpu-parse.ts";
 import {
   DEFAULT_SAMPLING_INTERVAL_US,
   type SamplingOptions,
-} from "../sampling.ts";
+} from "./sampling.ts";
 
 export interface InspectorCaptureResult<T> {
   result: T;

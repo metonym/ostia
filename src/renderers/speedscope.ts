@@ -1,8 +1,8 @@
-import type { ProfileDocument } from "../../ir/types.ts";
-import { buildDenseTree, renderCpuFiles } from "../cpu-tree.ts";
-import { frameName } from "../format.ts";
-import { workloadsById } from "../select.ts";
-import type { Renderer, RenderResult, VizOptions } from "../types.ts";
+import type { ProfileDocument } from "../ir/types.ts";
+import { buildDenseTree, renderCpuFiles } from "./cpu-tree.ts";
+import { frameName } from "./format.ts";
+import { workloadsById } from "./select.ts";
+import type { Renderer, RenderResult, VizOptions } from "./types.ts";
 
 const SCHEMA_URL = "https://www.speedscope.app/file-format-schema.json";
 

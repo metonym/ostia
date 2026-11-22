@@ -241,5 +241,5 @@ Commands:
   ci        Run configured workloads against a baseline, gate on regressions
   baseline  Manage baseline ProfileDocuments (save/list/show)
 
-Run "ostia <command> --help" for details.
+Run "ostia <command> --help" for details, "ostia --version" for the version.
 `;

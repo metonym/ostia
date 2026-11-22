@@ -10,7 +10,8 @@ ostia ci                       run configured workloads against a baseline, gate
 ostia baseline save|list|show  manage baseline documents
 ```
 
-Every command takes `--help`.
+Every command takes `--help`; `ostia --version` (or `-v`) prints the
+version.
 A flag's value can follow it (`--format minimal`)
 or be attached (`--format=minimal`);
 `--ignore-failure[=CODES]` only takes the attached form.

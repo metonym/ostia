@@ -1036,12 +1036,13 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     });
     const memoryRuns = memoryTasks.length * PEAK_MEM_PROCESSES * 2;
     let memoryRun = 0;
-    for (const task of memoryTasks) {
+    // Until each side has PEAK_MEM_PROCESSES readings, or a cancel.
+    const readMemory = async (task: (typeof memoryTasks)[number]) => {
       const { workloadId, suite, peakMem } = task;
       const readings: Record<Side, AbMemoryResult[]> = { base: [], cand: [] };
-      for (let r = 0; r < PEAK_MEM_PROCESSES && !opts.signal?.aborted; r++) {
+      for (let r = 0; r < PEAK_MEM_PROCESSES; r++) {
         for (const side of ["base", "cand"] as const) {
-          if (opts.signal?.aborted) break;
+          if (opts.signal?.aborted) return readings;
           onProgress?.({
             phase: "memory",
             run: ++memoryRun,
@@ -1059,8 +1060,13 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
           if (outPath) readings[side].push(await Bun.file(outPath).json());
         }
       }
+      return readings;
+    };
+    for (const task of memoryTasks) {
+      const readings = await readMemory(task);
       if (readings.base.length === 0 || readings.cand.length === 0) continue;
-      judgeMemory(byWorkload.get(workloadId)!, task, readings, memThresholdPct);
+      const m = byWorkload.get(task.workloadId)!;
+      judgeMemory(m, task, readings, memThresholdPct);
     }
 
     stampRunWarnings(

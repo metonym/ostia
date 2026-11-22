@@ -2,18 +2,26 @@
   "name": "ostia",
   "version": "0.2.12",
   "description": "Fast profiling and benchmarking for Bun.",
-  "type": "module",
-  "engines": {
-    "bun": ">=1.4.0"
+  "license": "MIT",
+  "author": "Eric Liu (https://github.com/metonym)",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/metonym/ostia.git"
   },
+  "homepage": "https://github.com/metonym/ostia",
+  "bugs": "https://github.com/metonym/ostia/issues",
+  "type": "module",
   "exports": {
-    ".": "./src/index.ts"
+    ".": {
+      "types": "./index.d.ts",
+      "default": "./src/index.ts"
+    },
+    "./package.json": "./package.json"
   },
   "bin": {
     "ostia": "src/cli/main.ts"
   },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/metonym/ostia.git"
+  "engines": {
+    "bun": ">=1.4.0"
   }
 }

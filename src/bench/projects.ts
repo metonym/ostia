@@ -9,21 +9,19 @@ export interface SuiteLaunch {
   bunFlags: string[];
 }
 
-/** Launch settings for each of `suites`, in order: the first project whose
- * globs match the file (against its path relative to `cwd`) overrides the
- * top-level `preload` / `bunFlags` field by field; a field the project
- * leaves unset, or a file no project matches, keeps the top-level value.
- * */
-export function resolveSuiteLaunches(
-  suites: string[],
+// The first project whose globs match the file (against its path relative
+// to `cwd`) overrides the top-level `preload` / `bunFlags` field by field;
+// a field the project leaves unset, or a file no project matches, keeps
+// the top-level value.
+export function suiteLauncher(
   cwd: string,
   base: { preload?: string[]; bunFlags?: string[] },
   projects: BenchProject[] = [],
-): SuiteLaunch[] {
+): (file: string) => SuiteLaunch {
   const matchers = projects.map((project) =>
     project.suites.map((pattern) => new Bun.Glob(pattern)),
   );
-  return suites.map((file) => {
+  return (file) => {
     const rel = relative(cwd, absolutePath(cwd, file));
     const index = matchers.findIndex((globs) =>
       globs.some((g) => g.match(rel)),
@@ -35,5 +33,15 @@ export function resolveSuiteLaunches(
       ),
       bunFlags: project?.bunFlags ?? base.bunFlags ?? [],
     };
-  });
+  };
+}
+
+export function resolveSuiteLaunches(
+  suites: string[],
+  cwd: string,
+  base: { preload?: string[]; bunFlags?: string[] },
+  projects: BenchProject[] = [],
+): SuiteLaunch[] {
+  const launch = suiteLauncher(cwd, base, projects);
+  return suites.map((file) => launch(file));
 }

@@ -1,5 +1,6 @@
 #!/usr/bin/env bun
 
+import { errorMessage } from "../errors.ts";
 import { saveDocument } from "../ir/document.ts";
 import {
   measurePeakMem,
@@ -56,6 +57,20 @@ export interface RunnerOpts extends MeasureTasksOpts {
   preload?: string[];
 }
 
+// The parent serializes a `RunnerOpts`; only that it's an object is
+// checked.
+function isRunnerOpts(value: unknown): value is RunnerOpts {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function parseRunnerOpts(json: string): RunnerOpts {
+  const value: unknown = JSON.parse(json);
+  if (!isRunnerOpts(value)) {
+    throw new Error(`bench runner: options aren't an object: ${json}`);
+  }
+  return value;
+}
+
 async function main(): Promise<number> {
   const [suiteFile, outputPath, optsJson] = process.argv.slice(2);
   if (!suiteFile || !outputPath) {
@@ -65,7 +80,7 @@ async function main(): Promise<number> {
     return 2;
   }
 
-  const opts: RunnerOpts = optsJson ? JSON.parse(optsJson) : {};
+  const opts: RunnerOpts = optsJson ? parseRunnerOpts(optsJson) : {};
 
   // Baseline for `measurePeakMem`, taken once ostia (which the suite
   // imports) is loaded.
@@ -100,7 +115,7 @@ async function main(): Promise<number> {
       !opts.workloadIds && !opts.peakMemFor,
     );
   } catch (err) {
-    process.stderr.write(`bench runner: ${(err as Error).message}\n`);
+    process.stderr.write(`bench runner: ${errorMessage(err)}\n`);
     return 2;
   }
   const workloadIdOf = (t: RegisteredTask) => taskWorkload(suiteFile, t).id;
@@ -144,4 +159,4 @@ async function main(): Promise<number> {
   return 0;
 }
 
-main().then((code) => process.exit(code));
+process.exit(await main());

@@ -84,8 +84,8 @@ export function parseJscProfile(
   for (const trace of raw.traces) {
     const traceFrames = trace.frames;
     let current = rootNode;
-    for (let f = traceFrames.length - 1; f >= 0; f--) {
-      const frameIx = frameIxFromRaw(traceFrames[f]!);
+    for (const rf of traceFrames.toReversed()) {
+      const frameIx = frameIxFromRaw(rf);
       let child = current.children.get(frameIx);
       if (!child) {
         child = newNode(frameIx);
@@ -150,11 +150,10 @@ export function parseJscProfile(
       [...byFrame.entries()]
         .sort((a, b) => b[1] - a[1])
         .slice(0, 3)
-        .map(([frameIx, samples]) => ({
-          tier,
-          frameKey: frames[frameIx]!.key,
-          samples,
-        })),
+        .flatMap(([frameIx, samples]) => {
+          const frame = frames[frameIx];
+          return frame ? [{ tier, frameKey: frame.key, samples }] : [];
+        }),
   );
 
   const jit: JitTierBreakdown = {

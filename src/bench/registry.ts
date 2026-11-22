@@ -1,11 +1,11 @@
-/**
- * Appended to "registered no tasks": the usual cause besides a missing
- * `task()` call is a suite importing a different copy of ostia than the
- * CLI running it, so its calls register on that copy. */
+// Appended to "registered no tasks": the usual cause besides a missing
+// `task()` call is a suite importing a different copy of ostia than the
+// CLI running it, so its calls register on that copy.
 export const NO_TASKS_HINT =
   " If the suite does call task(), it imports a different copy of ostia than the CLI running it (a global install, or another version): run the one from the project's node_modules.";
 
-type Hook = () => unknown | Promise<unknown>;
+/** A task body or hook; it may return a promise, which the runner awaits. */
+type Hook = () => unknown;
 
 export interface TaskOptions {
   /**
@@ -117,45 +117,58 @@ export interface GroupOptions {
 interface GroupFrame {
   /** Slash-joined names from the outermost group down to this one. */
   path: string;
-  before?: Hook;
-  after?: Hook;
+  before?: Hook | undefined;
+  after?: Hook | undefined;
 }
 
 export interface RegisteredTask {
   /** The enclosing groups' names joined with "/", outermost first. */
-  groupName?: string;
+  groupName?: string | undefined;
   /** Enclosing groups, outermost first. */
-  groupChain?: readonly GroupFrame[];
-  groupDescription?: string;
-  groupIsolate?: boolean;
-  groupGc?: boolean;
-  groupCpu?: boolean;
-  groupAlloc?: boolean;
-  groupPeakMem?: boolean;
+  groupChain?: readonly GroupFrame[] | undefined;
+  groupDescription?: string | undefined;
+  groupIsolate?: boolean | undefined;
+  groupGc?: boolean | undefined;
+  groupCpu?: boolean | undefined;
+  groupAlloc?: boolean | undefined;
+  groupPeakMem?: boolean | undefined;
   name: string;
-  fn: () => unknown | Promise<unknown>;
-  baseline?: boolean;
-  params?: Record<string, string | number | boolean>;
+  fn: Hook;
+  baseline?: boolean | undefined;
+  params?: Record<string, string | number | boolean> | undefined;
   /**
    * From `task.skip()` or a `group.skip()` this task is inside. The runner
    * never measures it; the document still carries its workload (marked
    * `Workload.skipped`) so a renderer or `compare` can say so explicitly. */
-  skipped?: boolean;
+  skipped?: boolean | undefined;
   /**
    * From `task.only()` or a `group.only()` this task is inside. When any
    * registered task has this set, the runner restricts the whole suite file
    * to only those tasks (before `--filter` narrows further). */
-  only?: boolean;
-  opts?: TaskOptions;
+  only?: boolean | undefined;
+  opts?: TaskOptions | undefined;
 }
 
 type Flags = { skip?: boolean; only?: boolean };
 
+// What an enclosing group passes to the tasks and groups inside it.
+interface GroupScope {
+  path: string;
+  chain: readonly GroupFrame[];
+  description: string | undefined;
+  isolate: boolean | undefined;
+  gc: boolean | undefined;
+  cpu: boolean | undefined;
+  alloc: boolean | undefined;
+  peakMem: boolean | undefined;
+  skip: boolean | undefined;
+  only: boolean | undefined;
+}
+
 const tasks: RegisteredTask[] = [];
-let currentGroup:
-  | (Omit<GroupOptions, "before" | "after"> &
-      Flags & { path: string; chain: readonly GroupFrame[] })
-  | undefined;
+// eslint-disable-next-line no-restricted-syntax -- group() is a free function in the public API, so the enclosing group is module state
+let currentGroup: GroupScope | undefined;
+// eslint-disable-next-line no-restricted-syntax -- sweep() hands its point to task() calls inside it, which are free functions
 let currentParams: Record<string, string | number | boolean> | undefined;
 
 function registerGroup(
@@ -208,19 +221,21 @@ interface GroupFn extends GroupRegistrar {
   only: GroupRegistrar;
 }
 
+/** Registers the tasks `fn` declares under the group `name`. */
 export const group: GroupFn = Object.assign(
-  ((name, fn, opts) => registerGroup(name, fn, opts, {})) as GroupRegistrar,
+  ((name, fn, opts) =>
+    registerGroup(name, fn, opts, {})) satisfies GroupRegistrar,
   {
     skip: ((name, fn, opts) =>
-      registerGroup(name, fn, opts, { skip: true })) as GroupRegistrar,
+      registerGroup(name, fn, opts, { skip: true })) satisfies GroupRegistrar,
     only: ((name, fn, opts) =>
-      registerGroup(name, fn, opts, { only: true })) as GroupRegistrar,
+      registerGroup(name, fn, opts, { only: true })) satisfies GroupRegistrar,
   },
 );
 
 function registerTask(
   name: string,
-  fn: () => unknown | Promise<unknown>,
+  fn: Hook,
   opts: TaskOptions | undefined,
   flags: Flags,
 ): void {
@@ -247,11 +262,7 @@ function registerTask(
   });
 }
 
-type TaskRegistrar = (
-  name: string,
-  fn: () => unknown | Promise<unknown>,
-  opts?: TaskOptions,
-) => void;
+type TaskRegistrar = (name: string, fn: Hook, opts?: TaskOptions) => void;
 
 interface TaskFn extends TaskRegistrar {
   /**
@@ -267,13 +278,15 @@ interface TaskFn extends TaskRegistrar {
   only: TaskRegistrar;
 }
 
+/** Registers `fn` as a benchmark task named `name` in the current group. */
 export const task: TaskFn = Object.assign(
-  ((name, fn, opts) => registerTask(name, fn, opts, {})) as TaskRegistrar,
+  ((name, fn, opts) =>
+    registerTask(name, fn, opts, {})) satisfies TaskRegistrar,
   {
     skip: ((name, fn, opts) =>
-      registerTask(name, fn, opts, { skip: true })) as TaskRegistrar,
+      registerTask(name, fn, opts, { skip: true })) satisfies TaskRegistrar,
     only: ((name, fn, opts) =>
-      registerTask(name, fn, opts, { only: true })) as TaskRegistrar,
+      registerTask(name, fn, opts, { only: true })) satisfies TaskRegistrar,
   },
 );
 
@@ -287,10 +300,8 @@ export function resetRegistry(): void {
   currentParams = undefined;
 }
 
-/**
- * Runs `fn` with `params` as the current sweep point: `task()` calls
- * inside inherit it as their params (explicit `TaskOptions.params` keys
- * win). */
+// `task()` calls inside `fn` inherit `params` as theirs (explicit
+// `TaskOptions.params` keys win).
 export function withCurrentParams<T>(
   params: Record<string, string | number | boolean>,
   fn: () => T,
@@ -308,7 +319,6 @@ export function taskId(t: RegisteredTask): string {
   return t.groupName ? `${t.groupName}/${t.name}` : t.name;
 }
 
-/** `taskId` under each of the task's `aliases`. */
 export function formerTaskIds(t: RegisteredTask): string[] {
   return (t.opts?.aliases ?? []).map((alias) =>
     t.groupName ? `${t.groupName}/${alias}` : alias,
@@ -337,26 +347,25 @@ export function taskPeakMem(t: RegisteredTask, suitePeakMem: boolean): boolean {
   return t.opts?.peakMem ?? t.groupPeakMem ?? suitePeakMem;
 }
 
-/**
- * For the task at an index, the paths of the groups it opens (it's the
- * first measured task inside them: outermost first) and closes (the last:
- * innermost first), so group hooks wrap measured tasks only (a group's
- * tasks needn't be contiguous) and an outer group's hooks run once around
- * its nested groups. */
+// For the task at an index, the paths of the groups it opens (it's the
+// first measured task inside them: outermost first) and closes (the last:
+// innermost first), so group hooks wrap measured tasks only (a group's
+// tasks needn't be contiguous) and an outer group's hooks run once around
+// its nested groups.
 export function groupEdges(
   tasks: readonly RegisteredTask[],
 ): (index: number) => { enter: string[]; leave: string[] } {
   const first = new Map<string, number>();
   const last = new Map<string, number>();
-  tasks.forEach((t, i) => {
-    if (t.skipped) return;
+  for (const [i, t] of tasks.entries()) {
+    if (t.skipped) continue;
     for (const { path } of t.groupChain ?? []) {
       if (!first.has(path)) first.set(path, i);
       last.set(path, i);
     }
-  });
+  }
   return (i) => {
-    const paths = (tasks[i]!.groupChain ?? []).map((f) => f.path);
+    const paths = (tasks[i]?.groupChain ?? []).map((f) => f.path);
     return {
       enter: paths.filter((p) => first.get(p) === i),
       leave: paths.filter((p) => last.get(p) === i).reverse(),
@@ -364,10 +373,9 @@ export function groupEdges(
   };
 }
 
-/**
- * Runs the task's `before`/`after` hooks for the groups at `paths` (in the
- * order given; default: all its groups, outermost first for `before`,
- * innermost first for `after`). A path the task isn't in is skipped. */
+// `paths` run in the order given; by default all the task's groups,
+// outermost first for `before`, innermost first for `after`. A path the
+// task isn't in is skipped.
 export async function runGroupHooks(
   t: RegisteredTask,
   kind: "before" | "after",
@@ -382,9 +390,8 @@ export async function runGroupHooks(
   }
 }
 
-/**
- * mitata-compatible: filter value is a JS regex source, substring-matched
- * (no anchoring), case-sensitive, against the "group/name" task id. */
+// mitata-compatible: filter value is a JS regex source, substring-matched
+// (no anchoring), case-sensitive, against the "group/name" task id.
 export function filterTasks(
   tasks: readonly RegisteredTask[],
   filter?: string,
@@ -394,11 +401,9 @@ export function filterTasks(
   return tasks.filter((t) => re.test(taskId(t)));
 }
 
-/**
- * The tasks a run measures: `.only` tasks when any exist (with a stderr
- * notice, since a forgotten `.only` silently shrinks a suite), else every
- * registered task - then narrowed by `filter`. Throws when that leaves
- * nothing, naming how many tasks the filter was matched against. */
+// `.only` tasks when any exist (with a stderr notice, since a forgotten
+// `.only` silently shrinks a suite), else every registered task, then
+// narrowed by `filter`.
 export function selectTasks(
   registered: readonly RegisteredTask[],
   filter: string | undefined,

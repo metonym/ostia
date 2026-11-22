@@ -8,7 +8,7 @@ import {
 } from "../spawn/index.ts";
 import { computeTimingStats, timingWarnings } from "../stats/index.ts";
 
-export interface TimingPhaseOptions extends SpawnTrialOptions {
+interface TimingPhaseOptions extends SpawnTrialOptions {
   /** Exact trial count; the budget is ignored. */
   samples?: number;
   /** Warmup trial count, discarded before sampling. */
@@ -29,7 +29,7 @@ const DEFAULT_MIN_SAMPLES = 10;
 const DEFAULT_BUDGET_MS = 3000;
 const DEFAULT_WARMUP = 3;
 
-export interface TimingPhaseResult {
+interface TimingPhaseResult {
   trials: Trial[];
   /** Absent when no trial produced a sample (e.g. all timed out). */
   timing?: TimingStats;
@@ -40,7 +40,7 @@ export interface TimingPhaseResult {
  * One command's trial loop, a trial at a time so `time()` can round-robin
  * several commands (`--interleave`). `warmup()` first, then `step()` until
  * it returns false. */
-export interface TimingPhaseIterator {
+interface TimingPhaseIterator {
   warmup(): Promise<void>;
   /**
    * Runs one more trial unless the stopping criterion is met; returns
@@ -51,10 +51,8 @@ export interface TimingPhaseIterator {
   result(): TimingPhaseResult;
 }
 
-/**
- * `undefined` is a timed-out trial: killed, so it has no exit code to fail
- * on.
- */
+// `undefined` is a timed-out trial: killed, so it has no exit code to fail
+// on.
 function isFailedExit(code: number | undefined, ignored: Set<number>): boolean {
   return code !== undefined && code !== 0 && !ignored.has(code);
 }
@@ -93,10 +91,10 @@ export function createTimingPhase(
         opts.prepare,
         { phase, index },
         {
-          cwd: opts.cwd,
-          env: opts.env,
-          timeoutMs: opts.timeoutMs,
-          signal: opts.signal,
+          ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+          ...(opts.env !== undefined && { env: opts.env }),
+          ...(opts.timeoutMs !== undefined && { timeoutMs: opts.timeoutMs }),
+          ...(opts.signal !== undefined && { signal: opts.signal }),
         },
       );
     }
@@ -122,10 +120,12 @@ export function createTimingPhase(
       trials.push({
         i,
         wallNs: result.wallNs,
-        exitCode,
-        userNs: result.userNs,
-        systemNs: result.systemNs,
-        maxRssBytes: result.maxRssBytes,
+        ...(exitCode !== undefined && { exitCode }),
+        ...(result.userNs !== undefined && { userNs: result.userNs }),
+        ...(result.systemNs !== undefined && { systemNs: result.systemNs }),
+        ...(result.maxRssBytes !== undefined && {
+          maxRssBytes: result.maxRssBytes,
+        }),
         ...(result.reportedNs !== undefined && {
           reportedNs: result.reportedNs,
         }),
@@ -146,7 +146,7 @@ export function createTimingPhase(
       // reported-time series.
       const sampled = trials.filter((t) => !t.timedOut && !t.timeSourceNoMatch);
       const timingSamples = sampled.map((t) =>
-        reported ? t.reportedNs! : t.wallNs,
+        reported ? (t.reportedNs ?? Number.NaN) : t.wallNs,
       );
 
       const warnings: Warning[] = [];
@@ -208,12 +208,11 @@ export async function runTimingPhase(
   return phase.result();
 }
 
-/**
- * True when some trial exited non-zero (outside `ignoreExitCodes`) or none
- * produced a sample. Not a regression: `ostia time` and `ostia ci` both
- * exit 2. A timed-out trial has no exit code, so it fails the run only
- * when no trial is left to sample (the `timeout` warning covers the
- * partial case). */
+// True when some trial exited non-zero (outside `ignoreExitCodes`) or none
+// produced a sample. Not a regression: `ostia time` and `ostia ci` both
+// exit 2. A timed-out trial has no exit code, so it fails the run only
+// when no trial is left to sample (the `timeout` warning covers the
+// partial case).
 export function isHarnessFailure(
   measurement: Pick<Measurement, "trials" | "timing">,
   ignoreExitCodes: number[] = [],

@@ -29,6 +29,10 @@ export interface Thresholds {
   bootstrapIterations: number;
 }
 
+/**
+ * The thresholds `compareDocuments` uses when given none; spread over it
+ * to change one field.
+ */
 export const DEFAULT_THRESHOLDS: Thresholds = {
   timingPct: 5,
   frameSelfPct: 10,
@@ -38,10 +42,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
   bootstrapIterations: 2000,
 };
 
-/**
- * Below this many samples on either side, fall back to the point-estimate
- * rule (with a `thin-comparison` warning): CI and p-value are too noisy.
- * */
+// Below this many samples on either side, fall back to the point-estimate
+// rule (with a `thin-comparison` warning): CI and p-value are too noisy.
 const MIN_SAMPLES_FOR_TEST = 5;
 
 function pctDelta(base: number, cand: number): number {
@@ -80,11 +82,12 @@ function indexMeasurements(doc: ProfileDocument): Lookup {
     byPhase.get(`${workloadId}\u0000${phase}`);
 }
 
-type MemoryReadings = Partial<Record<MemoryDelta["reading"], number>>;
+type MemoryReadings = {
+  [K in MemoryDelta["reading"]]?: number | undefined;
+};
 
-/**
- * Every memory reading per workload, from its timing and `memstats`
- * measurements. */
+// Every memory reading per workload, from its timing and `memstats`
+// measurements.
 function indexMemory(doc: ProfileDocument): (id: string) => MemoryReadings {
   const byWorkload = new Map<string, MemoryReadings>();
   for (const m of doc.measurements) {
@@ -105,17 +108,15 @@ function indexMemory(doc: ProfileDocument): (id: string) => MemoryReadings {
   return (id) => byWorkload.get(id) ?? {};
 }
 
-/**
- * The reference loop's mean speed over a run: the start and end readings
- * averaged when the run re-measured it. */
+// The reference loop's mean speed over a run: the start and end readings
+// averaged when the run re-measured it.
 function meanReferenceNs(env: Environment): number {
   const { referenceMedianNs, driftPct } = env.noise;
   return referenceMedianNs * (1 + (driftPct ?? 0) / 200);
 }
 
-/**
- * How far the machine's speed moved within either run, or between them,
- * percent; `undefined` unless both runs measured their noise floor. */
+// How far the machine's speed moved within either run, or between them,
+// percent; `undefined` unless both runs measured their noise floor.
 function machineDriftPct(
   base: ProfileDocument,
   cand: ProfileDocument,
@@ -165,10 +166,9 @@ function buildIndex(
   };
 }
 
-/**
- * Same warning for every comparison in a pair measured on different
- * machines/Bun versions. `cpuModel`/`cores` are compared only when both
- * sides have `environment`: missing data is unknown, not a mismatch. */
+// Same warning for every comparison in a pair measured on different
+// machines/Bun versions. `cpuModel`/`cores` are compared only when both
+// sides have `environment`: missing data is unknown, not a mismatch.
 function environmentMismatchWarning(
   base: ProfileDocument,
   cand: ProfileDocument,
@@ -204,10 +204,9 @@ export interface CompareResult {
   summary: ComparisonSummary;
 }
 
-/**
- * Geometric mean of `cand/base` median ratios over comparisons with a
- * timing verdict, as a signed percent (`-4.2` means ~4.2% faster). `null`
- * when none has a finite ratio. */
+// Geometric mean of `cand/base` median ratios over comparisons with a
+// timing verdict, as a signed percent (`-4.2` means ~4.2% faster). `null`
+// when none has a finite ratio.
 function geomeanTimingPct(comparisons: Comparison[]): number | null {
   const logRatios: number[] = [];
   for (const c of comparisons) {
@@ -223,7 +222,7 @@ function geomeanTimingPct(comparisons: Comparison[]): number | null {
 /**
  * A base/candidate pair indexed once: per-workload comparison plus the
  * pair-level facts `compareDocuments` and `ostia ci` both need. */
-export interface Comparer {
+interface Comparer {
   effectiveTimingPct: number;
   driftPct: number | undefined;
   compare(workloadId: string): Comparison | undefined;
@@ -347,7 +346,7 @@ function comparedTask(
   return row;
 }
 
-/** The `comparisonSummary` stamped on a compared document. */
+// The `comparisonSummary` stamped on a compared document.
 export function summarizeComparisons(
   comparisons: Comparison[],
   effectiveTimingPct: number,
@@ -479,7 +478,17 @@ function compareFrames(
   thresholds: Thresholds,
 ): { frames: NonNullable<Comparison["frames"]>; failed: boolean } {
   const selfUsByKey = (cpu: typeof baseCpu) =>
-    new Map(cpu.totals.map((t) => [cpu.frames[t.frameIx]!.key, t.selfUs]));
+    new Map(
+      cpu.totals.map((t) => {
+        const frame = cpu.frames[t.frameIx];
+        if (!frame) {
+          throw new Error(
+            `ostia compare: a CPU total names frame ${t.frameIx}, which the document doesn't have`,
+          );
+        }
+        return [frame.key, t.selfUs];
+      }),
+    );
   const nameByKey = (cpu: typeof baseCpu) =>
     new Map(cpu.frames.map((f) => [f.key, f.name]));
   const baseSelf = selfUsByKey(baseCpu);
@@ -528,8 +537,8 @@ function compareHeapTypes(
         type,
         baseCount: b?.count ?? 0,
         candCount: c?.count ?? 0,
-        baseBytes: b?.retainedBytes,
-        candBytes: c?.retainedBytes,
+        ...(b?.retainedBytes !== undefined && { baseBytes: b.retainedBytes }),
+        ...(c?.retainedBytes !== undefined && { candBytes: c.retainedBytes }),
         deltaPct: pctDelta(b?.count ?? 0, c?.count ?? 0),
       };
     })
@@ -607,10 +616,10 @@ function compareIndexed(
     id: fp("cmp", baselineMeasurementId, candidateMeasurementId),
     baselineMeasurementId,
     candidateMeasurementId,
-    timing,
+    ...(timing && { timing }),
     ...(warnings.length > 0 && { warnings }),
-    frames,
-    heapTypes,
+    ...(frames && { frames }),
+    ...(heapTypes && { heapTypes }),
     thresholds: { ...thresholds, effectiveTimingPct },
     verdict: failed ? "fail" : "pass",
   };

@@ -1,10 +1,10 @@
 import type { HeapEvidence, Warning } from "../ir/types.ts";
 import { type ProfiledRunOptions, runProfiled } from "./bunflags.ts";
-import { parseHeapSnapshot, type RawHeapSnapshot } from "./heap-parse.ts";
+import { isRawHeapSnapshot, parseHeapSnapshot } from "./heap-parse.ts";
 
-export type HeapCaptureOptions = ProfiledRunOptions;
+type HeapCaptureOptions = ProfiledRunOptions;
 
-export interface HeapCaptureResult {
+interface HeapCaptureResult {
   diagnosticWallNs: number;
   exitCode: number;
   artifactPath?: string;
@@ -17,7 +17,7 @@ export interface HeapCaptureResult {
 export async function runHeapCapture(
   opts: HeapCaptureOptions,
 ): Promise<HeapCaptureResult> {
-  const { raw, ...run } = await runProfiled<RawHeapSnapshot>(
+  const { raw, ...run } = await runProfiled(
     opts,
     [
       "--heap-prof",
@@ -28,5 +28,9 @@ export async function runHeapCapture(
     ],
     { what: "a heap snapshot", kind: "heap" },
   );
-  return raw ? { ...run, heap: parseHeapSnapshot(raw) } : run;
+  if (!raw) return run;
+  if (!isRawHeapSnapshot(raw)) {
+    throw new Error(`ostia: ${run.artifactPath} isn't a heap snapshot`);
+  }
+  return { ...run, heap: parseHeapSnapshot(raw) };
 }

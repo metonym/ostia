@@ -15,6 +15,7 @@ import {
   taskPeakMem,
 } from "../bench/registry.ts";
 import { taskWorkload } from "../bench/run-tasks.ts";
+import { errorMessage } from "../errors.ts";
 import {
   configFingerprint,
   createDocument,
@@ -93,18 +94,14 @@ export interface AbRunnerProgress {
   label: string;
 }
 
-/**
- * Tasks pair across sides by "group/name" plus `params`, the workload id's
- * identity.
- */
+// Tasks pair across sides by "group/name" plus `params`, the workload id's
+// identity.
 function pairKey(t: RegisteredTask, id: string = taskId(t)): string {
   return `${id}\u0000${canonicalJSON(t.params ?? null)}`;
 }
 
-/**
- * The task's own key, then one per alias: a base task under any of them
- * pairs.
- */
+// The task's own key, then one per alias: a base task under any of them
+// pairs.
 function pairKeys(t: RegisteredTask): string[] {
   return [taskId(t), ...formerTaskIds(t)].map((id) => pairKey(t, id));
 }
@@ -115,18 +112,30 @@ async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
   return [...getRegisteredTasks()];
 }
 
+// The parent writes optsJson; this checks the fields every run reads.
+function isRunnerOpts(v: unknown): v is AbRunnerOpts {
+  return (
+    typeof v === "object" &&
+    v !== null &&
+    "rounds" in v &&
+    typeof v.rounds === "number" &&
+    "thresholdPct" in v &&
+    typeof v.thresholdPct === "number" &&
+    "metric" in v &&
+    (v.metric === "time" || v.metric === "instructions")
+  );
+}
+
 const ERROR_LINES = 5;
 
-/** An error's message, cut to its first few lines. */
 function errorText(err: unknown): string {
   const text = err instanceof Error ? err.message : String(err);
   return text.split("\n").slice(0, ERROR_LINES).join("\n");
 }
 
-/**
- * Reports a failure that stops the whole suite: on stderr, and in
- * `<outputPath>.error` (and `.side`, when it's one side's) for `ab()` to
- * put in the error it throws. */
+// Reports a failure that stops the whole suite: on stderr, and in
+// `<outputPath>.error` (and `.side`, when it's one side's) for `ab()` to
+// put in the error it throws.
 async function fail(
   outputPath: string,
   message: string,
@@ -142,15 +151,14 @@ type MeasureOutcome =
   | { result: Awaited<ReturnType<typeof measurePaired>> }
   | { threw: NonNullable<Measurement["threw"]> };
 
-/**
- * One pair's `before` hooks, paired timing and `after` hooks. A throw from
- * either side's task or hooks doesn't stop the suite; it's reported with
- * its side instead. Each `before` runs once, in `order`, and a side whose
- * `before` threw isn't timed or torn down. Every side that was set up is
- * torn down once, in reverse order, even when a hook throws. When only one
- * side has thrown, the other side's task is called once more, before
- * teardown and only if that side is set up, to tell whether it throws too
- * (`"both"`). */
+// One pair's `before` hooks, paired timing and `after` hooks. A throw from
+// either side's task or hooks doesn't stop the suite; it's reported with
+// its side instead. Each `before` runs once, in `order`, and a side whose
+// `before` threw isn't timed or torn down. Every side that was set up is
+// torn down once, in reverse order, even when a hook throws. When only one
+// side has thrown, the other side's task is called once more, before
+// teardown and only if that side is set up, to tell whether it throws too
+// (`"both"`).
 async function measureTask(
   base: RegisteredTask,
   cand: RegisteredTask,
@@ -224,14 +232,15 @@ async function measureTask(
   if (errors.has("cand")) {
     return { threw: { side: "cand", message: errorText(candErr) } };
   }
-  return { result: result! };
+  // invariant: with no errors, both sides were set up and timed.
+  if (!result) throw new Error("ab runner: a pair finished untimed");
+  return { result };
 }
 
-/**
- * A `memoryFor` process. Only one side's suite loads, so the other side's
- * setup and the packages both sides share can't move the readings. Peak is
- * the first call; retained follows a warmup batch, as `bench --alloc`
- * follows timing. */
+// A `memoryFor` process. Only one side's suite loads, so the other side's
+// setup and the packages both sides share can't move the readings. Peak is
+// the first call; retained follows a warmup batch, as `bench --alloc`
+// follows timing.
 async function measureMemory(
   suite: string,
   candSuite: string,
@@ -272,7 +281,10 @@ async function measureMemory(
     if (memoryFor.alloc) {
       await measureAllocPerOp(t.fn);
       const { memory, calls } = await measureAllocPerOp(t.fn);
-      result.alloc = { bytesPerOp: memory.bytesPerOp!, calls };
+      if (memory.bytesPerOp === undefined) {
+        throw new Error("measureAllocPerOp returned no bytesPerOp");
+      }
+      result.alloc = { bytesPerOp: memory.bytesPerOp, calls };
     }
     await t.opts?.after?.();
     await runGroupHooks(t, "after");
@@ -287,13 +299,12 @@ async function measureMemory(
   }
 }
 
-/**
- * Pairs one suite file's tasks against the same file at the base checkout,
- * in this process. Each side is imported from its own path so its relative
- * imports resolve within its own tree, while bare imports (including
- * `ostia`, hence the shared registry) share `node_modules`. `baseSuite` is
- * "" when the file doesn't exist at the base ref: every task is
- * candidate-only. */
+// Pairs one suite file's tasks against the same file at the base checkout,
+// in this process. Each side is imported from its own path so its relative
+// imports resolve within its own tree, while bare imports (including
+// `ostia`, hence the shared registry) share `node_modules`. `baseSuite` is
+// "" when the file doesn't exist at the base ref: every task is
+// candidate-only.
 async function main(): Promise<number> {
   const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2);
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {
@@ -302,7 +313,11 @@ async function main(): Promise<number> {
     );
     return 2;
   }
-  const opts: AbRunnerOpts = JSON.parse(optsJson);
+  const opts: unknown = JSON.parse(optsJson);
+  if (!isRunnerOpts(opts)) {
+    process.stderr.write(`ab runner: malformed optsJson: ${optsJson}\n`);
+    return 2;
+  }
 
   if (opts.memoryFor) {
     return measureMemory(
@@ -359,7 +374,7 @@ async function main(): Promise<number> {
       !opts.workloadIds,
     );
   } catch (err) {
-    return fail(outputPath, (err as Error).message);
+    return fail(outputPath, errorMessage(err));
   }
 
   const wanted = opts.workloadIds && new Set(opts.workloadIds);
@@ -419,8 +434,7 @@ async function main(): Promise<number> {
     metric: opts.metric,
   });
   const measurements: Measurement[] = [];
-  for (let i = 0; i < pairs.length; i++) {
-    const { workload, base, cand } = pairs[i]!;
+  for (const [i, { workload, base, cand }] of pairs.entries()) {
     const { enter, leave } = edges(i);
     if (opts.progress) {
       process.send?.({
@@ -471,4 +485,4 @@ async function main(): Promise<number> {
   return 0;
 }
 
-main().then((code) => process.exit(code));
+process.exit(await main());

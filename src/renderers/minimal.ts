@@ -310,9 +310,8 @@ function deltaFrom(
   return delta;
 }
 
-/**
- * A `run` line with no stats: a `task.skip()`'d workload, or one whose
- * trials produced no samples (`samples: 0`). */
+// A `task.skip()`'d workload, or one whose trials produced no samples
+// (`samples: 0`).
 function statlessLine(
   doc: ProfileDocument,
   workload: Workload,
@@ -587,16 +586,18 @@ function summaryLine(
 
 export const minimalRenderer: Renderer<MinimalRenderOptions> = {
   name: "minimal",
-  async render(
+  render(
     doc: ProfileDocument,
     options: MinimalRenderOptions = {},
   ): Promise<RenderResult> {
-    const events: MinimalEvent[] = [...runLines(doc)];
-    if (options.protocol) {
-      events.push(...unmatchedLines(options.protocol));
-      events.push(summaryLine(doc, options.protocol));
-    }
-    const lines = events.map((l) => JSON.stringify(l));
-    return { text: lines.length > 0 ? `${lines.join("\n")}\n` : "" };
+    return Promise.try(() => {
+      const events: MinimalEvent[] = [...runLines(doc)];
+      if (options.protocol) {
+        events.push(...unmatchedLines(options.protocol));
+        events.push(summaryLine(doc, options.protocol));
+      }
+      const lines = events.map((l) => JSON.stringify(l));
+      return { text: lines.length > 0 ? `${lines.join("\n")}\n` : "" };
+    });
   },
 };

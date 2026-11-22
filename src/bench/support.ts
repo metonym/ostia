@@ -2,9 +2,15 @@ import { statSync } from "node:fs";
 import { rm } from "node:fs/promises";
 import { isAbsolute } from "node:path";
 
+import { processEnv } from "../config/env.ts";
 import { OstiaUsageError } from "../errors.ts";
 import { loadDocument } from "../ir/document.ts";
-import type { Measurement, ProfileDocument, Warning } from "../ir/types.ts";
+import type {
+  Environment,
+  Measurement,
+  ProfileDocument,
+  Warning,
+} from "../ir/types.ts";
 import {
   captureEnvironment,
   noisyMachineWarning,
@@ -23,19 +29,15 @@ export function absolutePath(cwd: string, file: string): string {
 /** A suite file named on the command line or in config doesn't exist. */
 class SuiteNotFoundError extends OstiaUsageError {}
 
-/**
- * Throws `SuiteNotFoundError` unless `absolute` is a file; `given` is the
- * path as the caller wrote it, for the message. */
+// `given` is the path as the caller wrote it, for the message.
 export function assertSuiteExists(given: string, absolute: string): void {
   if (!statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
     throw new SuiteNotFoundError(`Suite not found: ${given}`);
   }
 }
 
-/**
- * A scratch directory under `outDir` no other run shares, so concurrent
- * `bench()`/`ab()` calls (or a rerun after a crash) never delete each
- * other's files. */
+// No other run shares the directory, so concurrent `bench()`/`ab()` calls
+// (or a rerun after a crash) never delete each other's files.
 export function uniqueTmpDir(outDir: string, kind: "bench" | "ab"): string {
   return `${outDir}/${kind}-tmp-${process.pid}-${crypto.randomUUID().slice(0, 8)}`;
 }
@@ -48,22 +50,21 @@ export function removeDir(path: string): Promise<void> {
   return rm(path, { recursive: true, force: true });
 }
 
-/** `undefined` when a runner killed mid-run never wrote its output. */
+// `undefined` when a runner killed mid-run never wrote its output.
 export async function loadIfExists(
   path: string,
 ): Promise<ProfileDocument | undefined> {
   return (await Bun.file(path).exists()) ? loadDocument(path) : undefined;
 }
 
-/** Fresh processes per `--peak-mem` reading; the median is reported. */
+// Fresh processes per `--peak-mem` reading; the median is reported.
 export const PEAK_MEM_PROCESSES = 3;
 // Below this, slack is what any suite that loads fixtures leaves behind
 // (8MB for caligula's) and too common to warn about.
 const PEAK_SLACK_NOISE_BYTES = 16 * 1024 * 1024;
 
-/**
- * A `peak-hidden` warning when memory freed before the call may have
- * hidden part of its peak in `readings` (one task's fresh processes). */
+// Memory freed before the call may have hidden part of its peak in
+// `readings` (one task's fresh processes).
 export function peakHiddenWarning(
   readings: PeakMemResult[],
 ): Warning | undefined {
@@ -77,7 +78,10 @@ export function peakHiddenWarning(
   };
 }
 
-export function captureRunEnvironment(noiseCheck: boolean | undefined) {
+export function captureRunEnvironment(noiseCheck: boolean | undefined): {
+  environment: Environment | undefined;
+  noiseWarning: Warning | undefined;
+} {
   const environment = noiseCheck === false ? undefined : captureEnvironment();
   return {
     environment,
@@ -85,7 +89,6 @@ export function captureRunEnvironment(noiseCheck: boolean | undefined) {
   };
 }
 
-/** Noise warning on the first measurement, `aborted` message on the last. */
 export function stampRunWarnings(
   measurements: Measurement[],
   noiseWarning: Warning | undefined,
@@ -100,28 +103,27 @@ export function stampRunWarnings(
   }
 }
 
-export interface RunnerProcessOptions {
+interface RunnerProcessOptions {
   /** Prefix for error messages, e.g. "Bench suite". */
   label: string;
   /** What the error messages name: the suite file. */
   name: string;
   cwd: string;
-  env?: Record<string, string>;
-  timeoutMs?: number;
-  signal?: AbortSignal;
+  env?: Record<string, string> | undefined;
+  timeoutMs?: number | undefined;
+  signal?: AbortSignal | undefined;
   /** Children to SIGKILL if a sibling fails. */
   inFlight?: Set<Bun.Subprocess>;
   /** Receives the runner's IPC messages. */
-  ipc?: (message: never) => void;
+  ipc?: ((message: never) => void) | undefined;
   /**
    * Where the runner writes why it failed; its text, when present, goes in
    * the error for a non-zero exit. */
   errorFile?: string;
 }
 
-/**
- * Runs one runner subprocess to completion. Resolves `false` when the
- * caller's signal cancelled it (not a failure), `true` on a clean exit. */
+// Resolves `false` when the caller's signal cancelled it (not a failure),
+// `true` on a clean exit.
 export async function runRunnerProcess(
   argv: string[],
   opts: RunnerProcessOptions,
@@ -129,7 +131,7 @@ export async function runRunnerProcess(
   const kill = killSwitch(opts.timeoutMs, opts.signal);
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
-    ...(opts.env && { env: { ...process.env, ...opts.env } }),
+    ...(opts.env && { env: { ...processEnv(), ...opts.env } }),
     stdout: "inherit",
     stderr: "inherit",
     stdin: "ignore",

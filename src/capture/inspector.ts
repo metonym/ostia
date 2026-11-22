@@ -1,11 +1,11 @@
 import type { CpuEvidence } from "../ir/types.ts";
-import { parseCpuProfile, type RawCpuProfile } from "./cpu-parse.ts";
+import { isRawCpuProfile, parseCpuProfile } from "./cpu-parse.ts";
 import {
   DEFAULT_SAMPLING_INTERVAL_US,
   type SamplingOptions,
 } from "./sampling.ts";
 
-export interface InspectorCaptureResult<T> {
+interface InspectorCaptureResult<T> {
   result: T;
   cpu: CpuEvidence;
   diagnosticWallNs: number;
@@ -34,9 +34,10 @@ export async function captureInspectorProfile<T>(
 
     const result = await fn();
 
-    const { profile } = (await session.post("Profiler.stop")) as {
-      profile: RawCpuProfile;
-    };
+    const { profile } = await session.post("Profiler.stop");
+    if (!isRawCpuProfile(profile)) {
+      throw new Error("ostia: the inspector returned no CPU profile");
+    }
     const diagnosticWallNs = Bun.nanoseconds() - start;
     const cpu = parseCpuProfile(profile, "inspector", intervalUs);
     return { result, cpu, diagnosticWallNs };

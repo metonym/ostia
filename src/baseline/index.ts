@@ -3,11 +3,8 @@ import { baselinePath, type OstiaConfig } from "../config/index.ts";
 import { createDocument, loadDocument, saveDocument } from "../ir/document.ts";
 import type { GitMetadata } from "../ir/types.ts";
 
-/**
- * Measures every configured workload and writes it to
- * `<baselineDir>/<name>.json` (default `config.baseline`); returns the
- * path. Always measures fresh: a baseline never holds a cached `ci` run.
- * */
+// Writes to `<baselineDir>/<name>.json` (default `config.baseline`).
+// Always measures fresh: a baseline never holds a cached `ci` run.
 export async function saveBaseline(
   config: OstiaConfig,
   name?: string,
@@ -26,7 +23,7 @@ export async function saveBaseline(
   return path;
 }
 
-export interface BaselineInfo {
+interface BaselineInfo {
   name: string;
   path: string;
   createdAt: string;
@@ -36,9 +33,8 @@ export interface BaselineInfo {
   git?: GitMetadata;
 }
 
-/**
- * Every `<baselineDir>/*.json` that parses as a `ProfileDocument`, sorted
- * by name. A missing `baselineDir` yields an empty list. */
+// Every `<baselineDir>/*.json` that parses as a `ProfileDocument`, sorted
+// by name. A missing `baselineDir` yields an empty list.
 export async function listBaselines(
   config: OstiaConfig,
 ): Promise<BaselineInfo[]> {

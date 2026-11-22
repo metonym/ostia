@@ -7,10 +7,8 @@ const AB_TREES = ".ostia/ab";
 // in `app/(marketing)`.
 const GLOB_CHARS = /[*?[\]{}!]|[@+]\(/;
 
-/**
- * Segments after the pattern's literal prefix, i.e. the part the wildcards
- * chose.
- */
+// Segments after the pattern's literal prefix, i.e. the part the wildcards
+// chose.
 function wildcardSegments(pattern: string, path: string): [string[], string[]] {
   const patternSegs = pattern.split("/");
   const literal = patternSegs.findIndex((s) => GLOB_CHARS.test(s));
@@ -18,11 +16,9 @@ function wildcardSegments(pattern: string, path: string): [string[], string[]] {
   return [patternSegs.slice(from), path.split("/").slice(from)];
 }
 
-/**
- * Paths under `cwd` matching any of `patterns`, relative to `cwd`, deduped
- * and sorted. Dotfiles match (`.github/**`), but wildcards never descend
- * into `node_modules`, `.git` or `.ostia/ab` unless the pattern names that
- * directory itself. */
+// Relative to `cwd`, deduped and sorted. Dotfiles match (`.github/**`),
+// but wildcards never descend into `node_modules`, `.git` or `.ostia/ab`
+// unless the pattern names that directory itself.
 export async function scanGlobs(
   patterns: string[],
   cwd: string,

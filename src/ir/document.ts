@@ -11,6 +11,7 @@ import {
 } from "../spawn/index.ts";
 import { computeTimingStats } from "../stats/index.ts";
 import { TOOL_VERSION } from "../version.ts";
+import { definedFields } from "./defined.ts";
 import { canonicalJSON, fp } from "./fp.ts";
 import { captureGitMetadata } from "./git.ts";
 import type {
@@ -31,12 +32,6 @@ import type {
   Workload,
 } from "./types.ts";
 
-function definedFields<T extends object>(fields: T): Partial<T> {
-  return Object.fromEntries(
-    Object.entries(fields).filter(([, v]) => v !== undefined),
-  ) as Partial<T>;
-}
-
 function measurementId(
   workloadId: string,
   phase: Phase,
@@ -52,6 +47,10 @@ function measurementId(
   );
 }
 
+/**
+ * Builds a document from workloads and their measurements, stamped with
+ * versions, platform, timestamp and git metadata.
+ */
 export function createDocument(
   workloads: Workload[],
   measurements: Measurement[],
@@ -70,16 +69,15 @@ export function createDocument(
   };
 }
 
-export interface SubprocessWorkloadOptions {
+interface SubprocessWorkloadOptions {
   prepare?: PrepareHook;
   timeSource?: TimeSource;
 }
 
-/**
- * `prepare` and `timeSource` join the id only when given, so commands
- * without them keep their old id. A function `prepare` hashes by source
- * text. The id excludes `process.cwd()` so baselines match across
- * checkouts. */
+// `prepare` and `timeSource` join the id only when given, so commands
+// without them keep their old id. A function `prepare` hashes by source
+// text. The id excludes `process.cwd()` so baselines match across
+// checkouts.
 export function makeSubprocessWorkload(
   command: string[],
   label?: string,
@@ -102,14 +100,12 @@ export function makeSubprocessWorkload(
     id,
     kind: "subprocess",
     command,
-    label,
-    ...definedFields({ prepare, timeSource }),
+    ...definedFields({ label, prepare, timeSource }),
   };
 }
 
-/**
- * Without `name` the id hashes the function's name and source, not the
- * values it closes over; `name` replaces both and is the label. */
+// Without `name` the id hashes the function's name and source, not the
+// values it closes over; `name` replaces both and is the label.
 export function makeInprocessWorkload(
   fn: (...args: unknown[]) => unknown,
   name?: string,
@@ -118,10 +114,10 @@ export function makeInprocessWorkload(
     name === undefined
       ? fp("wl", "inprocess", fn.name, fn.toString())
       : fp("wl", "inprocess-named", name);
-  return { id, kind: "inprocess", label: name };
+  return { id, kind: "inprocess", ...definedFields({ label: name }) };
 }
 
-export interface EntryWorkloadOptions {
+interface EntryWorkloadOptions {
   label?: string;
   baseline?: boolean;
   group?: string;
@@ -133,12 +129,11 @@ export interface EntryWorkloadOptions {
   skipped?: boolean;
 }
 
-/**
- * The id hashes the file (cwd-relative, so checkouts match), `taskName`
- * (the registry's "group/name") and `params` when present; `params` joins
- * only when given so tasks without it keep their old id, and a `sweep()`
- * reuses one task name across points. Everything else is annotation and
- * never orphans a baseline. */
+// The id hashes the file (cwd-relative, so checkouts match), `taskName`
+// (the registry's "group/name") and `params` when present; `params` joins
+// only when given so tasks without it keep their old id, and a `sweep()`
+// reuses one task name across points. Everything else is annotation and
+// never orphans a baseline.
 export function makeEntryWorkload(
   file: string,
   taskName: string,
@@ -158,7 +153,7 @@ export function makeEntryWorkload(
   };
 }
 
-export interface TimingMeasurementInput {
+interface TimingMeasurementInput {
   workload: Workload;
   configFingerprint: string;
   trials: Trial[];
@@ -183,16 +178,18 @@ export function makeTimingMeasurement(
     instrumented: false,
     configFingerprint: input.configFingerprint,
     trials: input.trials,
-    timing: input.timing,
+    ...definedFields({ timing: input.timing }),
     warnings: input.warnings,
     artifacts: [],
-    memory: input.heapUsed
-      ? {
-          origin: "heapStats",
-          heapUsedBeforeBytes: input.heapUsed.beforeBytes,
-          heapUsedAfterBytes: input.heapUsed.afterBytes,
-        }
-      : memoryFromTrials(input.trials),
+    ...definedFields({
+      memory: input.heapUsed
+        ? {
+            origin: "heapStats" as const,
+            heapUsedBeforeBytes: input.heapUsed.beforeBytes,
+            heapUsedAfterBytes: input.heapUsed.afterBytes,
+          }
+        : memoryFromTrials(input.trials),
+    }),
     ...definedFields({
       instructions: input.instructions,
       interleaved: input.interleaved,
@@ -235,19 +232,25 @@ export function makeInstrumentedMeasurement(
     instrumented: true,
     configFingerprint: input.configFingerprint,
     trials: [
-      { i: 0, wallNs: input.diagnosticWallNs, exitCode: input.exitCode },
+      {
+        i: 0,
+        wallNs: input.diagnosticWallNs,
+        ...definedFields({ exitCode: input.exitCode }),
+      },
     ],
     diagnosticWallNs: input.diagnosticWallNs,
-    cpu: input.cpu,
-    heap: input.heap,
-    memory: input.memory,
-    jit: input.jit,
+    ...definedFields({
+      cpu: input.cpu,
+      heap: input.heap,
+      memory: input.memory,
+      jit: input.jit,
+    }),
     warnings: input.warnings,
     artifacts: input.artifacts,
   };
 }
 
-export type PairedMeasurementInput = {
+type PairedMeasurementInput = {
   workload: Workload;
   configFingerprint: string;
   diagnosticWallNs: number;
@@ -264,10 +267,8 @@ export type PairedMeasurementInput = {
     }
 );
 
-/**
- * `timing` is the candidate side; `paired` holds the base side and the
- * ratios.
- */
+// `timing` is the candidate side; `paired` holds the base side and the
+// ratios.
 export function makePairedMeasurement(
   input: PairedMeasurementInput,
 ): Measurement {
@@ -310,11 +311,10 @@ export function serializeDocument(doc: ProfileDocument): string {
   return `${canonicalJSON(doc, 2)}\n`;
 }
 
-/**
- * Writes to a unique temp file then renames, so a killed process never
- * leaves a truncated document at `path` and concurrent saves of one path
- * don't share a temp file. Takes serialized text so a caller that already
- * has it can skip `serializeDocument`. */
+// Writes to a unique temp file then renames, so a killed process never
+// leaves a truncated document at `path` and concurrent saves of one path
+// don't share a temp file. Takes serialized text so a caller that already
+// has it can skip `serializeDocument`.
 export async function saveDocumentText(
   text: string,
   path: string,
@@ -329,6 +329,10 @@ export async function saveDocumentText(
   }
 }
 
+/**
+ * Writes a document to `path` atomically: a killed process never leaves a
+ * truncated file.
+ */
 export async function saveDocument(
   doc: ProfileDocument,
   path: string,
@@ -336,6 +340,10 @@ export async function saveDocument(
   await saveDocumentText(serializeDocument(doc), path);
 }
 
+/**
+ * What `loadDocument` throws for a file that isn't JSON, isn't a document,
+ * or has a `schemaVersion` this ostia doesn't read.
+ */
 export class OstiaDocumentError extends Error {
   readonly code: "invalid-json" | "not-a-document" | "unsupported-schema";
   readonly path?: string;
@@ -349,11 +357,15 @@ export class OstiaDocumentError extends Error {
     super(message);
     this.name = "OstiaDocumentError";
     this.code = code;
-    this.path = opts.path;
+    if (opts.path !== undefined) this.path = opts.path;
     this.schemaVersion = opts.schemaVersion;
   }
 }
 
+/**
+ * Reads a document `saveDocument` wrote; throws `OstiaDocumentError`
+ * unless it's valid JSON with `schemaVersion: 2`.
+ */
 export async function loadDocument(path: string): Promise<ProfileDocument> {
   const text = await Bun.file(path).text();
   let raw: unknown;
@@ -368,8 +380,8 @@ export async function loadDocument(path: string): Promise<ProfileDocument> {
     );
   }
   const schemaVersion =
-    raw !== null && typeof raw === "object"
-      ? (raw as { schemaVersion?: unknown }).schemaVersion
+    raw !== null && typeof raw === "object" && "schemaVersion" in raw
+      ? raw.schemaVersion
       : undefined;
   if (typeof schemaVersion !== "number") {
     throw new OstiaDocumentError(
@@ -385,17 +397,19 @@ export async function loadDocument(path: string): Promise<ProfileDocument> {
       { path, schemaVersion },
     );
   }
-  assertDocumentShape(raw as Record<string, unknown>, path);
-  return renamePairedRatioFields(backfillTimingStats(raw as ProfileDocument));
+  assertDocumentShape(raw, path);
+  return renamePairedRatioFields(backfillTimingStats(raw));
 }
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-/**
- * Cheap structural check, so a hand-edited or truncated document fails
- * here with a path and index instead of a TypeError deep in a renderer. */
-function assertDocumentShape(doc: Record<string, unknown>, path: string): void {
+// Cheap structural check, so a hand-edited or truncated document fails
+// here with a path and index instead of a TypeError deep in a renderer.
+function assertDocumentShape(
+  doc: unknown,
+  path: string,
+): asserts doc is ProfileDocument {
   const bad = (what: string) =>
     new OstiaDocumentError(
       "not-a-document",
@@ -404,16 +418,18 @@ function assertDocumentShape(doc: Record<string, unknown>, path: string): void {
         path,
       },
     );
+  // invariant: loadDocument passes an object with a `schemaVersion`.
+  if (!isObject(doc)) throw bad("not an object");
   if (!Array.isArray(doc.workloads)) throw bad(`"workloads" must be an array`);
   if (!Array.isArray(doc.measurements)) {
     throw bad(`"measurements" must be an array`);
   }
-  doc.workloads.forEach((w, i) => {
+  for (const [i, w] of doc.workloads.entries()) {
     if (!isObject(w) || typeof w.id !== "string") {
       throw bad(`workloads[${i}] must be an object with a string "id"`);
     }
-  });
-  doc.measurements.forEach((m, i) => {
+  }
+  for (const [i, m] of doc.measurements.entries()) {
     if (
       !isObject(m) ||
       typeof m.id !== "string" ||
@@ -429,15 +445,21 @@ function assertDocumentShape(doc: Record<string, unknown>, path: string): void {
         throw bad(`measurements[${i}].${key} must be an array`);
       }
     }
-  });
+  }
 }
 
-/**
- * `ab` documents from ostia 0.2.8-0.2.9 name the ratio quartiles
- * `p25`/`p75`, now `ratioP25`/`ratioP75`; read the old names so saved
- * documents still render. Those from before 0.2.12 lack `ab.metric`. */
+// `ab` documents from ostia 0.2.8-0.2.9 name the ratio quartiles
+// `p25`/`p75`, now `ratioP25`/`ratioP75`; read the old names so saved
+// documents still render. Those from before 0.2.12 lack `ab.metric`.
+interface LegacyRatioFields {
+  ratioP25?: unknown;
+  ratioP75?: unknown;
+  p25?: unknown;
+  p75?: unknown;
+}
+
 function renamePairedRatioFields(doc: ProfileDocument): ProfileDocument {
-  const rename = (r: Record<string, unknown>) => {
+  const rename = (r: LegacyRatioFields) => {
     if (r.ratioP25 !== undefined || r.p25 === undefined) return;
     r.ratioP25 = r.p25;
     r.ratioP75 = r.p75;
@@ -446,18 +468,16 @@ function renamePairedRatioFields(doc: ProfileDocument): ProfileDocument {
   };
   for (const m of doc.measurements) {
     if (!m.paired) continue;
-    rename(m.paired as unknown as Record<string, unknown>);
-    for (const r of m.paired.repeats ?? [])
-      rename(r as unknown as Record<string, unknown>);
+    rename(m.paired);
+    for (const r of m.paired.repeats ?? []) rename(r);
   }
   // Before 0.2.12, `ab` judged by time alone.
   if (doc.ab) doc.ab.metric ??= "time";
   return doc;
 }
 
-/**
- * Documents from before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`;
- * recompute them so every consumer sees the full `TimingStats`. */
+// Documents from before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`;
+// recompute them so every consumer sees the full `TimingStats`.
 function backfillTimingStats(doc: ProfileDocument): ProfileDocument {
   for (const m of doc.measurements) {
     const t = m.timing;

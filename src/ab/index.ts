@@ -28,8 +28,10 @@ import {
   stampRunWarnings,
   uniqueTmpDir,
 } from "../bench/support.ts";
+import { nowMs, processEnv } from "../config/env.ts";
 import { type BenchProject, DEFAULT_OUT_DIR } from "../config/index.ts";
-import { OstiaUsageError } from "../errors.ts";
+import { errorMessage, OstiaUsageError } from "../errors.ts";
+import { definedFields } from "../ir/defined.ts";
 import { createDocument, loadDocument } from "../ir/document.ts";
 import { fp } from "../ir/fp.ts";
 import type {
@@ -147,11 +149,10 @@ export class AbBaseError extends OstiaUsageError {}
 /** One side's suite failed outside any task: on import, with no tasks, or
  * while a task's memory was measured. */
 export class AbSuiteError extends Error {
-  constructor(
-    message: string,
-    readonly side: Side,
-  ) {
+  readonly side: Side;
+  constructor(message: string, side: Side) {
     super(message);
+    this.side = side;
   }
 }
 
@@ -161,11 +162,13 @@ export class AbSetupError extends Error {}
 
 const RUNNER_PATH = new URL("./ab-runner.ts", import.meta.url).pathname;
 
+const DEFAULT_METRIC: AbSummary["metric"] = "time";
+
 const DEFAULTS = {
   keepTrees: 5,
   base: "HEAD",
   rounds: 15,
-  metric: "time" as AbSummary["metric"],
+  metric: DEFAULT_METRIC,
   thresholdPct: 10,
   geomeanThresholdPct: 1.5,
   memThresholdPct: 10,
@@ -216,31 +219,30 @@ interface TreeSetup {
    * tree. */
   toplevel: string;
   cwd: string;
-  timeoutMs?: number;
-  signal?: AbortSignal;
-  onProgress?: (progress: AbProgress) => void;
+  timeoutMs?: number | undefined;
+  signal?: AbortSignal | undefined;
+  onProgress?: ((progress: AbProgress) => void) | undefined;
 }
 
-/** Where the base tree for `sha` lives: `<sha>`, or with setup commands,
- * `<sha>-<hash of the commands>`, so changing them builds a new tree. The
- * sha is shortened: code that works on absolute paths costs more on the
- * longer ones, so every character the base tree adds reads as a slowdown.
- * */
+// Where the base tree for `sha` lives: `<sha>`, or with setup commands,
+// `<sha>-<hash of the commands>`, so changing them builds a new tree. The
+// sha is shortened: code that works on absolute paths costs more on the
+// longer ones, so every character the base tree adds reads as a slowdown.
 function treeDir(abDir: string, sha: string, commands: string[]): string {
   const short = sha.slice(0, 12);
   if (commands.length === 0) return `${abDir}/${short}`;
   return `${abDir}/${short}-${fp("ab-setup", commands).slice(-8)}`;
 }
 
-/** Where the base trees of the project at `toplevel` live: inside it, so
- * a bare import walks up to the project's own `node_modules` by its real
- * path, but not under `node_modules`, which code under test (bundler
- * plugins, resolvers, globbers) often skips or treats differently. */
+// Where the base trees of the project at `toplevel` live: inside it, so
+// a bare import walks up to the project's own `node_modules` by its real
+// path, but not under `node_modules`, which code under test (bundler
+// plugins, resolvers, globbers) often skips or treats differently.
 export function abTreesDir(toplevel: string): string {
   return `${toplevel}/.ostia/ab`;
 }
 
-/** Keeps git, and tools that read `.gitignore`, out of the base trees. */
+// Keeps git, and tools that read `.gitignore`, out of the base trees.
 function ignoreTrees(abDir: string): void {
   if (existsSync(`${abDir}/.gitignore`)) return;
   mkdirSync(abDir, { recursive: true });
@@ -254,8 +256,8 @@ const SETUP_OUTPUT_BYTES = 64 * 1024;
 // killed. Only a descendant that left the group can hold it open longer.
 const SETUP_DRAIN_MS = 1000;
 
-/** Reads `stream` as text in the background, keeping its last
- * `SETUP_OUTPUT_BYTES`. `stop()` cancels the read and returns the text. */
+// Reads `stream` as text in the background, keeping its last
+// `SETUP_OUTPUT_BYTES`. `stop()` cancels the read and returns the text.
 function readTail(stream: ReadableStream<Uint8Array>): {
   done: Promise<void>;
   stop: () => Promise<string>;
@@ -286,9 +288,9 @@ function readTail(stream: ReadableStream<Uint8Array>): {
   };
 }
 
-/** Runs one setup command in its own process group. A timeout, a cancel,
- * or the command's own exit kills the whole group, so no child it started
- * can hold the output pipes open or write into the tree later. */
+// Runs one setup command in its own process group. A timeout, a cancel,
+// or the command's own exit kills the whole group, so no child it started
+// can hold the output pipes open or write into the tree later.
 async function runSetupCommand(
   command: string,
   dir: string,
@@ -341,11 +343,11 @@ async function runSetupCommand(
   }
 }
 
-/** Runs `setup.commands` in the extracted tree at `tree`. Build scripts
- * often read `./node_modules/...` by relative path, which walking up to
- * the project's `node_modules` doesn't satisfy, so the project's is linked
- * into the tree while they run and unlinked before the salt pass. Returns
- * false when `signal` aborted a command. */
+// Runs `setup.commands` in the extracted tree at `tree`. Build scripts
+// often read `./node_modules/...` by relative path, which walking up to
+// the project's `node_modules` doesn't satisfy, so the project's is linked
+// into the tree while they run and unlinked before the salt pass. Returns
+// false when `signal` aborted a command.
 async function runSetup(
   tree: string,
   sha: string,
@@ -370,7 +372,7 @@ async function runSetup(
       const { exitCode, timedOut, output } = await runSetupCommand(
         command,
         dir,
-        { ...process.env, OSTIA_AB_SHA: sha, OSTIA_AB_CANDIDATE_DIR: cwd },
+        { ...processEnv(), OSTIA_AB_SHA: sha, OSTIA_AB_CANDIDATE_DIR: cwd },
         setup,
       );
       if (setup.signal?.aborted) return false;
@@ -389,12 +391,12 @@ async function runSetup(
   }
 }
 
-/** The committed tree at `sha`, extracted once under `dir` and reused by
- * every later run against the same commit (and setup commands), with each
- * script salted (see `BASE_SALT`). Extracted and set up in a temp
- * directory and renamed into place, so a directory at `dir` is always
- * complete; a failed or cancelled setup leaves nothing behind. Returns
- * false when `setup.signal` aborted a setup command. */
+// The committed tree at `sha`, extracted once under `dir` and reused by
+// every later run against the same commit (and setup commands), with each
+// script salted (see `BASE_SALT`). Extracted and set up in a temp
+// directory and renamed into place, so a directory at `dir` is always
+// complete; a failed or cancelled setup leaves nothing behind. Returns
+// false when `setup.signal` aborted a setup command.
 async function extractTree(
   sha: string,
   dir: string,
@@ -451,12 +453,12 @@ function pidAlive(pid: number): boolean {
     process.kill(pid, 0);
     return true;
   } catch (err) {
-    return (err as NodeJS.ErrnoException).code === "EPERM";
+    return err instanceof Error && "code" in err && err.code === "EPERM";
   }
 }
 
-/** Marks a base tree as just used: pruning goes by modification time,
- * which, unlike access time, every filesystem keeps. */
+// Marks a base tree as just used: pruning goes by modification time,
+// which, unlike access time, every filesystem keeps.
 function touchTree(dir: string): void {
   const now = new Date();
   try {
@@ -466,12 +468,12 @@ function touchTree(dir: string): void {
   }
 }
 
-/** Removes base trees under `abDir` past the `keep` most recently used,
- * except any used in the last hour, and temp directories whose process has
- * exited. Returns how many it removed. */
+// Removes base trees under `abDir` past the `keep` most recently used,
+// except any used in the last hour, and temp directories whose process has
+// exited. Returns how many it removed.
 async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   if (!existsSync(abDir)) return 0;
-  const now = Date.now();
+  const now = nowMs();
   const doomed: string[] = [];
   const trees: { path: string; mtimeMs: number }[] = [];
   for (const name of readdirSync(abDir)) {
@@ -501,8 +503,8 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
 // directory for one.
 const LEGACY_TREE = /^[0-9a-f]{40}(?:-[0-9a-f]{8})?(?:\.tmp-\d+(?:-\w+)?)?$/;
 
-/** Removes the base trees left under `dir` by earlier versions, and `dir`
- * once nothing else is in it. Returns how many it removed. */
+// Removes the base trees left under `dir` by earlier versions, and `dir`
+// once nothing else is in it. Returns how many it removed.
 async function removeLegacyTrees(dir: string): Promise<number> {
   if (!existsSync(dir)) return 0;
   const names = readdirSync(dir);
@@ -512,9 +514,9 @@ async function removeLegacyTrees(dir: string): Promise<number> {
   return trees.length;
 }
 
-/** Removes every base tree `ab()` has cached for the project at `cwd`,
- * and any left under `<outDir>/ab`, where they were cached before. Returns
- * how many there were. */
+// Removes every base tree `ab()` has cached for the project at `cwd`,
+// and any left under `<outDir>/ab`, where they were cached before. Returns
+// how many there were.
 export async function cleanAbTrees(
   opts: { outDir?: string; cwd?: string } = {},
 ): Promise<number> {
@@ -531,15 +533,61 @@ export async function cleanAbTrees(
   return count;
 }
 
-/** Puts a task's memory readings on its measurement: the median of each
- * side's processes, judged against the base's. */
+// A memory process asked for a reading always writes it.
+function reading<T>(value: T | undefined, what: string): T {
+  if (value === undefined) {
+    throw new Error(`ab: a memory process wrote no ${what} reading`);
+  }
+  return value;
+}
+
+const isRecord = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+// The parse steps for what a runner process writes.
+function isMemoryResult(v: unknown): v is AbMemoryResult {
+  if (!isRecord(v)) return false;
+  const { peak, alloc } = v;
+  return (
+    (peak === undefined ||
+      (isRecord(peak) &&
+        typeof peak.peakBytes === "number" &&
+        typeof peak.slackBytes === "number" &&
+        typeof peak.wallNs === "number")) &&
+    (alloc === undefined ||
+      (isRecord(alloc) &&
+        typeof alloc.bytesPerOp === "number" &&
+        typeof alloc.calls === "number"))
+  );
+}
+
+function isRunnerPlan(v: unknown): v is AbRunnerPlan {
+  return (
+    isRecord(v) &&
+    Array.isArray(v.memory) &&
+    v.memory.every(
+      (m) =>
+        isRecord(m) &&
+        typeof m.workloadId === "string" &&
+        typeof m.alloc === "boolean" &&
+        typeof m.peakMem === "boolean",
+    )
+  );
+}
+
+function isSide(v: string): v is Side {
+  return v === "base" || v === "cand";
+}
+
+// Puts a task's memory readings on its measurement: the median of each
+// side's processes, judged against the base's.
 function judgeMemory(
   m: Measurement,
+  p: PairedEvidence,
   task: AbMemoryTask,
   readings: Record<Side, AbMemoryResult[]>,
   thresholdPct: number,
 ): void {
-  const p = m.paired!;
   const all = [...readings.base, ...readings.cand];
   const judge = (read: (r: AbMemoryResult) => number, floorBytes: number) => {
     const change = memoryChange(
@@ -552,30 +600,30 @@ function judgeMemory(
     return change;
   };
   if (task.alloc) {
-    const calls = Math.min(...all.map((r) => r.alloc!.calls));
+    const calls = Math.min(...all.map((r) => reading(r.alloc, "alloc").calls));
     p.retained = judge(
-      (r) => r.alloc!.bytesPerOp,
+      (r) => reading(r.alloc, "alloc").bytesPerOp,
       RETAINED_NOISE_BYTES / calls,
     );
   }
   if (task.peakMem) {
-    const peaks = all.map((r) => r.peak!);
+    const peaks = all.map((r) => reading(r.peak, "peak"));
     // Memory freed before the call can hide up to that much of its peak.
     const warning = peakHiddenWarning(peaks);
     const slack = Math.max(...peaks.map((r) => r.slackBytes));
     p.peak = judge(
-      (r) => r.peak!.peakBytes,
+      (r) => reading(r.peak, "peak").peakBytes,
       warning ? Math.max(PEAK_NOISE_BYTES, slack) : PEAK_NOISE_BYTES,
     );
     if (warning) m.warnings.push(warning);
   }
 }
 
-/** Pools a suite's base-first run `a` with its candidate-first run `b`. The
- * side that goes first in a process can run several percent faster, the
- * same way every time, so one order alone reads as a change on identical
- * code; pooled, the bias pulls both ways and cancels. A throw in either
- * run counts. */
+// Pools a suite's base-first run `a` with its candidate-first run `b`. The
+// side that goes first in a process can run several percent faster, the
+// same way every time, so one order alone reads as a change on identical
+// code; pooled, the bias pulls both ways and cancels. A throw in either
+// run counts.
 export function poolOrders(
   a: ProfileDocument,
   b: ProfileDocument,
@@ -639,9 +687,9 @@ export function poolOrders(
   return { ...a, measurements: pooled };
 }
 
-/** `metric`'s median ratio over the main run and any fresh-process repeats,
- * so one process's JIT luck moves the geomean less; undefined when the
- * task has no `metric` reading. */
+// `metric`'s median ratio over the main run and any fresh-process repeats,
+// so one process's JIT luck moves the geomean less; undefined when the
+// task has no `metric` reading.
 function ratioEstimate(
   p: PairedEvidence,
   metric: AbSummary["metric"],
@@ -771,7 +819,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       throw new RangeError(`ab: ${key} must be >= 0, got ${value}`);
     }
   }
-  assertSamplingOptions("ab", { timeoutMs: opts.timeoutMs });
+  assertSamplingOptions("ab", definedFields({ timeoutMs: opts.timeoutMs }));
 
   const cwd = opts.cwd ?? process.cwd();
   const absOutDir = absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR);
@@ -779,8 +827,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
   // Same path join as `bench()`, so workload ids match `ostia bench`'s.
   const candSuites = opts.suites.map((file) => absolutePath(cwd, file));
-  for (const [i, suite] of candSuites.entries()) {
-    assertSuiteExists(opts.suites[i]!, suite);
+  for (const file of opts.suites) {
+    assertSuiteExists(file, absolutePath(cwd, file));
   }
 
   const toplevel = git(["rev-parse", "--show-toplevel"], cwd);
@@ -849,21 +897,34 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
   const onProgress = opts.onProgress;
   let spawned = 0;
-  /** Runs the A/B runner on suite `s`; resolves with its output path, or
-   * undefined when cancelled. */
+  // Runs the A/B runner on suite `s`; resolves with its output path, or
+  // undefined when cancelled.
   const runRunner = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
     env?: Record<string, string>,
   ): Promise<string | undefined> => {
+    const candSuite = candSuites[s];
+    const baseSuite = baseSuites[s];
+    const launch = launches[s];
+    const file = opts.suites[s];
+    // invariant: `s` indexes every per-suite array.
+    if (
+      candSuite === undefined ||
+      baseSuite === undefined ||
+      launch === undefined ||
+      file === undefined
+    ) {
+      throw new Error(`ab: no suite ${s}`);
+    }
     touchTree(checkout);
-    const outPath = `${tmpDir}/${fp("ab-run", candSuites[s]!, spawned++)}.json`;
+    const outPath = `${tmpDir}/${fp("ab-run", candSuite, spawned++)}.json`;
     const runnerOpts: AbRunnerOpts = {
-      filter: opts.filter,
+      ...definedFields({ filter: opts.filter }),
       rounds,
       thresholdPct,
       metric,
-      preload: launches[s]!.preload,
+      preload: launch.preload,
       // Per task only on the first pass; repeats report themselves.
       progress:
         onProgress !== undefined && !extra.workloadIds && !extra.memoryFor,
@@ -874,20 +935,22 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       ran = await runRunnerProcess(
         [
           "bun",
-          ...launches[s]!.bunFlags,
+          ...launch.bunFlags,
           RUNNER_PATH,
-          candSuites[s]!,
-          baseSuites[s]!,
+          candSuite,
+          baseSuite,
           outPath,
           JSON.stringify(runnerOpts),
         ],
         {
           cwd,
           label: "A/B suite",
-          name: opts.suites[s]!,
-          timeoutMs: opts.timeoutMs,
-          signal: opts.signal,
-          env,
+          name: file,
+          ...definedFields({
+            timeoutMs: opts.timeoutMs,
+            signal: opts.signal,
+            env,
+          }),
           // The runner names the side that failed to load, when that's why.
           errorFile: `${outPath}.error`,
           ...(runnerOpts.progress && {
@@ -896,7 +959,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
                 phase: "measure",
                 suite: s + 1,
                 suites: candSuites.length,
-                file: opts.suites[s]!,
+                file,
                 pass: extra.candFirst ? 2 : 1,
                 passes: 2,
                 ...message,
@@ -905,17 +968,16 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         },
       );
     } catch (err) {
-      const side = Bun.file(`${outPath}.side`);
-      if (!(await side.exists())) throw err;
-      throw new AbSuiteError(
-        (err as Error).message,
-        (await side.text()) as Side,
-      );
+      const sideFile = Bun.file(`${outPath}.side`);
+      if (!(await sideFile.exists())) throw err;
+      const side = await sideFile.text();
+      if (!isSide(side)) throw err;
+      throw new AbSuiteError(errorMessage(err), side);
     }
     return ran ? outPath : undefined;
   };
-  /** Runs suite `s` twice, base first and then candidate first, splitting
-   * the rounds, and pools the two; undefined when cancelled. */
+  // Runs suite `s` twice, base first and then candidate first, splitting
+  // the rounds, and pools the two; undefined when cancelled.
   const runSuite = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
@@ -925,9 +987,10 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       rounds: Math.ceil(rounds / 2),
     });
     if (!first) return undefined;
+    // The plan is the first pass's to write.
+    const { planPath: _planPath, ...secondExtra } = extra;
     const second = await runRunner(s, {
-      ...extra,
-      planPath: undefined,
+      ...secondExtra,
       rounds: Math.floor(rounds / 2),
       candFirst: true,
     });
@@ -947,15 +1010,17 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     const baseOnly: string[] = [];
     const candOnly: string[] = [];
     const wantsMemory: (AbMemoryTask & { suite: number })[] = [];
-    for (let s = 0; s < candSuites.length; s++) {
-      const planPath = `${tmpDir}/${fp("ab-plan", candSuites[s]!)}.json`;
+    for (const [s, candSuite] of candSuites.entries()) {
+      const planPath = `${tmpDir}/${fp("ab-plan", candSuite)}.json`;
       const doc = await runSuite(s, {
-        alloc: opts.alloc,
-        peakMem: opts.peakMem,
+        ...definedFields({ alloc: opts.alloc, peakMem: opts.peakMem }),
         planPath,
       });
       if (!doc) break;
-      const plan: AbRunnerPlan = await Bun.file(planPath).json();
+      const plan: unknown = await Bun.file(planPath).json();
+      if (!isRunnerPlan(plan)) {
+        throw new Error(`ab: ${planPath} isn't a runner plan`);
+      }
       for (const m of plan.memory) wantsMemory.push({ ...m, suite: s });
       workloads.push(...doc.workloads);
       measurements.push(...doc.measurements);
@@ -975,16 +1040,20 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       candOnly.push(...(doc.unmatched?.candOnly ?? []));
     }
 
-    const toConfirm = measurements.filter(
-      (m) => m.paired?.flagged && confirm > 0 && comparable(m.paired),
-    );
+    const toConfirm = measurements.flatMap((m) => {
+      const p = m.paired;
+      return p?.flagged && confirm > 0 && comparable(p)
+        ? [{ m, p, flagged: p.flagged }]
+        : [];
+    });
     const labelOf = new Map(
       workloads.map((w) => [w.id, w.entry?.task ?? w.id]),
     );
     let started = 0;
-    for (const m of toConfirm) {
-      const p = m.paired!;
-      const flagged = p.flagged!;
+    for (const { m, p, flagged } of toConfirm) {
+      const s = suiteOf.get(m.workloadId);
+      // invariant: every measurement's suite was recorded above.
+      if (s === undefined) throw new Error(`ab: no suite for ${m.workloadId}`);
       p.repeats = [];
       for (let r = 0; r < confirm && !opts.signal?.aborted; r++) {
         onProgress?.({
@@ -993,7 +1062,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
           repeats: toConfirm.length * confirm,
           label: labelOf.get(m.workloadId) ?? m.workloadId,
         });
-        const doc = await runSuite(suiteOf.get(m.workloadId)!, {
+        const doc = await runSuite(s, {
           workloadIds: [m.workloadId],
         });
         const run = doc?.measurements[0];
@@ -1057,7 +1126,12 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
             // before the measured call does.
             peakMem ? { OSTIA_PEAK_MEM: "1" } : undefined,
           );
-          if (outPath) readings[side].push(await Bun.file(outPath).json());
+          if (!outPath) continue;
+          const result: unknown = await Bun.file(outPath).json();
+          if (!isMemoryResult(result)) {
+            throw new Error(`ab: ${outPath} isn't a memory reading`);
+          }
+          readings[side].push(result);
         }
       }
       return readings;
@@ -1065,8 +1139,10 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     for (const task of memoryTasks) {
       const readings = await readMemory(task);
       if (readings.base.length === 0 || readings.cand.length === 0) continue;
-      const m = byWorkload.get(task.workloadId)!;
-      judgeMemory(m, task, readings, memThresholdPct);
+      const m = byWorkload.get(task.workloadId);
+      // invariant: memoryTasks holds only tasks with a paired measurement.
+      if (!m?.paired) continue;
+      judgeMemory(m, m.paired, task, readings, memThresholdPct);
     }
 
     stampRunWarnings(

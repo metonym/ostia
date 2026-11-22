@@ -1,7 +1,7 @@
 import type { CpuEvidence, Measurement, ProfileDocument } from "../ir/types.ts";
 import type { RenderResult, VizOptions } from "./types.ts";
 
-export type CpuRun = Measurement & { cpu: CpuEvidence };
+type CpuRun = Measurement & { cpu: CpuEvidence };
 
 function hasCpu(m: Measurement): m is CpuRun {
   return m.cpu !== undefined;
@@ -20,7 +20,6 @@ export function selectCpuRuns(
   );
 }
 
-/** One file per selected CPU run, named `<measurement id>.<ext>`. */
 export function renderCpuFiles(
   doc: ProfileDocument,
   options: VizOptions,
@@ -46,7 +45,7 @@ export function buildParentMap(cpu: CpuEvidence): Map<number, number> {
 export function findRootId(cpu: CpuEvidence): number | undefined {
   const tree = buildDenseTree(cpu);
   const rootIx = tree.roots[0];
-  return rootIx === undefined ? undefined : cpu.nodes[rootIx]!.id;
+  return rootIx === undefined ? undefined : cpu.nodes[rootIx]?.id;
 }
 
 export function pathToRoot(
@@ -54,21 +53,23 @@ export function pathToRoot(
   parentOf: Map<number, number>,
 ): number[] {
   const path = [nodeId];
-  let current = nodeId;
-  while (parentOf.has(current)) {
-    current = parentOf.get(current)!;
-    path.push(current);
+  for (
+    let parent = parentOf.get(nodeId);
+    parent !== undefined;
+    parent = parentOf.get(parent)
+  ) {
+    path.push(parent);
   }
   return path.reverse();
 }
 
-export interface NodeTimes {
+interface NodeTimes {
   selfUs: number;
   totalUs: number;
   samples: number;
 }
 
-export interface DenseTree {
+interface DenseTree {
   count: number;
   indexOf: (id: number) => number;
   parentIx: Int32Array;
@@ -82,23 +83,23 @@ export function buildDenseTree(cpu: CpuEvidence): DenseTree {
   const indexOf = makeIndexer(cpu);
 
   const parentIx = new Int32Array(count).fill(-1);
-  for (let i = 0; i < count; i++) {
-    for (const childId of nodes[i]!.children) {
+  let ix = 0;
+  for (const node of nodes) {
+    for (const childId of node.children) {
       const c = indexOf(childId);
-      if (c !== -1) parentIx[c] = i;
+      if (c !== -1) parentIx[c] = ix;
     }
+    ix++;
   }
 
   const roots: number[] = [];
   for (let i = 0; i < count; i++) if (parentIx[i] === -1) roots.push(i);
 
   const order: number[] = [];
-  const stack: number[] = [];
-  for (let r = roots.length - 1; r >= 0; r--) stack.push(roots[r]!);
-  while (stack.length > 0) {
-    const i = stack.pop()!;
+  const stack = roots.toReversed();
+  for (let i = stack.pop(); i !== undefined; i = stack.pop()) {
     order.push(i);
-    for (const childId of nodes[i]!.children) {
+    for (const childId of nodes[i]?.children ?? []) {
       const c = indexOf(childId);
       if (c !== -1 && parentIx[c] === i) stack.push(c);
     }
@@ -113,8 +114,7 @@ function makeIndexer(cpu: CpuEvidence): (id: number) => number {
   let min = Infinity;
   let max = -Infinity;
   let integral = true;
-  for (let i = 0; i < count; i++) {
-    const id = nodes[i]!.id;
+  for (const { id } of nodes) {
     if (!Number.isInteger(id)) {
       integral = false;
       break;
@@ -125,18 +125,20 @@ function makeIndexer(cpu: CpuEvidence): (id: number) => number {
   if (integral && count > 0 && max - min < count * 4 + 64) {
     const span = max - min + 1;
     const table = new Int32Array(span).fill(-1);
-    for (let i = 0; i < count; i++) table[nodes[i]!.id - min] = i;
+    let ix = 0;
+    for (const node of nodes) table[node.id - min] = ix++;
     return (id) => {
       const k = id - min;
-      return k >= 0 && k < span ? table[k]! : -1;
+      return k >= 0 && k < span ? (table[k] ?? -1) : -1;
     };
   }
   const byId = new Map<number, number>();
-  for (let i = 0; i < count; i++) byId.set(nodes[i]!.id, i);
+  let ix = 0;
+  for (const node of nodes) byId.set(node.id, ix++);
   return (id) => byId.get(id) ?? -1;
 }
 
-export interface DenseNodeTimes {
+interface DenseNodeTimes {
   selfUs: Float64Array;
   totalUs: Float64Array;
   samples: Float64Array;
@@ -152,18 +154,22 @@ export function computeDenseNodeTimes(
   const nodeIds = cpu.samples?.nodeIds ?? [];
   const deltas = cpu.samples?.timeDeltasUs ?? [];
   for (let i = 0; i < nodeIds.length; i++) {
-    const ix = indexOf(nodeIds[i]!);
+    const id = nodeIds[i];
+    if (id === undefined) continue;
+    const ix = indexOf(id);
     if (ix === -1) continue;
-    selfUs[ix]! += deltas[i] ?? 0;
-    samples[ix]! += 1;
+    selfUs[ix] = (selfUs[ix] ?? 0) + (deltas[i] ?? 0);
+    samples[ix] = (samples[ix] ?? 0) + 1;
   }
 
   const totalUs = new Float64Array(count);
   for (let k = order.length - 1; k >= 0; k--) {
-    const i = order[k]!;
-    totalUs[i]! += selfUs[i]!;
-    const p = parentIx[i]!;
-    if (p >= 0) totalUs[p]! += totalUs[i]!;
+    const i = order[k];
+    if (i === undefined) continue;
+    const total = (totalUs[i] ?? 0) + (selfUs[i] ?? 0);
+    totalUs[i] = total;
+    const p = parentIx[i] ?? -1;
+    if (p >= 0) totalUs[p] = (totalUs[p] ?? 0) + total;
   }
   return { selfUs, totalUs, samples };
 }
@@ -172,12 +178,14 @@ export function computeNodeTimes(cpu: CpuEvidence): Map<number, NodeTimes> {
   const tree = buildDenseTree(cpu);
   const { selfUs, totalUs, samples } = computeDenseNodeTimes(cpu, tree);
   const times = new Map<number, NodeTimes>();
-  for (let i = 0; i < tree.count; i++) {
-    times.set(cpu.nodes[i]!.id, {
-      selfUs: selfUs[i]!,
-      totalUs: totalUs[i]!,
-      samples: samples[i]!,
+  let i = 0;
+  for (const node of cpu.nodes) {
+    times.set(node.id, {
+      selfUs: selfUs[i] ?? 0,
+      totalUs: totalUs[i] ?? 0,
+      samples: samples[i] ?? 0,
     });
+    i++;
   }
   return times;
 }

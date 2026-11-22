@@ -27,6 +27,7 @@ import {
 } from "../config/index.ts";
 import { errorMessage } from "../errors.ts";
 import { type CommandSpec, time } from "../index.ts";
+import { definedFields } from "../ir/defined.ts";
 import {
   loadDocument,
   OstiaDocumentError,
@@ -81,10 +82,8 @@ import {
 
 const isHelpArg = (arg: string | undefined) => arg === "--help" || arg === "-h";
 
-/**
- * Runs `run` with SIGINT wired to its `AbortSignal`, so Ctrl-C cancels
- * cleanly with partial results.
- */
+// Runs `run` with SIGINT wired to its `AbortSignal`, so Ctrl-C cancels
+// cleanly with partial results.
 async function withSigintAbort<T>(
   failure: string,
   run: (signal: AbortSignal) => Promise<T>,
@@ -102,10 +101,8 @@ async function withSigintAbort<T>(
   }
 }
 
-/**
- * `--config PATH`, else discovery (`undefined` when it finds nothing); a
- * `--config` path that doesn't exist is `config-missing`.
- */
+// `--config PATH`, else discovery (`undefined` when it finds nothing); a
+// `--config` path that doesn't exist is `config-missing`.
 async function loadProjectConfig(
   configPath?: string,
 ): Promise<OstiaConfig | undefined> {
@@ -119,10 +116,8 @@ async function loadProjectConfig(
   return config;
 }
 
-/**
- * Loads the project config; with `needsWorkloadsFor`, also requires at
- * least one workload.
- */
+// Loads the project config; with `needsWorkloadsFor`, also requires at
+// least one workload.
 async function requireConfig(
   needsWorkloadsFor?: string,
   configPath?: string,
@@ -148,7 +143,7 @@ async function requireConfig(
   return config;
 }
 
-/** compare/ab/ci exit code: 2 nothing matched, 1 gate failed, 0 pass. */
+// compare/ab/ci exit code: 2 nothing matched, 1 gate failed, 0 pass.
 function gateExitCode(summary: { matched: number; verdict: string }): number {
   return summary.matched === 0 ? 2 : summary.verdict === "fail" ? 1 : 0;
 }
@@ -260,12 +255,17 @@ async function timeCommand(argv: string[]): Promise<number> {
   }
   const timeSource: TimeSource | undefined =
     parsed.timeSource !== undefined
-      ? { pattern: parsed.timeSource, unit: parsed.timeUnit }
+      ? {
+          pattern: parsed.timeSource,
+          ...definedFields({ unit: parsed.timeUnit }),
+        }
       : undefined;
   const commands: CommandSpec[] = commandList.map((command, i) => ({
     command,
-    prepare:
-      parsed.prepare.length === 1 ? parsed.prepare[0] : parsed.prepare[i],
+    ...definedFields({
+      prepare:
+        parsed.prepare.length === 1 ? parsed.prepare[0] : parsed.prepare[i],
+    }),
   }));
 
   const { result: doc, aborted } = await withSigintAbort(
@@ -273,19 +273,21 @@ async function timeCommand(argv: string[]): Promise<number> {
     (signal) =>
       time({
         commands,
-        timeSource,
-        samples: parsed.samples,
-        budgetMs: parsed.budgetMs,
-        minSamples: parsed.minSamples,
-        warmup: parsed.warmup,
-        interleave: parsed.interleave,
-        cpu: parsed.cpu,
-        heap: parsed.heap,
-        cpuIntervalUs: parsed.cpuIntervalUs,
-        timeoutMs: parsed.timeoutMs,
-        ignoreExitCodes: parsed.ignoreExitCodes,
-        outDir: parsed.outDir,
-        noiseCheck: parsed.noiseCheck,
+        ...definedFields({
+          timeSource,
+          samples: parsed.samples,
+          budgetMs: parsed.budgetMs,
+          minSamples: parsed.minSamples,
+          warmup: parsed.warmup,
+          interleave: parsed.interleave,
+          cpu: parsed.cpu,
+          heap: parsed.heap,
+          cpuIntervalUs: parsed.cpuIntervalUs,
+          timeoutMs: parsed.timeoutMs,
+          ignoreExitCodes: parsed.ignoreExitCodes,
+          outDir: parsed.outDir,
+          noiseCheck: parsed.noiseCheck,
+        }),
         signal,
       }),
   );
@@ -431,7 +433,7 @@ const AB_FLAGS = {
   "--no-progress": flag.off("progress"),
 };
 
-/** `[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex` */
+// `[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex`
 function formatAbProgress(p: AbProgress): string {
   switch (p.phase) {
     case "setup":
@@ -445,11 +447,10 @@ function formatAbProgress(p: AbProgress): string {
   }
 }
 
-/**
- * Progress lines on stderr, so stdout stays the report alone. On a
- * terminal, each line replaces the last, and `done()` clears it before the
- * report prints; elsewhere (a log, an agent reading a pipe), one line
- * each. Synchronous writes, so lines never interleave out of order. */
+// Progress lines on stderr, so stdout stays the report alone. On a
+// terminal, each line replaces the last, and `done()` clears it before the
+// report prints; elsewhere (a log, an agent reading a pipe), one line
+// each. Synchronous writes, so lines never interleave out of order.
 function progressWriter(tty: boolean): {
   onProgress: (p: AbProgress) => void;
   done: () => void;
@@ -496,9 +497,9 @@ async function abCommand(argv: string[]): Promise<number> {
 
   const config = await loadProjectConfig(parsed.config);
   if (parsed.clean) {
-    const removed = await cleanAbTrees({
-      outDir: parsed.outDir ?? config?.bench?.outDir,
-    });
+    const removed = await cleanAbTrees(
+      definedFields({ outDir: parsed.outDir ?? config?.bench?.outDir }),
+    );
     if (!parsed.quiet) {
       await Bun.write(Bun.stderr, `Removed ${removed} cached base tree(s).\n`);
     }
@@ -531,28 +532,32 @@ async function abCommand(argv: string[]): Promise<number> {
       try {
         return await ab({
           suites,
-          base: parsed.base,
-          baseSetup:
-            parsed.baseSetup.length > 0 ? parsed.baseSetup : config?.ab?.setup,
-          rounds: parsed.rounds,
-          metric: parsed.metric ?? config?.ab?.metric,
-          thresholdPct: parsed.thresholdPct,
-          geomeanThresholdPct: parsed.geomeanThresholdPct,
-          confirm: parsed.confirm,
-          alloc: parsed.alloc ?? config?.ab?.alloc,
-          peakMem: parsed.peakMem ?? config?.ab?.peakMem,
-          memThresholdPct:
-            parsed.memThresholdPct ?? config?.ab?.memThresholdPct,
-          filter,
-          preload,
-          bunFlags,
-          projects,
-          timeoutMs,
-          outDir,
-          keepTrees: parsed.keepTrees ?? config?.ab?.keepTrees,
-          noiseCheck,
+          ...definedFields({
+            base: parsed.base,
+            baseSetup:
+              parsed.baseSetup.length > 0
+                ? parsed.baseSetup
+                : config?.ab?.setup,
+            rounds: parsed.rounds,
+            metric: parsed.metric ?? config?.ab?.metric,
+            thresholdPct: parsed.thresholdPct,
+            geomeanThresholdPct: parsed.geomeanThresholdPct,
+            confirm: parsed.confirm,
+            alloc: parsed.alloc ?? config?.ab?.alloc,
+            peakMem: parsed.peakMem ?? config?.ab?.peakMem,
+            memThresholdPct:
+              parsed.memThresholdPct ?? config?.ab?.memThresholdPct,
+            filter,
+            preload,
+            bunFlags,
+            projects,
+            timeoutMs,
+            outDir,
+            keepTrees: parsed.keepTrees ?? config?.ab?.keepTrees,
+            noiseCheck,
+          }),
           signal,
-          onProgress: progress?.onProgress,
+          ...definedFields({ onProgress: progress?.onProgress }),
         });
       } catch (err) {
         if (err instanceof AbBaseError) {
@@ -571,7 +576,9 @@ async function abCommand(argv: string[]): Promise<number> {
     },
   );
 
-  const summary = doc.ab!;
+  const summary = doc.ab;
+  // invariant: ab() stamps its summary on every document it returns.
+  if (!summary) throw new Error("ostia ab: the document has no ab summary");
   // Computed before rendering: `minimal`'s trailing `summary` event carries
   // it. A task that threw ran on both sides, so it counts as paired here.
   const exitCode = aborted
@@ -688,8 +695,7 @@ async function compareCommand(argv: string[]): Promise<number> {
       command: "compare",
       exitCode,
       unmatched: result.unmatched,
-      baseGit: base.git,
-      candGit: cand.git,
+      ...definedFields({ baseGit: base.git, candGit: cand.git }),
       ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
     } satisfies MinimalProtocolContext,
   });
@@ -739,12 +745,12 @@ function parseReportArgs(argv: string[]): ReportArgs {
 const NO_CPU_EVIDENCE =
   "No CPU evidence in this document; rerun with --cpu (ostia time) or --cpu (ostia bench)";
 
-/** Renders `path`; shared by `report` and `baseline show`. */
+// Renders `path`; shared by `report` and `baseline show`.
 async function renderReport(
   path: string,
   { format, measurementId, outDir }: ReportArgs,
 ): Promise<number> {
-  const viz = (VIZ_FORMATS as readonly string[]).includes(format);
+  const viz = VIZ_FORMATS.some((f) => f === format);
   const inapplicable = [
     measurementId !== undefined && "--measurement",
     outDir !== undefined && "--out-dir",
@@ -769,7 +775,10 @@ async function renderReport(
     throw new CliError("no-cpu-evidence", NO_CPU_EVIDENCE);
   }
 
-  const result = await renderers[format].render(doc, { measurementId });
+  const result = await renderers[format].render(
+    doc,
+    definedFields({ measurementId }),
+  );
   if (!result.text && (!result.files || result.files.length === 0)) {
     throw new CliError(
       "no-cpu-evidence",
@@ -811,11 +820,9 @@ function parseCiArgs(argv: string[]): CiArgs {
 const baselineMissing = (err: BaselineError) =>
   new CliError("baseline-missing", err.message);
 
-/**
- * Gives the two baseline problems and an unreadable baseline their own
- * codes; anything else (a suite-not-found usage error included) falls
- * through to `withSigintAbort`'s `orFail` like every other command.
- */
+// Gives the two baseline problems and an unreadable baseline their own
+// codes; anything else (a suite-not-found usage error included) falls
+// through to `withSigintAbort`'s `orFail` like every other command.
 function ciFailure(err: unknown): never {
   if (err instanceof BaselineError) throw baselineMissing(err);
   if (err instanceof OstiaDocumentError) {
@@ -841,7 +848,7 @@ async function ciCommand(argv: string[]): Promise<number> {
       runCi({
         config,
         full,
-        baselineName: parsed.baseline,
+        ...definedFields({ baselineName: parsed.baseline }),
         signal,
       }).catch(ciFailure),
   );
@@ -895,8 +902,10 @@ async function ciCommand(argv: string[]): Promise<number> {
           command: "ci",
           exitCode,
           unmatched: summary.unmatched,
-          baseGit: outcome.baseline.git,
-          candGit: document.git,
+          ...definedFields({
+            baseGit: outcome.baseline.git,
+            candGit: document.git,
+          }),
           baseline: { name: baselineName, path: baselineFile },
           cached: summary.cached,
           executed: summary.executed,
@@ -919,10 +928,8 @@ function baselineUsageError(message: string): CliError {
   );
 }
 
-/**
- * The name argument isn't flag-parsed, so reject a typo'd flag instead of
- * using it as a filename.
- */
+// The name argument isn't flag-parsed, so reject a typo'd flag instead of
+// using it as a filename.
 function assertBaselineName(name: string): void {
   if (name.startsWith("-")) {
     throw baselineUsageError(
@@ -943,19 +950,17 @@ interface BaselineArgs extends ConfigArgs {
 
 const BASELINE_FLAGS = { ...HELP_FLAGS, ...CONFIG_FLAGS };
 
-/**
- * `baseline save`/`list`: `--config`, and for `save` one optional name
- * (`takesName`); anything else is a usage error.
- */
+// `baseline save`/`list`: `--config`, and for `save` one optional name
+// (`takesName`); anything else is a usage error.
 function parseBaselineArgs(
   argv: string[],
   command: string,
   takesName: boolean,
 ): BaselineArgs {
-  return parseFlags(argv, {
+  return parseFlags<BaselineArgs>(argv, {
     command,
     flags: BASELINE_FLAGS,
-    args: { help: false } as BaselineArgs,
+    args: { help: false },
     positional: (arg, a) => {
       if (!takesName) {
         throw baselineUsageError(
@@ -1014,10 +1019,10 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
   if (!name || isHelpArg(name)) return showHelp(BASELINE_HELP, !!name);
   assertBaselineName(name);
 
-  const parsed = parseFlags(rest, {
+  const parsed = parseFlags<ReportArgs>(rest, {
     command: "baseline show",
     flags: { ...REPORT_FLAGS, ...CONFIG_FLAGS },
-    args: { format: "table", help: false } as ReportArgs,
+    args: { format: "table", help: false },
     positional: (arg) => {
       throw baselineUsageError(
         `"ostia baseline show" takes one name, got "${name}" and "${arg}".`,
@@ -1036,10 +1041,8 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
 
 type Handler = (argv: string[]) => Promise<number>;
 
-/**
- * Shared by `main()` and `baselineCommand()`: no sub-name prints `help`, a
- * known one runs, anything else is exit 2.
- */
+// Shared by `main()` and `baselineCommand()`: no sub-name prints `help`, a
+// known one runs, anything else is exit 2.
 async function dispatchSubcommand(
   sub: string | undefined,
   rest: string[],

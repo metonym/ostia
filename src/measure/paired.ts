@@ -10,7 +10,6 @@ import { batchTimer, probeFirstCall, type TaskBody } from "./loop.ts";
 
 export type Side = "base" | "cand";
 
-/** `"candidate"` for `"cand"`, for messages; other sides as they are. */
 export function sideLabel(side: Side | "both"): string {
   return side === "cand" ? "candidate" : side;
 }
@@ -19,17 +18,13 @@ export function sideLabel(side: Side | "both"): string {
  * What `measurePaired` throws when one side's task throws, naming the
  * side; the task's own error is `cause`. */
 export class PairedSideError extends Error {
-  constructor(
-    readonly side: Side,
-    cause: unknown,
-  ) {
+  readonly side: Side;
+  constructor(side: Side, cause: unknown) {
     super(cause instanceof Error ? cause.message : String(cause), { cause });
+    this.side = side;
   }
 }
 
-/**
- * Runs `fn`, rethrowing anything it throws as a `PairedSideError` for
- * `side`. */
 async function onSide<T>(
   side: "base" | "cand",
   fn: () => T | Promise<T>,
@@ -41,7 +36,7 @@ async function onSide<T>(
   }
 }
 
-export interface PairedTimingOptions {
+interface PairedTimingOptions {
   /** Rounds of one base batch and one candidate batch (default: 15). */
   rounds?: number;
   /**
@@ -54,7 +49,7 @@ export interface PairedTimingOptions {
   candFirst?: boolean;
 }
 
-export interface PairedTimingResult {
+interface PairedTimingResult {
   rounds: number;
   /** Calls per side per round. */
   batch: number;
@@ -77,7 +72,7 @@ interface InstructionSamples {
   candSamples: number[];
 }
 
-export interface RatioStats {
+interface RatioStats {
   medianRatio: number;
   ratioP25: number;
   ratioP75: number;
@@ -92,10 +87,9 @@ const ROUND_BATCH_NS = 10_000_000;
 const WARMUP_CHUNK_NS = 1_000_000;
 const WARM_ROUNDS = 3;
 
-/**
- * Whether two first-call results are deep-equal. A result too deeply
- * nested to compare (a 10,000-level chain overflows the stack) counts as
- * equal: the check is informational and must not take the run down. */
+// Whether two first-call results are deep-equal. A result too deeply
+// nested to compare (a 10,000-level chain overflows the stack) counts as
+// equal: the check is informational and must not take the run down.
 function sameResult(a: unknown, b: unknown): boolean {
   try {
     return Bun.deepEquals(a, b);
@@ -105,13 +99,12 @@ function sameResult(a: unknown, b: unknown): boolean {
   }
 }
 
-/**
- * Times `base` and `cand` against each other in one process: after warmup,
- * `rounds` rounds of one ~10ms batch per side, alternating which goes
- * first. Drift (load, thermal throttling) hits both halves of a round
- * alike and cancels in that round's ratio, which a baseline measured
- * minutes earlier can't do. A throw from either side rejects with a
- * `PairedSideError` naming it. */
+// Times `base` and `cand` against each other in one process: after warmup,
+// `rounds` rounds of one ~10ms batch per side, alternating which goes
+// first. Drift (load, thermal throttling) hits both halves of a round
+// alike and cancels in that round's ratio, which a baseline measured
+// minutes earlier can't do. A throw from either side rejects with a
+// `PairedSideError` naming it.
 export async function measurePaired(
   base: TaskBody,
   cand: TaskBody,
@@ -125,10 +118,17 @@ export async function measurePaired(
   const order: Side[] = opts.candFirst ? ["cand", "base"] : ["base", "cand"];
   const reversed = order.toReversed();
   const fns = { base, cand };
-  const probes = {} as Record<Side, Awaited<ReturnType<typeof probeFirstCall>>>;
+  const probed: Partial<
+    Record<Side, Awaited<ReturnType<typeof probeFirstCall>>>
+  > = {};
   for (const name of order) {
-    probes[name] = await onSide(name, () => probeFirstCall(fns[name]));
+    probed[name] = await onSide(name, () => probeFirstCall(fns[name]));
   }
+  const { base: baseProbe, cand: candProbe } = probed;
+  // invariant: `order` holds both sides.
+  if (!baseProbe || !candProbe)
+    throw new Error("measurePaired: a side wasn't probed");
+  const probes = { base: baseProbe, cand: candProbe };
   const sameOutput = sameResult(probes.base.result, probes.cand.result);
 
   const side = (name: Side) => {
@@ -200,9 +200,8 @@ function median(values: number[]): number {
 
 type RatioQuartiles = Omit<RatioStats, "flagged">;
 
-/**
- * `metric`'s ratios of a paired task or one of its repeats; undefined when
- * its instructions weren't counted. */
+// `metric`'s ratios of a paired task or one of its repeats; undefined when
+// its instructions weren't counted.
 export function metricRatios(
   r: RatioQuartiles & { instructions?: RatioQuartiles },
   metric: AbSummary["metric"],
@@ -210,9 +209,8 @@ export function metricRatios(
   return metric === "instructions" ? r.instructions : r;
 }
 
-/**
- * A paired task's evidence from its rounds (one process's, or several
- * pooled), `flagged` by `metric`'s ratios. */
+// A paired task's evidence from its rounds (one process's, or several
+// pooled), `flagged` by `metric`'s ratios.
 export function pairedEvidence(
   input: Pick<
     PairedTimingResult,
@@ -231,7 +229,9 @@ export function pairedEvidence(
   let instructionFlag: RatioStats["flagged"];
   if (input.instructions) {
     const { baseSamples, candSamples } = input.instructions;
-    const ratios = candSamples.map((c, i) => c / Math.max(1, baseSamples[i]!));
+    const ratios = candSamples.map(
+      (c, i) => c / Math.max(1, baseSamples[i] ?? Number.NaN),
+    );
     const { flagged, ...stats } = ratioStats(ratios, thresholdPct);
     instructionFlag = flagged;
     instructions = {
@@ -258,10 +258,9 @@ export function pairedEvidence(
   };
 }
 
-/**
- * False when the suite file changed and the two sides' outputs differ:
- * the sides then likely ran different benchmarks, and their time ratio
- * says nothing about the code under test. */
+// False when the suite file changed and the two sides' outputs differ:
+// the sides then likely ran different benchmarks, and their time ratio
+// says nothing about the code under test.
 export function comparable(p: {
   suiteChanged?: true;
   sameOutput: boolean;
@@ -269,10 +268,9 @@ export function comparable(p: {
   return !(p.suiteChanged && !p.sameOutput);
 }
 
-/**
- * `regressed` when the candidate exceeds the base by more than
- * `thresholdPct` of the base and more than `floorBytes`; `improved` is the
- * mirror. */
+// `regressed` when the candidate exceeds the base by more than
+// `thresholdPct` of the base and more than `floorBytes`; `improved` is the
+// mirror.
 export function memoryChange(
   baseBytes: number,
   candBytes: number,
@@ -290,12 +288,11 @@ export function memoryChange(
   };
 }
 
-/**
- * `regressed` when the median ratio is above `1 + thresholdPct/100` and
- * the 25th percentile is above 1 (slower in at least three quarters of
- * rounds); `improved` is the mirror. The quartile condition keeps a few
- * wild rounds from flagging a workload whose typical round shows no
- * change. */
+// `regressed` when the median ratio is above `1 + thresholdPct/100` and
+// the 25th percentile is above 1 (slower in at least three quarters of
+// rounds); `improved` is the mirror. The quartile condition keeps a few
+// wild rounds from flagging a workload whose typical round shows no
+// change.
 export function ratioStats(ratios: number[], thresholdPct: number): RatioStats {
   const sorted = sortedCopy(ratios);
   const medianRatio = percentile(sorted, 0.5);

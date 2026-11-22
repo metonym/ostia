@@ -1,3 +1,6 @@
+// Duration formatting shared by the stats warnings and every renderer; a
+// leaf module so neither imports the other.
+
 /**
  * Duration formatting shared by the stats warnings and every renderer; a
  * leaf module so neither imports the other. */
@@ -24,9 +27,7 @@ function sigFigDecimals(value: number): number {
   return Math.max(1, 3 - intDigits);
 }
 
-/**
- * Adaptive-unit duration, e.g. `3.02 ns`, `12.4 µs`, `275.8 ms`. Pass
- * `unit` to keep a row's columns in one unit. */
+// Pass `unit` to keep a row's columns in one unit.
 export function formatDuration(
   ns: number,
   unit: DurationUnit = pickDurationUnit(ns),

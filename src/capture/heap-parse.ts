@@ -12,6 +12,29 @@ export interface RawHeapSnapshot {
   strings: string[];
 }
 
+// The parse step for a snapshot from JSON: checks the arrays
+// `parseHeapSnapshot` walks and the count it reports.
+export function isRawHeapSnapshot(value: unknown): value is RawHeapSnapshot {
+  if (typeof value !== "object" || value === null) return false;
+  if (!("nodes" in value) || !Array.isArray(value.nodes)) return false;
+  if (!("snapshot" in value)) return false;
+  const { snapshot } = value;
+  if (typeof snapshot !== "object" || snapshot === null) return false;
+  if (!("node_count" in snapshot) || typeof snapshot.node_count !== "number") {
+    return false;
+  }
+  if (!("meta" in snapshot)) return false;
+  const { meta } = snapshot;
+  return (
+    typeof meta === "object" &&
+    meta !== null &&
+    "node_fields" in meta &&
+    Array.isArray(meta.node_fields) &&
+    "node_types" in meta &&
+    Array.isArray(meta.node_types)
+  );
+}
+
 const TOP_N = 20;
 
 interface TypeBucket {
@@ -32,8 +55,9 @@ export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
   }
 
   const typeCount = typeNames.length;
-  const buckets: (TypeBucket | undefined)[] = new Array(typeCount);
-  const unknownBuckets = new Map<number, TypeBucket>();
+  const buckets = new Array<TypeBucket | undefined>(typeCount);
+  // A truncated `nodes` reads `undefined` for its last type.
+  const unknownBuckets = new Map<number | undefined, TypeBucket>();
   const seen: TypeBucket[] = [];
   const newBucket = (type: string): TypeBucket => {
     const bucket = { type, count: 0, bytes: 0 };
@@ -45,12 +69,12 @@ export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
   const nodes = raw.nodes;
   const len = nodes.length;
   for (let offset = 0; offset < len; offset += fieldCount) {
-    const typeIdx = nodes[offset + typeIx]!;
+    const typeIdx = nodes[offset + typeIx];
     const selfSize = nodes[offset + selfSizeIx] ?? 0;
     heapSizeBytes += selfSize;
     let bucket: TypeBucket | undefined;
-    if (typeIdx >= 0 && typeIdx < typeCount) {
-      bucket = buckets[typeIdx] ??= newBucket(typeNames[typeIdx]!);
+    if (typeIdx !== undefined && typeIdx >= 0 && typeIdx < typeCount) {
+      bucket = buckets[typeIdx] ??= newBucket(typeNames[typeIdx] ?? "");
     } else {
       bucket = unknownBuckets.get(typeIdx);
       if (bucket === undefined) {

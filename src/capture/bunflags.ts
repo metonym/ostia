@@ -1,3 +1,4 @@
+import { processEnv } from "../config/env.ts";
 import type { Warning } from "../ir/types.ts";
 
 // BUN_OPTIONS is split on whitespace; a backslash escapes a space or quote
@@ -18,7 +19,10 @@ export function withBunFlags(
   }
   // A wrapper script that eventually execs bun still picks the flags up.
   // Ours go last so they win over any the caller already set.
-  const merged = { ...process.env, ...env } as Record<string, string>;
+  const merged: Record<string, string> = {};
+  for (const [key, value] of Object.entries({ ...processEnv(), ...env })) {
+    if (value !== undefined) merged[key] = value;
+  }
   const ours = flags.map(escapeBunOption).join(" ");
   return {
     argv,
@@ -37,29 +41,29 @@ export interface ProfiledRunOptions {
   fileName: string;
 }
 
-export interface ProfiledRun<T> {
+interface ProfiledRun {
   diagnosticWallNs: number;
   exitCode: number;
   artifactPath?: string;
-  raw?: T;
+  raw?: unknown;
   warnings: Warning[];
 }
 
-/** Runs the workload under bun with profiler `flags` and loads the JSON
- * artifact it wrote; `raw` is absent (with an `artifact-missing` warning)
- * when none appeared. */
-export async function runProfiled<T>(
+// Runs the workload under bun with profiler `flags` and loads the JSON
+// artifact it wrote; `raw` is absent (with an `artifact-missing` warning)
+// when none appeared.
+export async function runProfiled(
   opts: ProfiledRunOptions,
   flags: string[],
   artifact: { what: string; kind: string },
-): Promise<ProfiledRun<T>> {
+): Promise<ProfiledRun> {
   const artifactPath = `${opts.artifactDir}/${opts.fileName}`;
   const { argv, env } = withBunFlags(opts.argv, flags, opts.env);
 
   const start = Bun.nanoseconds();
   const proc = Bun.spawn(argv, {
-    cwd: opts.cwd,
-    env,
+    ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+    ...(env !== undefined && { env }),
     stdout: "ignore",
     stderr: "ignore",
     stdin: "ignore",
@@ -85,7 +89,7 @@ export async function runProfiled<T>(
     diagnosticWallNs,
     exitCode,
     artifactPath,
-    raw: (await file.json()) as T,
+    raw: await file.json(),
     warnings: [],
   };
 }

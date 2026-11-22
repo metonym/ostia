@@ -14,7 +14,7 @@ import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts";
 import { stampDrift } from "../measure/environment.ts";
 import type { PeakMemResult } from "../measure/peak.ts";
 import { assertSamplingOptions } from "../measure/timing.ts";
-import { resolveSuiteLaunches } from "./projects.ts";
+import { type SuiteLaunch, suiteLauncher } from "./projects.ts";
 import type { RunnerOpts } from "./runner.ts";
 import {
   absolutePath,
@@ -108,7 +108,7 @@ export interface BenchOptions {
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname;
 
-/** Logical CPUs available to this process, for `--jobs auto`. */
+// For `--jobs auto`.
 export function availableJobs(): number {
   return Math.max(1, navigator.hardwareConcurrency || 1);
 }
@@ -136,13 +136,11 @@ export interface BenchCliOverrides {
   timeoutMs?: number;
 }
 
-/**
- * Merges CLI flags with `ostia.config.json`'s `bench` section: a CLI value
- * wins per field, then the config's, then `bench()`'s own defaults (left
- * undefined). `suites`, `preload` and `bunFlags` are replaced wholesale,
- * not merged. With no CLI suites, the files to run are the config's
- * `suites` plus whatever its `projects` match. A CLI `preload` /
- * `bunFlags` also replaces that field in every project. */
+// A CLI value wins per field, then the config's, then `bench()`'s own
+// defaults (left undefined). `suites`, `preload` and `bunFlags` are
+// replaced wholesale, not merged. With no CLI suites, the files to run are
+// the config's `suites` plus whatever its `projects` match. A CLI
+// `preload` / `bunFlags` also replaces that field in every project.
 export async function resolveBenchOptions(
   cli: BenchCliOverrides,
   config: BenchConfig | undefined,
@@ -159,30 +157,41 @@ export async function resolveBenchOptions(
         ? await scanGlobs(globs, cwd)
         : [];
 
+  const budgetMs = cli.budgetMs ?? config?.budgetMs;
+  const samples = cli.samples ?? config?.samples;
+  const minSamples = cli.minSamples ?? config?.minSamples;
+  const jobs =
+    cli.jobs ?? (config?.jobs === "auto" ? availableJobs() : config?.jobs);
+  const cpuIntervalUs = cli.cpuIntervalUs ?? config?.cpuIntervalUs;
+  const filter = cli.filter ?? config?.filter;
+  const projects = config?.projects?.map(
+    ({ preload, bunFlags, ...project }) => ({
+      ...project,
+      ...(cli.preload.length === 0 && preload !== undefined && { preload }),
+      ...(cli.bunFlags.length === 0 && bunFlags !== undefined && { bunFlags }),
+    }),
+  );
+  const outDir = cli.outDir ?? config?.outDir;
+  const timeoutMs = cli.timeoutMs ?? config?.timeoutMs;
   return {
     suites,
-    budgetMs: cli.budgetMs ?? config?.budgetMs,
-    samples: cli.samples ?? config?.samples,
-    minSamples: cli.minSamples ?? config?.minSamples,
-    jobs:
-      cli.jobs ?? (config?.jobs === "auto" ? availableJobs() : config?.jobs),
+    ...(budgetMs !== undefined && { budgetMs }),
+    ...(samples !== undefined && { samples }),
+    ...(minSamples !== undefined && { minSamples }),
+    ...(jobs !== undefined && { jobs }),
     gc: cli.gc ?? config?.gc ?? false,
     cpu: cli.cpu ?? config?.cpu ?? false,
-    cpuIntervalUs: cli.cpuIntervalUs ?? config?.cpuIntervalUs,
+    ...(cpuIntervalUs !== undefined && { cpuIntervalUs }),
     alloc: cli.alloc ?? config?.alloc ?? false,
     peakMem: cli.peakMem ?? config?.peakMem ?? false,
-    filter: cli.filter ?? config?.filter,
+    ...(filter !== undefined && { filter }),
     isolate: cli.isolate ?? config?.isolate ?? false,
     preload: cli.preload.length > 0 ? cli.preload : (config?.preload ?? []),
     bunFlags: cli.bunFlags.length > 0 ? cli.bunFlags : (config?.bunFlags ?? []),
-    projects: config?.projects?.map((project) => ({
-      ...project,
-      ...(cli.preload.length > 0 && { preload: undefined }),
-      ...(cli.bunFlags.length > 0 && { bunFlags: undefined }),
-    })),
-    outDir: cli.outDir ?? config?.outDir,
+    ...(projects !== undefined && { projects }),
+    ...(outDir !== undefined && { outDir }),
     noiseCheck: cli.noiseCheck,
-    timeoutMs: cli.timeoutMs ?? config?.timeoutMs,
+    ...(timeoutMs !== undefined && { timeoutMs }),
     cwd,
   };
 }
@@ -213,12 +222,37 @@ function peakMeasurement(
   ];
 }
 
+interface Suite extends SuiteLaunch {
+  // As the caller wrote it, for messages.
+  given: string;
+  path: string;
+}
+
 interface RunnerJob {
-  suiteIndex: number;
+  suite: Suite;
   outPath: string;
   runnerOpts: RunnerOpts;
 }
 
+function isPlan(value: unknown): value is { tasks: PlannedTask[] } {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "tasks" in value &&
+    Array.isArray(value.tasks)
+  );
+}
+
+function isPeakMemResult(value: unknown): value is PeakMemResult {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "peakBytes" in value &&
+    typeof value.peakBytes === "number"
+  );
+}
+
+/** Measures the tasks each of `suites` registers, one subprocess per file. */
 export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   assertSamplingOptions("bench", opts);
   const jobs = opts.jobs ?? 1;
@@ -233,29 +267,35 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR),
     "bench",
   );
-  const suites = opts.suites.map((file) => absolutePath(cwd, file));
-  for (const [i, suite] of suites.entries()) {
-    assertSuiteExists(opts.suites[i]!, suite);
+  for (const given of opts.suites) {
+    assertSuiteExists(given, absolutePath(cwd, given));
   }
-  const launches = resolveSuiteLaunches(suites, cwd, opts, opts.projects);
+  const launch = suiteLauncher(cwd, opts, opts.projects);
+  const suites = opts.suites.map((given): Suite => {
+    const path = absolutePath(cwd, given);
+    return { given, path, ...launch(path) };
+  });
   const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck);
 
-  const measureOpts = {
-    budgetMs: opts.budgetMs,
-    samples: opts.samples,
-    minSamples: opts.minSamples,
-    gc: opts.gc,
-    cpu: opts.cpu,
-    cpuIntervalUs: opts.cpuIntervalUs,
-    alloc: opts.alloc,
-    peakMem: opts.peakMem,
+  const measureOpts: RunnerOpts = {
+    ...(opts.budgetMs !== undefined && { budgetMs: opts.budgetMs }),
+    ...(opts.samples !== undefined && { samples: opts.samples }),
+    ...(opts.minSamples !== undefined && { minSamples: opts.minSamples }),
+    ...(opts.gc !== undefined && { gc: opts.gc }),
+    ...(opts.cpu !== undefined && { cpu: opts.cpu }),
+    ...(opts.cpuIntervalUs !== undefined && {
+      cpuIntervalUs: opts.cpuIntervalUs,
+    }),
+    ...(opts.alloc !== undefined && { alloc: opts.alloc }),
+    ...(opts.peakMem !== undefined && { peakMem: opts.peakMem }),
     // Measured once here: every runner repeating the ~200ms reference
     // measurement only to have all but the first discarded cost seconds.
     noiseCheck: false,
   };
+  const filter = opts.filter !== undefined && { filter: opts.filter };
 
-  const outPath = (tag: string, suiteIndex: number, ...rest: unknown[]) =>
-    `${tmpDir}/${fp(tag, suites[suiteIndex], ...rest)}.json`;
+  const outPath = (tag: string, suite: Suite, ...rest: unknown[]) =>
+    `${tmpDir}/${fp(tag, suite.path, ...rest)}.json`;
 
   // `jobs` workers pull from a shared cursor. The first failure stops the
   // pool: queued jobs are skipped and in-flight children killed, so a broken
@@ -269,25 +309,22 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     let failure: Error | undefined;
 
     const worker = async (): Promise<void> => {
-      while (
-        failure === undefined &&
-        !opts.signal?.aborted &&
-        next < list.length
-      ) {
-        const job = list[next++]!;
+      while (failure === undefined && !opts.signal?.aborted) {
+        const job = list[next++];
+        if (job === undefined) return;
         try {
           const ran = await runRunnerProcess(
             [
               "bun",
-              ...launches[job.suiteIndex]!.bunFlags,
+              ...job.suite.bunFlags,
               RUNNER_PATH,
-              suites[job.suiteIndex]!,
+              job.suite.path,
               job.outPath,
               JSON.stringify(job.runnerOpts),
             ],
             {
               label: "Bench suite",
-              name: opts.suites[job.suiteIndex]!,
+              name: job.suite.given,
               cwd,
               env,
               timeoutMs: opts.timeoutMs,
@@ -313,88 +350,98 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     // Phase 1: import each suite once. The same process records the plan
     // (each task's effective isolate/peakMem) and runs the non-isolated
     // tasks, so module-scope setup never runs twice just to learn the plan.
-    const primaries = suites.map((_, i) => ({
-      planPath: outPath("bench-plan", i),
-      outPath: outPath("bench-primary", i),
+    const primaries = suites.map((suite) => ({
+      suite,
+      planPath: outPath("bench-plan", suite),
+      outPath: outPath("bench-primary", suite),
     }));
     await runPool(
-      primaries.map((p, i) => ({
-        suiteIndex: i,
+      primaries.map((p) => ({
+        suite: p.suite,
         outPath: p.outPath,
         runnerOpts: {
           ...measureOpts,
-          filter: opts.filter,
-          isolate: opts.isolate,
-          preload: launches[i]!.preload,
+          ...filter,
+          ...(opts.isolate !== undefined && { isolate: opts.isolate }),
+          preload: p.suite.preload,
           planPath: p.planPath,
         },
       })),
     );
 
     // A suite killed mid-run wrote neither file and contributes nothing.
-    const plans: PlannedTask[][] = await Promise.all(
-      primaries.map(async (p) =>
-        (await Bun.file(p.planPath).exists())
-          ? ((await Bun.file(p.planPath).json()) as { tasks: PlannedTask[] })
-              .tasks
-          : [],
-      ),
+    const planTasks = await Promise.all(
+      primaries.map(async (p): Promise<PlannedTask[]> => {
+        if (!(await Bun.file(p.planPath).exists())) return [];
+        const plan: unknown = await Bun.file(p.planPath).json();
+        if (!isPlan(plan)) {
+          throw new Error(`bench: unreadable plan for ${p.suite.given}`);
+        }
+        return plan.tasks;
+      }),
     );
     const primaryDocs = await Promise.all(
       primaries.map((p) => loadIfExists(p.outPath)),
     );
+    const plans = primaries.map((p, i) => ({
+      suite: p.suite,
+      tasks: planTasks[i] ?? [],
+      doc: primaryDocs[i],
+    }));
 
     // Phase 2: each isolated task in its own subprocess.
-    const isolated = plans.flatMap((tasks, suiteIndex) =>
-      tasks
-        .filter((task) => task.isolate)
-        .map((task) => ({ task, suiteIndex })),
-    );
-    const isolatedPaths = isolated.map((item, i) =>
-      outPath("bench-item", item.suiteIndex, i),
-    );
+    const isolated = plans
+      .flatMap(({ suite, tasks }) =>
+        tasks.filter((task) => task.isolate).map((task) => ({ task, suite })),
+      )
+      .map((item, i) => ({
+        ...item,
+        outPath: outPath("bench-item", item.suite, i),
+      }));
     await runPool(
-      isolated.map((item, i) => ({
-        suiteIndex: item.suiteIndex,
-        outPath: isolatedPaths[i]!,
+      isolated.map((item) => ({
+        suite: item.suite,
+        outPath: item.outPath,
         runnerOpts: {
           ...measureOpts,
           workloadIds: [item.task.workloadId],
-          preload: launches[item.suiteIndex]!.preload,
+          preload: item.suite.preload,
           markIsolated: true,
         },
       })),
     );
     const isolatedDocs = new Map<PlannedTask, ProfileDocument>();
     await Promise.all(
-      isolated.map(async (item, i) => {
-        const doc = await loadIfExists(isolatedPaths[i]!);
+      isolated.map(async (item) => {
+        const doc = await loadIfExists(item.outPath);
         if (doc) isolatedDocs.set(item.task, doc);
       }),
     );
 
     // Phase 3: each `peakMem` task's first call, alone in a fresh process,
     // PEAK_MEM_PROCESSES times.
-    const peakRuns = plans.flatMap((tasks, suiteIndex) =>
-      tasks
-        .filter((task) => task.peakMem)
-        .flatMap((task) =>
-          Array.from({ length: PEAK_MEM_PROCESSES }, () => ({
-            workloadId: task.workloadId,
-            suiteIndex,
-          })),
-        ),
-    );
-    const peakPaths = peakRuns.map((run, i) =>
-      outPath("bench-peak", run.suiteIndex, i),
-    );
+    const peakRuns = plans
+      .flatMap(({ suite, tasks }) =>
+        tasks
+          .filter((task) => task.peakMem)
+          .flatMap((task) =>
+            Array.from({ length: PEAK_MEM_PROCESSES }, () => ({
+              workloadId: task.workloadId,
+              suite,
+            })),
+          ),
+      )
+      .map((run, i) => ({
+        ...run,
+        outPath: outPath("bench-peak", run.suite, i),
+      }));
     await runPool(
-      peakRuns.map((run, i) => ({
-        suiteIndex: run.suiteIndex,
-        outPath: peakPaths[i]!,
+      peakRuns.map((run) => ({
+        suite: run.suite,
+        outPath: run.outPath,
         runnerOpts: {
-          filter: opts.filter,
-          preload: launches[run.suiteIndex]!.preload,
+          ...filter,
+          preload: run.suite.preload,
           peakMemFor: run.workloadId,
         },
       })),
@@ -403,13 +450,18 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       { OSTIA_PEAK_MEM: "1" },
     );
     const peakReadings = new Map<string, PeakMemResult[]>();
-    for (let i = 0; i < peakRuns.length; i++) {
-      const file = Bun.file(peakPaths[i]!);
+    for (const run of peakRuns) {
+      const file = Bun.file(run.outPath);
       if (!(await file.exists())) continue;
-      const id = peakRuns[i]!.workloadId;
-      const readings = peakReadings.get(id) ?? [];
-      readings.push((await file.json()) as PeakMemResult);
-      peakReadings.set(id, readings);
+      const reading: unknown = await file.json();
+      if (!isPeakMemResult(reading)) {
+        throw new Error(
+          `bench: unreadable peak-memory reading: ${run.outPath}`,
+        );
+      }
+      const readings = peakReadings.get(run.workloadId) ?? [];
+      readings.push(reading);
+      peakReadings.set(run.workloadId, readings);
     }
 
     // Plan order (registration order, filtered) within a suite, suites in
@@ -417,35 +469,36 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     // position: a task.skip()'d task has a workload but no measurement.
     const workloads: Workload[] = [];
     const measurements: Measurement[] = [];
-    plans.forEach((tasks, s) => {
+    for (const { suite, tasks, doc: sharedDoc } of plans) {
       // A cancelled suite wrote nothing and is absent, not empty.
-      const sharedDoc = primaryDocs[s];
-      if (!sharedDoc) return;
+      if (!sharedDoc) continue;
       const sharedByWorkload = Map.groupBy(
         sharedDoc.measurements,
         (m) => m.workloadId,
       );
-      let sharedPtr = 0;
+      const sharedWorkloads = sharedDoc.workloads.values();
       for (const task of tasks) {
-        let workload: Workload;
-        let own: Measurement[];
-        if (task.isolate) {
-          // Cancelled before its subprocess finished: drop just this task.
-          const doc = isolatedDocs.get(task);
-          if (!doc) continue;
-          workload = doc.workloads[0]!;
-          own = doc.measurements.filter((m) => m.workloadId === workload.id);
-        } else {
-          workload = sharedDoc.workloads[sharedPtr++]!;
-          own = sharedByWorkload.get(workload.id) ?? [];
+        const doc = task.isolate ? isolatedDocs.get(task) : sharedDoc;
+        // Cancelled before its subprocess finished: drop just this task.
+        if (!doc) continue;
+        const workload = task.isolate
+          ? doc.workloads[0]
+          : sharedWorkloads.next().value;
+        if (workload === undefined) {
+          throw new Error(
+            `bench: ${suite.given} wrote fewer workloads than its plan`,
+          );
         }
+        const own = task.isolate
+          ? doc.measurements.filter((m) => m.workloadId === workload.id)
+          : (sharedByWorkload.get(workload.id) ?? []);
         workloads.push(workload);
         measurements.push(
           ...own,
           ...peakMeasurement(workload, peakReadings.get(workload.id)),
         );
       }
-    });
+    }
 
     stampRunWarnings(
       measurements,

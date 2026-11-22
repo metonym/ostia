@@ -17,13 +17,13 @@ const REFERENCE_BUFFER = (() => {
 function hashBuffer(buf: Uint8Array, seed: number): number {
   let h = seed;
   for (let i = 0; i < buf.length; i++) {
-    h ^= buf[i]!;
+    h ^= buf[i] ?? 0;
     h = Math.imul(h, 16777619);
   }
   return h >>> 0;
 }
 
-/** `mad / median` of `samples`, as a percent. */
+// `mad / median` of `samples`, as a percent.
 export function computeNoiseFloor(samples: number[]): NoiseFloor {
   const stats = computeTimingStats(samples);
   return {
@@ -33,10 +33,11 @@ export function computeNoiseFloor(samples: number[]): NoiseFloor {
   };
 }
 
-/**
- * Samples the reference hash loop for `budgetMs`; characterizes the
- * machine, not any workload, so run it once per document. */
-export function measureNoiseFloor(budgetMs = DEFAULT_BUDGET_MS): NoiseFloor {
+// Samples the reference hash loop for `budgetMs`; characterizes the
+// machine, not any workload, so run it once per document.
+export function measureNoiseFloor(
+  budgetMs: number = DEFAULT_BUDGET_MS,
+): NoiseFloor {
   const budgetNs = budgetMs * 1e6;
   const trials: number[] = [];
   let sink = 0;

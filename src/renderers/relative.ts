@@ -6,10 +6,9 @@ export interface TimingRow {
   workload: Workload | undefined;
 }
 
-/**
- * The explicit `entry.group` the bench runner records, else the
- * "group/name" id split on its last "/" (documents from before that field
- * existed). */
+// The explicit `entry.group` the bench runner records, else the
+// "group/name" id split on its last "/" (documents from before that field
+// existed).
 export function groupOf(workload: Workload | undefined): string | undefined {
   if (!workload?.entry) return undefined;
   if (workload.entry.group !== undefined) return workload.entry.group;
@@ -18,21 +17,18 @@ export function groupOf(workload: Workload | undefined): string | undefined {
   return idx === -1 ? undefined : id.slice(0, idx);
 }
 
-/**
- * A row's label under its group's header: the task name alone, since the
- * header already shows the group. */
+// The task name alone, since the group's header already shows the group.
 export function labelInGroup(label: string, group: string | undefined): string {
   return group !== undefined && label.startsWith(`${group}/`)
     ? label.slice(group.length + 1)
     : label;
 }
 
-/**
- * Each row's median over its reference median: its group's
- * `task(..., { baseline: true })` task, else the group's fastest.
- * Ungrouped rows use the fastest in the document; tasks never compare
- * across groups. Undefined with fewer than two rows, where "relative"
- * means nothing. */
+// Each row's reference median is its group's
+// `task(..., { baseline: true })` task, else the group's fastest.
+// Ungrouped rows use the fastest in the document; tasks never compare
+// across groups. Undefined with fewer than two rows, where "relative"
+// means nothing.
 export function relativeRatios<R extends TimingRow>(
   rows: R[],
 ): Map<R, number> | undefined {
@@ -52,7 +48,7 @@ export function relativeRatios<R extends TimingRow>(
     const key = groupOf(row.workload);
     let reference = fastestMedian;
     if (key !== undefined) {
-      const siblings = siblingsByGroup.get(key)!;
+      const siblings = siblingsByGroup.get(key) ?? [row];
       const baselineRow = siblings.find((s) => s.workload?.baseline);
       reference = baselineRow
         ? baselineRow.run.timing.median

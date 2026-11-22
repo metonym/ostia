@@ -4,14 +4,14 @@ import { scanGlobs } from "../glob.ts";
 import { fp } from "../ir/fp.ts";
 import type { Phase } from "../ir/types.ts";
 
-export interface CacheKeyInput {
+interface CacheKeyInput {
   workloadId: string;
   phase: Phase;
   configFingerprint: string;
   bunVersion: string;
   toolVersion: string;
   instrumented: boolean;
-  inputsDigest?: string;
+  inputsDigest?: string | undefined;
 }
 
 export function computeCacheKey(input: CacheKeyInput): string {
@@ -37,12 +37,13 @@ export async function computeInputsDigest(
   if (globs.length === 0) return undefined;
 
   const paths = await scanGlobs(globs, cwd);
-  const entries: { path: string; sha256: string }[] = new Array(paths.length);
+  const entries = new Array<{ path: string; sha256: string }>(paths.length);
   let next = 0;
   const worker = async () => {
     while (next < paths.length) {
       const k = next++;
-      const path = paths[k]!;
+      const path = paths[k];
+      if (path === undefined) continue;
       // Absolute patterns scan to absolute paths; `resolve` handles both.
       const buf = await Bun.file(resolve(cwd, path)).arrayBuffer();
       entries[k] = {

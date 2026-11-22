@@ -4,7 +4,7 @@ import type { Renderer, RenderResult } from "./types.ts";
 
 export const jsonRenderer: Renderer = {
   name: "json",
-  async render(doc: ProfileDocument): Promise<RenderResult> {
-    return { text: serializeDocument(doc) };
+  render(doc: ProfileDocument): Promise<RenderResult> {
+    return Promise.try(() => ({ text: serializeDocument(doc) }));
   },
 };

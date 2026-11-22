@@ -1,6 +1,6 @@
 import { percentile } from "./index.ts";
 
-/** Seeded PRNG, deterministic across platforms (32-bit integer math only). */
+// Seeded PRNG, deterministic across platforms (32-bit integer math only).
 export function mulberry32(seed: number): () => number {
   let a = seed >>> 0;
   return () => {
@@ -14,12 +14,12 @@ export function mulberry32(seed: number): () => number {
 const MAX_SAMPLES_PER_SIDE = 2000;
 const DEFAULT_ITERATIONS = 2000;
 
-export interface BootstrapOptions {
+interface BootstrapOptions {
   iterations?: number;
   seed?: number;
 }
 
-export interface BootstrapResult {
+interface BootstrapResult {
   /** 95% CI on the difference of medians, percent of the baseline median. */
   ci95: [number, number];
   seed: number;
@@ -30,10 +30,8 @@ export interface BootstrapResult {
   };
 }
 
-/**
- * Partial Fisher-Yates; returns `samples` itself when already within
- * `max`.
- */
+// Partial Fisher-Yates; returns `samples` itself when already within
+// `max`.
 function subsample(
   samples: number[],
   rng: () => number,
@@ -43,63 +41,64 @@ function subsample(
   const pool = [...samples];
   for (let i = 0; i < max; i++) {
     const j = i + Math.floor(rng() * (pool.length - i));
-    const tmp = pool[i]!;
-    pool[i] = pool[j]!;
+    const tmp = pool[i] ?? 0;
+    pool[i] = pool[j] ?? 0;
     pool[j] = tmp;
   }
   return pool.slice(0, max);
 }
 
-class Side {
+interface Side {
   readonly sorted: Float64Array;
-  /**
-   * Sorted position of each original sample, so results for a given seed
-   * match a naive `samples[floor(rng() * n)]` resample bit for bit. */
+  // Sorted position of each original sample, so results for a given seed
+  // match a naive `samples[floor(rng() * n)]` resample bit for bit.
   readonly rankOf: Uint32Array;
   readonly counts: Uint32Array;
   readonly n: number;
-  constructor(samples: number[]) {
-    const n = samples.length;
-    const order = new Uint32Array(n);
-    for (let i = 0; i < n; i++) order[i] = i;
-    order.sort((x, y) => samples[x]! - samples[y]!);
-    this.sorted = new Float64Array(n);
-    this.rankOf = new Uint32Array(n);
-    for (let k = 0; k < n; k++) {
-      this.sorted[k] = samples[order[k]!]!;
-      this.rankOf[order[k]!] = k;
-    }
-    this.n = n;
-    this.counts = new Uint32Array(n);
-  }
-
-  /**
-   * Median of a with-replacement resample, found with one O(n) walk over an
-   * index histogram instead of sorting `n` values per round. */
-  resampleMedian(rng: () => number): number {
-    const { n, counts, sorted, rankOf } = this;
-    counts.fill(0);
-    for (let i = 0; i < n; i++) counts[rankOf[Math.floor(rng() * n)]!]!++;
-    // 1-based middle order statistic(s) of the draws.
-    const loRank = (n + 1) >> 1;
-    const hiRank = n % 2 === 0 ? loRank + 1 : loRank;
-    let seen = 0;
-    let lo = -1;
-    for (let k = 0; k < n; k++) {
-      seen += counts[k]!;
-      if (lo < 0 && seen >= loRank) lo = k;
-      if (seen >= hiRank) {
-        return lo === k ? sorted[k]! : (sorted[lo]! + sorted[k]!) / 2;
-      }
-    }
-    return sorted[n - 1]!;
-  }
 }
 
-/**
- * Hash of both arrays, so identical input always gets the same CI and
- * verdict.
- */
+function side(samples: number[]): Side {
+  const n = samples.length;
+  const order = new Uint32Array(n);
+  for (let i = 0; i < n; i++) order[i] = i;
+  order.sort((x, y) => (samples[x] ?? 0) - (samples[y] ?? 0));
+  const sorted = new Float64Array(n);
+  const rankOf = new Uint32Array(n);
+  for (let k = 0; k < n; k++) {
+    const at = order[k] ?? 0;
+    sorted[k] = samples[at] ?? 0;
+    rankOf[at] = k;
+  }
+  return { sorted, rankOf, counts: new Uint32Array(n), n };
+}
+
+// Median of a with-replacement resample, found with one O(n) walk over an
+// index histogram instead of sorting `n` values per round.
+function resampleMedian(s: Side, rng: () => number): number {
+  const { n, counts, sorted, rankOf } = s;
+  counts.fill(0);
+  for (let i = 0; i < n; i++) {
+    const rank = rankOf[Math.floor(rng() * n)] ?? 0;
+    counts[rank] = (counts[rank] ?? 0) + 1;
+  }
+  // 1-based middle order statistic(s) of the draws.
+  const loRank = (n + 1) >> 1;
+  const hiRank = n % 2 === 0 ? loRank + 1 : loRank;
+  let seen = 0;
+  let lo = -1;
+  for (let k = 0; k < n; k++) {
+    seen += counts[k] ?? 0;
+    if (lo < 0 && seen >= loRank) lo = k;
+    if (seen >= hiRank) {
+      const hi = sorted[k] ?? 0;
+      return lo === k ? hi : ((sorted[lo] ?? 0) + hi) / 2;
+    }
+  }
+  return sorted[n - 1] ?? 0;
+}
+
+// Hash of both arrays, so identical input always gets the same CI and
+// verdict.
 function seedFromSamples(base: number[], cand: number[]): number {
   const all = new Float64Array(base.length + cand.length + 1);
   all.set(base);
@@ -108,11 +107,10 @@ function seedFromSamples(base: number[], cand: number[]): number {
   return Bun.hash.crc32(all);
 }
 
-/**
- * Bootstrap 95% CI on the difference of medians, in percent of `base`'s
- * observed median. Each side is capped at `MAX_SAMPLES_PER_SIDE` samples
- * so a many-thousand-sample task doesn't take seconds. Throws when a side
- * is empty. */
+// Bootstrap 95% CI on the difference of medians, in percent of `base`'s
+// observed median. Each side is capped at `MAX_SAMPLES_PER_SIDE` samples
+// so a many-thousand-sample task doesn't take seconds. Throws when a side
+// is empty.
 export function bootstrapMedianDiffCi(
   base: number[],
   cand: number[],
@@ -127,14 +125,14 @@ export function bootstrapMedianDiffCi(
 
   const subsampled =
     base.length > MAX_SAMPLES_PER_SIDE || cand.length > MAX_SAMPLES_PER_SIDE;
-  const baseSide = new Side(subsample(base, rng, MAX_SAMPLES_PER_SIDE));
-  const candSide = new Side(subsample(cand, rng, MAX_SAMPLES_PER_SIDE));
+  const baseSide = side(subsample(base, rng, MAX_SAMPLES_PER_SIDE));
+  const candSide = side(subsample(cand, rng, MAX_SAMPLES_PER_SIDE));
   const baseMedian = percentile(baseSide.sorted, 0.5);
 
   const deltas = new Float64Array(iterations);
   for (let i = 0; i < iterations; i++) {
-    const b = baseSide.resampleMedian(rng);
-    const c = candSide.resampleMedian(rng);
+    const b = resampleMedian(baseSide, rng);
+    const c = resampleMedian(candSide, rng);
     const diff = c - b;
     deltas[i] =
       baseMedian === 0

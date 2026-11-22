@@ -5,10 +5,8 @@ import { measureNoiseFloor } from "./noise.ts";
 
 const LOAD_WARNING_FRACTION = 0.75;
 
-/**
- * Takes ~200ms (runs the noise-floor workload): call once per invocation,
- * not per workload.
- */
+// Takes ~200ms (runs the noise-floor workload): call once per invocation,
+// not per workload.
 export function captureEnvironment(): Environment {
   const [loadAvg1 = 0, loadAvg5 = 0] = os.loadavg();
   return {
@@ -20,10 +18,9 @@ export function captureEnvironment(): Environment {
   };
 }
 
-/**
- * Re-runs the reference loop at the end of a run and stamps how much
- * slower it ran than at the start on `env.noise.driftPct`: the machine's
- * drift over the run, which `compare` adds to its timing threshold. */
+// Re-runs the reference loop at the end of a run and stamps how much
+// slower it ran than at the start on `env.noise.driftPct`: the machine's
+// drift over the run, which `compare` adds to its timing threshold.
 export function stampDrift(env: Environment | undefined): void {
   if (!env) return;
   const start = env.noise.referenceMedianNs;

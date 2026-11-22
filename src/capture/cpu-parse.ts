@@ -24,6 +24,21 @@ export interface RawCpuProfile {
   timeDeltas: number[];
 }
 
+// The parse step for a profile from JSON or the inspector: checks the
+// arrays `parseCpuProfile` walks, not each node.
+export function isRawCpuProfile(value: unknown): value is RawCpuProfile {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "nodes" in value &&
+    Array.isArray(value.nodes) &&
+    "samples" in value &&
+    Array.isArray(value.samples) &&
+    "timeDeltas" in value &&
+    Array.isArray(value.timeDeltas)
+  );
+}
+
 // cpu-prof/inspector: sourcemapped file:// URLs, 0-based lines (jsc is
 // 1-based).
 function normalizeUrl(url: string): string {
@@ -40,10 +55,9 @@ export function parseCpuProfile(
 
   const { frames, intern } = createFrameTable();
   const indexById = new Map<number, number>();
-  const nodes: CallNode[] = new Array(count);
+  const nodes = new Array<CallNode>(count);
 
-  for (let i = 0; i < count; i++) {
-    const node = rawNodes[i]!;
+  for (const [i, node] of rawNodes.entries()) {
     const cf = node.callFrame;
     const frameIx = intern(
       cf.functionName,
@@ -59,16 +73,16 @@ export function parseCpuProfile(
   const sampleCount = new Float64Array(count);
   const sampleIds = raw.samples;
   const deltas = raw.timeDeltas;
-  for (let i = 0; i < sampleIds.length; i++) {
-    const ix = indexById.get(sampleIds[i]!);
+  for (const [i, id] of sampleIds.entries()) {
+    const ix = indexById.get(id);
     if (ix === undefined) continue;
-    selfUs[ix]! += deltas[i] ?? 0;
-    sampleCount[ix]! += 1;
+    selfUs[ix] = (selfUs[ix] ?? 0) + (deltas[i] ?? 0);
+    sampleCount[ix] = (sampleCount[ix] ?? 0) + 1;
   }
 
   const parentIx = new Int32Array(count).fill(-1);
-  for (let i = 0; i < count; i++) {
-    const children = rawNodes[i]!.children;
+  for (const [i, node] of rawNodes.entries()) {
+    const children = node.children;
     if (!children) continue;
     for (const childId of children) {
       const c = indexById.get(childId);
@@ -79,10 +93,9 @@ export function parseCpuProfile(
   const order: number[] = [];
   const stack: number[] = [];
   for (let i = count - 1; i >= 0; i--) if (parentIx[i] === -1) stack.push(i);
-  while (stack.length > 0) {
-    const i = stack.pop()!;
+  for (let i = stack.pop(); i !== undefined; i = stack.pop()) {
     order.push(i);
-    const children = rawNodes[i]!.children;
+    const children = rawNodes[i]?.children;
     if (!children) continue;
     for (const childId of children) {
       const c = indexById.get(childId);
@@ -90,21 +103,21 @@ export function parseCpuProfile(
     }
   }
   const totalUs = new Float64Array(count);
-  for (let k = order.length - 1; k >= 0; k--) {
-    const i = order[k]!;
-    totalUs[i]! += selfUs[i]!;
-    const p = parentIx[i]!;
-    if (p >= 0) totalUs[p]! += totalUs[i]!;
+  for (const i of order.toReversed()) {
+    const total = (totalUs[i] ?? 0) + (selfUs[i] ?? 0);
+    totalUs[i] = total;
+    const p = parentIx[i] ?? -1;
+    if (p >= 0) totalUs[p] = (totalUs[p] ?? 0) + total;
   }
 
   const totals = new Map<number, FrameTotal>();
-  for (let i = 0; i < count; i++) {
+  for (const [i, node] of nodes.entries()) {
     addFrameTotal(
       totals,
-      nodes[i]!.frameIx,
-      selfUs[i]!,
-      totalUs[i]!,
-      sampleCount[i]!,
+      node.frameIx,
+      selfUs[i] ?? 0,
+      totalUs[i] ?? 0,
+      sampleCount[i] ?? 0,
     );
   }
 

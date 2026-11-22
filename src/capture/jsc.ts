@@ -1,13 +1,13 @@
 import { profile as jscProfile } from "bun:jsc";
 
 import type { CpuEvidence, JitTierBreakdown } from "../ir/types.ts";
-import { parseJscProfile, type RawStackTraces } from "./jsc-parse.ts";
+import { parseJscProfile } from "./jsc-parse.ts";
 import {
   DEFAULT_SAMPLING_INTERVAL_US,
   type SamplingOptions,
 } from "./sampling.ts";
 
-export interface JscCaptureResult<T> {
+interface JscCaptureResult<T> {
   result: T;
   cpu: CpuEvidence;
   jit: JitTierBreakdown;
@@ -24,10 +24,10 @@ export async function captureJscProfile<T>(
   // Diagnostic window: profiler start through stop, nothing else. Matches
   // the inspector capture, whose session setup is outside it.
   const start = Bun.nanoseconds();
-  const raw = (await jscProfile(async () => {
+  const raw = await jscProfile(async () => {
     result = await fn();
     return result;
-  }, intervalUs)) as unknown as { stackTraces: RawStackTraces };
+  }, intervalUs);
   const diagnosticWallNs = Bun.nanoseconds() - start;
 
   const { cpu, jit } = parseJscProfile(raw.stackTraces, intervalUs);

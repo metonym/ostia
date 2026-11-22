@@ -1,4 +1,4 @@
-export interface TrialResult {
+interface TrialResult {
   wallNs: number;
   /** `null` when the trial timed out: its exit code carries no information. */
   exitCode: number | null;
@@ -65,10 +65,7 @@ class TimeSourceNoMatchError extends Error {}
 
 const compiledPatterns = new WeakMap<TimeSource, RegExp>();
 
-/**
- * A string pattern is compiled once per `TimeSource` object, not per
- * trial.
- */
+// Once per `TimeSource` object, not per trial.
 function compiledPattern(source: TimeSource): RegExp {
   if (typeof source.pattern !== "string") return source.pattern;
   let re = compiledPatterns.get(source);
@@ -79,7 +76,7 @@ function compiledPattern(source: TimeSource): RegExp {
   return re;
 }
 
-/** Called once per workload so a bad pattern fails before any trial runs. */
+// Called once per workload so a bad pattern fails before any trial runs.
 export function assertReusableTimeSource(source: TimeSource): void {
   const re = compiledPattern(source);
   if (/[gyd]/.test(re.flags)) {
@@ -109,9 +106,8 @@ const UNIT_NS: Record<TimeUnit, number> = {
   s: 1e9,
 };
 
-/**
- * `timeoutMs` and the caller's `signal` folded into spawn options that
- * SIGKILL on either; `timedOut()` tells the two apart afterwards. */
+// The spawn options SIGKILL on either; `timedOut()` tells the two apart
+// afterwards.
 export function killSwitch(
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
@@ -137,8 +133,8 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
 
   const kill = killSwitch(opts.timeoutMs, opts.signal);
   const proc = Bun.spawn(opts.argv, {
-    cwd: opts.cwd,
-    env: opts.env,
+    ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+    ...(opts.env !== undefined && { env: opts.env }),
     stdout: capture ? "pipe" : "ignore",
     stderr: capture ? "pipe" : "ignore",
     stdin: "ignore",
@@ -148,8 +144,8 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   // inflate the wall time.
   const output = capture
     ? Promise.all([
-        new Response(proc.stdout as ReadableStream).text(),
-        new Response(proc.stderr as ReadableStream).text(),
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
       ])
     : undefined;
   const exitCode = await proc.exited;
@@ -160,9 +156,11 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   const result: TrialResult = {
     wallNs: end - start,
     exitCode: timedOut ? null : exitCode,
-    userNs: usage ? Number(usage.cpuTime.user) * 1000 : undefined,
-    systemNs: usage ? Number(usage.cpuTime.system) * 1000 : undefined,
-    maxRssBytes: usage?.maxRSS,
+    ...(usage && {
+      userNs: Number(usage.cpuTime.user) * 1000,
+      systemNs: Number(usage.cpuTime.system) * 1000,
+      maxRssBytes: usage.maxRSS,
+    }),
     ...(timedOut && { timedOut: true as const }),
   };
   if (output) {
@@ -230,10 +228,6 @@ function excerpt(stdout: string, stderr: string): string {
 
 const NO_MATCH_OUTPUT_LIMIT_BYTES = 2048;
 
-/**
- * `excerpt` capped at 2 KiB total, for a `time-source-no-match` warning's
- * `data`.
- */
 function excerptForNoMatch(stdout: string, stderr: string): string {
   const full = excerpt(stdout, stderr);
   if (Buffer.byteLength(full, "utf8") <= NO_MATCH_OUTPUT_LIMIT_BYTES) {
@@ -248,12 +242,10 @@ function excerptForNoMatch(stdout: string, stderr: string): string {
 
 const OUTPUT_CAP_BYTES = 1024 * 1024;
 
-/**
- * Reads a stream into a string capped at `capBytes`: the first and last
- * half joined by an elision marker, dropping the middle as it arrives so
- * memory stays bounded. For debug output (a misbehaving `prepare` hook's
- * stderr), not `timeSource` capture, which stays unbounded because a
- * summary line may be anywhere in the output. */
+// The first and last half joined by an elision marker, dropping the middle
+// as it arrives so memory stays bounded. For debug output (a misbehaving
+// `prepare` hook's stderr), not `timeSource` capture, which stays
+// unbounded because a summary line may be anywhere in the output.
 export async function readBoundedText(
   stream: ReadableStream<Uint8Array>,
   capBytes: number = OUTPUT_CAP_BYTES,
@@ -288,8 +280,9 @@ export async function readBoundedText(
       tailChunks.push(chunk);
       tailBytes += chunk.byteLength;
       // Keep only the last `halfBytes`.
-      while (tailBytes > halfBytes && tailChunks.length > 0) {
-        const first = tailChunks[0]!;
+      while (tailBytes > halfBytes) {
+        const first = tailChunks[0];
+        if (first === undefined) break;
         const excess = tailBytes - halfBytes;
         if (first.byteLength <= excess) {
           tailChunks.shift();
@@ -312,11 +305,10 @@ export async function readBoundedText(
   return `${head}\n…(${elidedBytes} bytes elided)…\n${tail}`;
 }
 
-/**
- * Runs a `prepare` hook ahead of one trial. Command forms must exit 0.
- * `timeoutMs` SIGKILLs a hung command and aborts the run; `signal` kills
- * it silently, since cancellation isn't a failure. stderr is captured (1
- * MiB bounded) and folded into the thrown error rather than streamed. */
+// Command forms must exit 0. `timeoutMs` SIGKILLs a hung command and
+// aborts the run; `signal` kills it silently, since cancellation isn't a
+// failure. stderr is captured (1 MiB bounded) and folded into the thrown
+// error rather than streamed.
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
@@ -331,11 +323,11 @@ export async function runPrepare(
     await hook(run);
     return;
   }
-  const argv = prepareArgv(hook)!;
+  const argv = commandArgv(hook);
   const kill = killSwitch(opts.timeoutMs, opts.signal);
   const proc = Bun.spawn(argv, {
-    cwd: opts.cwd,
-    env: opts.env,
+    ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+    ...(opts.env !== undefined && { env: opts.env }),
     stdout: "ignore",
     stderr: "pipe",
     stdin: "ignore",
@@ -343,9 +335,7 @@ export async function runPrepare(
   });
   // Drain even if nothing reads it, so a chatty hook can't block on a full
   // pipe; `.catch` avoids an unhandled rejection.
-  const stderrText = readBoundedText(proc.stderr as ReadableStream).catch(
-    () => "",
-  );
+  const stderrText = readBoundedText(proc.stderr).catch(() => "");
   const exitCode = await proc.exited;
   const timedOut = kill.timedOut();
   if (!timedOut && opts.signal?.aborted) return;
@@ -359,18 +349,20 @@ export async function runPrepare(
   );
 }
 
-/**
- * The command form's argv, for the document; a function isn't
- * serializable.
- */
+function commandArgv(hook: string | string[]): string[] {
+  return Array.isArray(hook) ? hook : splitCommand(hook);
+}
+
+// The command form's argv, for the document; a function isn't
+// serializable.
 export function prepareArgv(
   hook: PrepareHook | undefined,
 ): string[] | undefined {
   if (hook === undefined || typeof hook === "function") return undefined;
-  return Array.isArray(hook) ? hook : splitCommand(hook);
+  return commandArgv(hook);
 }
 
-/** A `RegExp` pattern becomes its source string (flags dropped). */
+// A `RegExp` pattern becomes its source string (flags dropped).
 export function timeSourceSpec(
   source: TimeSource | undefined,
 ): SerializedTimeSource | undefined {
@@ -385,7 +377,7 @@ export function timeSourceSpec(
   };
 }
 
-export interface SerializedTimeSource {
+interface SerializedTimeSource {
   pattern: string;
   group?: number;
   unit?: TimeUnit;

@@ -14,7 +14,8 @@ import {
 
 // Bun.write skips process.stdout/stderr's Node stream setup, which costs
 // startup time.
-export const out = (text: string) => Bun.write(Bun.stdout, text);
+export const out = (text: string): Promise<number> =>
+  Bun.write(Bun.stdout, text);
 const errOut = (text: string) => Bun.write(Bun.stderr, text);
 
 /**
@@ -38,20 +39,20 @@ export type CliErrorCode =
 
 /** Thrown to abort a command with exit 2; the dispatcher reports it. */
 export class CliError extends Error {
+  readonly code: CliErrorCode;
+  // Structured detail for the `error` event's `data`.
+  readonly data?: Record<string, unknown> | undefined;
   constructor(
-    readonly code: CliErrorCode,
+    code: CliErrorCode,
     message: string,
-    /** Structured detail for the `error` event's `data`. */
-    readonly data?: Record<string, unknown>,
+    data?: Record<string, unknown>,
   ) {
     super(message);
+    this.code = code;
+    this.data = data;
   }
 }
 
-/**
- * Runs `run`, turning any failure into a `CliError` of `code` with
- * `message` as a prefix.
- */
 export async function orFail<T>(
   code: CliErrorCode,
   message: string,
@@ -70,10 +71,8 @@ export async function orFail<T>(
 
 const MACHINE_FORMATS = new Set(["minimal", "json", "jsonl"]);
 
-/**
- * Machine errors are for scripts and agents: stderr isn't a terminal, or a
- * machine `--format` was asked for.
- */
+// Machine errors are for scripts and agents: stderr isn't a terminal, or a
+// machine `--format` was asked for.
 async function wantsMachineErrors(): Promise<boolean> {
   // Imported lazily: loading node:tty up front costs every invocation ~15ms.
   const { isatty } = await import("node:tty");
@@ -87,10 +86,8 @@ async function wantsMachineErrors(): Promise<boolean> {
   );
 }
 
-/**
- * Writes `message` to stderr, then for a machine reader one JSON `error`
- * line (first line of `message` only). Never touches stdout.
- */
+// Writes `message` to stderr, then for a machine reader one JSON `error`
+// line (first line of `message` only). Never touches stdout.
 export async function writeCliError(
   code: CliErrorCode,
   message: string,
@@ -109,11 +106,12 @@ export async function writeCliError(
   );
 }
 
-/**
- * Prints help and returns the exit code: 0 when asked for, 2 when shown
- * for missing input.
- */
-export async function showHelp(text: string, requested: boolean) {
+// Prints help and returns the exit code: 0 when asked for, 2 when shown
+// for missing input.
+export async function showHelp(
+  text: string,
+  requested: boolean,
+): Promise<0 | 2> {
   await out(text);
   return requested ? 0 : 2;
 }
@@ -126,14 +124,15 @@ export async function writeRenderResult(
 
   if (!result.files || result.files.length === 0) return;
 
+  const only = result.files.length === 1 ? result.files[0] : undefined;
   if (outDir) {
     for (const f of result.files) {
       const path = f.path ? `${outDir}/${f.path}` : outDir;
       await Bun.write(path, f.content);
       await out(`wrote ${path}\n`);
     }
-  } else if (result.files.length === 1) {
-    await out(result.files[0]!.content);
+  } else if (only) {
+    await out(only.content);
   } else {
     for (const f of result.files) {
       await out(`--- ${f.path ?? "(unnamed)"} ---\n${f.content}\n`);
@@ -147,11 +146,9 @@ interface OutputOptions {
   quiet: boolean;
 }
 
-/**
- * Honors `--export-json`; returns the JSON text when `--format json` will
- * print it (the json renderer's output is exactly this, so serialize
- * once).
- */
+// Honors `--export-json`; returns the JSON text when `--format json` will
+// print it (the json renderer's output is exactly this, so serialize
+// once).
 export async function exportDocument(
   doc: ProfileDocument,
   { exportJson, format, quiet }: OutputOptions,
@@ -165,10 +162,8 @@ export async function exportDocument(
   return jsonText;
 }
 
-/**
- * Shared tail of time/bench/ab/compare: `--export-json`, then the report
- * unless `--quiet`. `rendererOptions` reaches the renderer verbatim.
- */
+// Shared tail of time/bench/ab/compare: `--export-json`, then the report
+// unless `--quiet`. `rendererOptions` reaches the renderer verbatim.
 export async function emitDocument(
   doc: ProfileDocument,
   args: OutputOptions,

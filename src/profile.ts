@@ -39,6 +39,7 @@ export interface ProfileResult<T> {
   document: ProfileDocument;
 }
 
+/** Captures a CPU profile of `fn` in the current process. */
 export async function profile<T>(
   fn: () => T | Promise<T>,
   opts: ProfileOptions = {},
@@ -101,7 +102,7 @@ export async function profile<T>(
       configFingerprint: configFp,
       diagnosticWallNs: captured.diagnosticWallNs,
       cpu: captured.cpu,
-      jit: captured.jit,
+      ...(captured.jit && { jit: captured.jit }),
       warnings,
       artifacts: [],
     }),

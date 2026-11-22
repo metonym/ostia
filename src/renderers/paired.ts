@@ -20,16 +20,15 @@ export type PairedRun = Measurement & {
   paired: PairedEvidence;
 };
 
-export type ThrewRun = Measurement & {
+type ThrewRun = Measurement & {
   threw: NonNullable<Measurement["threw"]>;
 };
 
-/** A task that threw, on either side, in its first process or a repeat. */
+// On either side, in its first process or a repeat.
 function isThrewRun(m: Measurement): m is ThrewRun {
   return m.phase === "paired" && m.threw !== undefined;
 }
 
-/** A task judged on its time: measured, and it never threw. */
 function isPairedRun(m: Measurement): m is PairedRun {
   return (
     m.phase === "paired" &&
@@ -43,15 +42,13 @@ export function pairedRuns(doc: ProfileDocument): PairedRun[] {
   return doc.measurements.filter(isPairedRun);
 }
 
-/** An `ab()` document's tasks that threw. */
 export function threwRuns(doc: ProfileDocument): ThrewRun[] {
   return doc.measurements.filter(isThrewRun);
 }
 
-export type AbRow =
+type AbRow =
   { kind: "timed"; run: PairedRun } | { kind: "threw"; run: ThrewRun };
 
-/** Every row of an A/B table, timed or threw, in document order. */
 export function abRows(doc: ProfileDocument): AbRow[] {
   const rows: AbRow[] = [];
   for (const m of doc.measurements) {
@@ -61,14 +58,11 @@ export function abRows(doc: ProfileDocument): AbRow[] {
   return rows;
 }
 
-/**
- * `base threw`, `candidate threw`, `both threw`, with `(repeat 1)` when it
- * threw in a confirmation repeat. */
 export function formatThrew(threw: ThrewRun["threw"]): string {
   return `${sideLabel(threw.side)} threw${threw.repeat ? ` (repeat ${threw.repeat})` : ""}`;
 }
 
-/** A candidate/base ratio as a signed percent change: `1.032` is `+3.2%`. */
+// A candidate/base ratio: `1.032` is `+3.2%`.
 function formatRatio(ratio: number): string {
   return formatSignedPct((ratio - 1) * 100);
 }
@@ -86,17 +80,26 @@ function pairedVerdict(p: PairedEvidence, metric: AbSummary["metric"]): string {
   return `${p.confirmed ? `${p.flagged}, confirmed` : `${p.flagged}? unconfirmed`}${repeats}`;
 }
 
-/** `New suites, not at HEAD: bench/new.bench.ts`, or nothing. */
 export function formatNewSuites(ab: AbSummary): string | undefined {
   if (!ab.newSuites?.length) return undefined;
   return `New suite${ab.newSuites.length > 1 ? "s" : ""}, not at ${ab.base.ref}: ${ab.newSuites.join(", ")}`;
 }
 
-/**
- * The text of one paired row's table cells: `metric`'s per-call medians
- * and change, then in `also` the other metric's change (see `alsoHeader`),
- * blank on a task without an instruction count. */
-export function pairedCells(run: PairedRun, metric: AbSummary["metric"]) {
+interface PairedCells {
+  base: string;
+  candidate: string;
+  change: string;
+  spread: string;
+  also: string;
+  verdict: string;
+}
+
+// `also` is the other metric's change (see `alsoHeader`), blank on a task
+// without an instruction count.
+export function pairedCells(
+  run: PairedRun,
+  metric: AbSummary["metric"],
+): PairedCells {
   const p = run.paired;
   const i = p.instructions;
   const judged = metricRatios(p, metric);
@@ -123,9 +126,6 @@ export function pairedCells(run: PairedRun, metric: AbSummary["metric"]) {
   };
 }
 
-/**
- * The header of `pairedCells`'s `also` column, or undefined when no row
- * would fill it. */
 export function alsoHeader(
   doc: ProfileDocument,
   metric: AbSummary["metric"],
@@ -136,13 +136,12 @@ export function alsoHeader(
     : undefined;
 }
 
-export interface MemoryRow {
+interface MemoryRow {
   run: PairedRun;
   reading: "retained/op" | "peak";
   change: MemoryChange;
 }
 
-/** Each timed task's memory readings, retained before peak. */
 export function memoryRows(doc: ProfileDocument): MemoryRow[] {
   return pairedRuns(doc).flatMap((run) => {
     const rows: MemoryRow[] = [];
@@ -153,9 +152,8 @@ export function memoryRows(doc: ProfileDocument): MemoryRow[] {
   });
 }
 
-/**
- * `+1.50MiB (+87.4%)`, in whole bytes; no percent when the base is under
- * the noise floor, where it would be huge and meaningless. */
+// No percent when the base is under the noise floor, where it would be
+// huge and meaningless.
 function formatByteChange(c: MemoryChange): string {
   const base = Math.round(c.baseBytes);
   const diff = Math.round(c.candBytes) - base;
@@ -165,8 +163,15 @@ function formatByteChange(c: MemoryChange): string {
   return `${bytes} (${formatSignedPct((diff / base) * 100)})`;
 }
 
-/** The text of one memory row's table cells. */
-export function memoryCells({ reading, change: c }: MemoryRow) {
+interface MemoryCells {
+  reading: MemoryRow["reading"];
+  base: string;
+  candidate: string;
+  change: string;
+  verdict: string;
+}
+
+export function memoryCells({ reading, change: c }: MemoryRow): MemoryCells {
   return {
     reading,
     base: formatBytes(c.baseBytes),
@@ -176,10 +181,6 @@ export function memoryCells({ reading, change: c }: MemoryRow) {
   };
 }
 
-/**
- * `working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean
- * threshold 1.5%`, with `· by instructions/call` after the rounds when
- * that's the metric. */
 export function formatAbHeader(ab: AbSummary): string {
   const metric = ab.metric === "instructions" ? " · by instructions/call" : "";
   const memory = ab.memory
@@ -188,10 +189,6 @@ export function formatAbHeader(ab: AbSummary): string {
   return `working tree vs ${ab.base.ref} (${ab.base.sha.slice(0, 7)}) · ${ab.rounds} rounds${metric} · threshold ${ab.thresholdPct}% · geomean threshold ${ab.geomeanThresholdPct}%${memory}`;
 }
 
-/**
- * `Geomean +2.1% (threshold 1.5%) · 1 regressed, 0 improved, 47 unchanged
- * of 48 (1 unconfirmed) · memory: 0 regressed, 1 improved · fail`
- */
 export function formatAbSummary(ab: AbSummary): string {
   const geomean =
     ab.geomeanPct === null
@@ -209,9 +206,6 @@ export function formatAbSummary(ab: AbSummary): string {
   return `${geomean} · ${ab.regressed} regressed, ${ab.improved} improved, ${ab.unchanged} unchanged of ${ab.matched}${unconfirmed}${memory} · ${ab.verdict}`;
 }
 
-/**
- * Labels of workloads whose output differed between sides, and of those
- * present on only one side. */
 export function abNotes(doc: ProfileDocument): {
   outputDiffers: string[];
   baseOnly: string[];

@@ -49,35 +49,36 @@ export interface MeasureTasksOpts extends InprocessTimingOptions {
   noiseCheck?: boolean;
 }
 
-/**
- * Shared by every runner so a task has the same id under `bench()` and
- * `ab()`.
- */
+// Shared by every runner so a task has the same id under `bench()` and
+// `ab()`.
 export function taskWorkload(
   suiteFile: string,
   t: RegisteredTask,
   isolated?: boolean,
 ): Workload {
   const id = taskIdOf(t);
+  const params = t.params !== undefined && { params: t.params };
   const formerIds = formerTaskIds(t).map(
-    (former) => makeEntryWorkload(suiteFile, former, { params: t.params }).id,
+    (former) => makeEntryWorkload(suiteFile, former, { ...params }).id,
   );
+  const description = t.opts?.description;
   return makeEntryWorkload(suiteFile, id, {
     label: id,
-    formerIds: formerIds.length > 0 ? formerIds : undefined,
-    baseline: t.baseline,
-    group: t.groupName,
-    description: t.opts?.description,
-    groupDescription: t.groupDescription,
-    isolated,
-    params: t.params,
-    skipped: t.skipped,
+    ...(formerIds.length > 0 && { formerIds }),
+    ...(t.baseline !== undefined && { baseline: t.baseline }),
+    ...(t.groupName !== undefined && { group: t.groupName }),
+    ...(description !== undefined && { description }),
+    ...(t.groupDescription !== undefined && {
+      groupDescription: t.groupDescription,
+    }),
+    ...(isolated !== undefined && { isolated }),
+    ...params,
+    ...(t.skipped !== undefined && { skipped: t.skipped }),
   });
 }
 
-/**
- * Measures exactly `tasks` (already selected by the caller) in this
- * process; isolation is the caller's concern. */
+// `tasks` are already selected by the caller; isolation is the caller's
+// concern.
 export async function measureTasks(
   suiteFile: string,
   tasks: readonly RegisteredTask[],
@@ -91,8 +92,7 @@ export async function measureTasks(
 
   const workloads: Workload[] = [];
   const measurements: Measurement[] = [];
-  for (let idx = 0; idx < tasks.length; idx++) {
-    const t = tasks[idx]!;
+  for (const [idx, t] of tasks.entries()) {
     const workload = taskWorkload(suiteFile, t, opts.markIsolated);
     workloads.push(workload);
 
@@ -104,11 +104,14 @@ export async function measureTasks(
 
     // Per-task options win; the fingerprint is per task so two runs only
     // compare like-for-like when measured under the same effective settings.
+    const budgetMs = t.opts?.budgetMs ?? opts.budgetMs;
+    const samples = t.opts?.samples ?? opts.samples;
+    const minSamples = t.opts?.minSamples ?? opts.minSamples;
     const taskOpts: InprocessTimingOptions = {
-      budgetMs: t.opts?.budgetMs ?? opts.budgetMs,
-      samples: t.opts?.samples ?? opts.samples,
-      minSamples: t.opts?.minSamples ?? opts.minSamples,
-      warmup: opts.warmup,
+      ...(budgetMs !== undefined && { budgetMs }),
+      ...(samples !== undefined && { samples }),
+      ...(minSamples !== undefined && { minSamples }),
+      ...(opts.warmup !== undefined && { warmup: opts.warmup }),
       gc: taskGc(t, opts.gc ?? false),
     };
     // The heap as of its last GC, never forcing one: a forced GC would
@@ -128,7 +131,7 @@ export async function measureTasks(
         }),
         trials: result.trials,
         timing: result.timing,
-        instructions: result.instructions,
+        ...(result.instructions && { instructions: result.instructions }),
         warnings:
           noiseWarning && measurements.length === 0
             ? [...result.warnings, noiseWarning]

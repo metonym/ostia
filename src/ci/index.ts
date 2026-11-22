@@ -31,7 +31,7 @@ import { formatSignedPct, workloadLabel } from "../renderers/format.ts";
 import { abortedWarning } from "../time.ts";
 import { TOOL_VERSION } from "../version.ts";
 
-export interface CiOptions {
+interface CiOptions {
   config: OstiaConfig;
   full: boolean;
   baselineName?: string;
@@ -43,9 +43,8 @@ export interface CiOptions {
   signal?: AbortSignal;
 }
 
-/**
- * Hung workloads time out rather than block a CI job;
- * `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` override this. */
+// Hung workloads time out rather than block a CI job;
+// `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` override this.
 const DEFAULT_CI_TIMEOUT_MS = 600_000;
 
 type WorkloadStatus = "cached" | "executed";
@@ -64,7 +63,7 @@ interface CiWorkloadResult extends MeasuredWorkload {
   comparison?: Comparison;
 }
 
-export interface CiSummary {
+interface CiSummary {
   total: number;
   cached: number;
   executed: number;
@@ -90,13 +89,15 @@ export interface CiSummary {
 export class BaselineError extends OstiaUsageError {}
 
 export class BaselineNotFoundError extends BaselineError {
-  constructor(public readonly path: string) {
+  readonly path: string;
+
+  constructor(path: string) {
     super(
       `No baseline document at ${path}. Create one with: ostia baseline save ${path
-        .split("/")
-        .pop()!
+        .slice(path.lastIndexOf("/") + 1)
         .replace(/\.json$/, "")}`,
     );
+    this.path = path;
   }
 }
 
@@ -104,23 +105,26 @@ export class BaselineNotFoundError extends BaselineError {
  * Thrown by `runCi` when the `onMissingBaseline` policy makes unmatched
  * workloads a hard error. */
 export class MissingBaselineError extends BaselineError {
-  constructor(
-    public readonly path: string,
-    public readonly missing: number,
-    public readonly total: number,
-  ) {
+  readonly path: string;
+  readonly missing: number;
+  readonly total: number;
+
+  constructor(path: string, missing: number, total: number) {
     super(
       `${missing} of ${total} configured workload(s) have no matching row in baseline ${path} (by workload id). Re-seed with: ostia baseline save`,
     );
+    this.path = path;
+    this.missing = missing;
+    this.total = total;
   }
 }
 
-export interface MeasureConfigWorkloadsResult {
+interface MeasureConfigWorkloadsResult {
   results: MeasuredWorkload[];
   /**
    * One reference measurement taken before any workload runs, unless
    * `config.noiseCheck` is false. */
-  environment?: Environment;
+  environment?: Environment | undefined;
   /** The signal fired: `results` holds only what completed. */
   aborted: boolean;
 }
@@ -128,16 +132,17 @@ export interface MeasureConfigWorkloadsResult {
 async function measureSuiteWorkloads(
   config: OstiaConfig,
   wc: WorkloadConfig,
+  suites: string[],
   noiseWarning: Warning | undefined,
   signal: AbortSignal | undefined,
 ): Promise<MeasuredWorkload[]> {
   // Always executes: a suite file's task ids (so its cache keys) are unknown
   // without importing it.
-  const suiteFiles = await scanGlobs(wc.suites!, process.cwd());
+  const suiteFiles = await scanGlobs(suites, process.cwd());
   if (suiteFiles.length === 0) {
     // Gating zero tasks would pass silently.
     throw new OstiaUsageError(
-      `Workload suites ${JSON.stringify(wc.suites)} matched no files.`,
+      `Workload suites ${JSON.stringify(suites)} matched no files.`,
     );
   }
   // Same CLI-over-config resolution as `ostia bench`; only the defaults
@@ -151,7 +156,7 @@ async function measureSuiteWorkloads(
     outDir: benchOpts.outDir ?? config.outDir,
     // The workload's own limit, then `bench.timeoutMs`, as for a command.
     timeoutMs: wc.timeoutMs ?? benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
-    signal,
+    ...(signal && { signal }),
   });
   const results: MeasuredWorkload[] = [];
   for (const workload of doc.workloads) {
@@ -169,13 +174,14 @@ async function measureSuiteWorkloads(
 async function measureCommandWorkload(
   config: OstiaConfig,
   wc: WorkloadConfig,
+  command: string[],
   full: boolean,
   noiseWarning: Warning | undefined,
   signal: AbortSignal | undefined,
 ): Promise<MeasuredWorkload> {
-  const workload = makeSubprocessWorkload(wc.command!, wc.label, {
-    prepare: wc.prepare,
-    timeSource: wc.timeSource,
+  const workload = makeSubprocessWorkload(command, wc.label, {
+    ...(wc.prepare !== undefined && { prepare: wc.prepare }),
+    ...(wc.timeSource !== undefined && { timeSource: wc.timeSource }),
   });
   const cfgFp = configFingerprint({
     samples: config.samples ?? null,
@@ -206,22 +212,26 @@ async function measureCommandWorkload(
     run = cachedRun;
   } else {
     const phaseResult = await runTimingPhase({
-      argv: wc.command!,
-      samples: config.samples,
-      budgetMs: config.budgetMs,
-      minSamples: config.minSamples,
-      warmup: config.warmup,
-      prepare: wc.prepare,
-      timeSource: wc.timeSource,
+      argv: command,
+      ...(config.samples !== undefined && { samples: config.samples }),
+      ...(config.budgetMs !== undefined && { budgetMs: config.budgetMs }),
+      ...(config.minSamples !== undefined && {
+        minSamples: config.minSamples,
+      }),
+      ...(config.warmup !== undefined && { warmup: config.warmup }),
+      ...(wc.prepare !== undefined && { prepare: wc.prepare }),
+      ...(wc.timeSource !== undefined && { timeSource: wc.timeSource }),
       timeoutMs: wc.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
-      ignoreExitCodes: wc.ignoreExitCodes,
-      signal,
+      ...(wc.ignoreExitCodes !== undefined && {
+        ignoreExitCodes: wc.ignoreExitCodes,
+      }),
+      ...(signal && { signal }),
     });
     run = makeTimingMeasurement({
       workload,
       configFingerprint: cfgFp,
       trials: phaseResult.trials,
-      timing: phaseResult.timing,
+      ...(phaseResult.timing && { timing: phaseResult.timing }),
       warnings: noiseWarning
         ? [...phaseResult.warnings, noiseWarning]
         : phaseResult.warnings,
@@ -240,10 +250,8 @@ async function measureCommandWorkload(
   };
 }
 
-/**
- * Runs every configured workload (or reads it from cache) with no baseline
- * comparison. Shared by `runCi` and `ostia baseline save`, so a saved
- * baseline comes from the same code path `ci` gates against. */
+// No baseline comparison. Shared by `runCi` and `ostia baseline save`, so
+// a saved baseline comes from the same code path `ci` gates against.
 export async function measureConfigWorkloads(
   config: OstiaConfig,
   full: boolean,
@@ -258,12 +266,29 @@ export async function measureConfigWorkloads(
     if (signal?.aborted) break;
     if (wc.suites) {
       results.push(
-        ...(await measureSuiteWorkloads(config, wc, noiseWarning, signal)),
+        ...(await measureSuiteWorkloads(
+          config,
+          wc,
+          wc.suites,
+          noiseWarning,
+          signal,
+        )),
+      );
+    } else if (wc.command) {
+      results.push(
+        await measureCommandWorkload(
+          config,
+          wc,
+          wc.command,
+          full,
+          noiseWarning,
+          signal,
+        ),
       );
     } else {
-      results.push(
-        await measureCommandWorkload(config, wc, full, noiseWarning, signal),
-      );
+      // invariant: config validation gives every workload exactly one of
+      // `command` and `suites`.
+      throw new Error("ci: a workload has neither command nor suites");
     }
   }
   const aborted = signal?.aborted ?? false;
@@ -400,7 +425,7 @@ export function renderCiReport(summary: CiSummary): string {
   const regressionDetails = summary.results
     .filter((r) => r.comparison?.verdict === "fail")
     .map((r) => {
-      const t = r.comparison!.timing;
+      const t = r.comparison?.timing;
       const label = workloadLabel(r.workload);
       return t
         ? `${formatSignedPct(t.medianDeltaPct)} median on ${label}`

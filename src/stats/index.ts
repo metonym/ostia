@@ -8,17 +8,17 @@ export function computeTimingStats(samples: number[]): TimingStats {
   const n = samples.length;
   const sorted = sortedCopy(samples);
   let total = 0;
-  for (let i = 0; i < n; i++) total += samples[i]!;
+  for (const s of samples) total += s;
   const mean = total / n;
   const median = percentile(sorted, 0.5);
   let squaredDeviation = 0;
-  for (let i = 0; i < n; i++) {
-    const d = samples[i]! - mean;
+  for (const s of samples) {
+    const d = s - mean;
     squaredDeviation += d * d;
   }
   const stddev = Math.sqrt(squaredDeviation / n);
-  const min = sorted[0]!;
-  const max = sorted[n - 1]!;
+  const min = sorted[0] ?? 0;
+  const max = sorted[n - 1] ?? 0;
 
   const q1 = percentile(sorted, 0.25);
   const q3 = percentile(sorted, 0.75);
@@ -30,15 +30,16 @@ export function computeTimingStats(samples: number[]): TimingStats {
 
   let mild = 0;
   let severe = 0;
-  for (let i = 0; i < n; i++) {
-    const s = samples[i]!;
+  for (const s of samples) {
     if (s < severeLow || s > severeHigh) severe++;
     else if (s < mildLow || s > mildHigh) mild++;
   }
 
   const p99 = percentile(sorted, 0.99);
   const deviations = new Float64Array(n);
-  for (let i = 0; i < n; i++) deviations[i] = Math.abs(samples[i]! - median);
+  for (let i = 0; i < n; i++) {
+    deviations[i] = Math.abs((samples[i] ?? 0) - median);
+  }
   deviations.sort();
   const mad = percentile(deviations, 0.5);
 
@@ -65,15 +66,18 @@ export function sortedCopy(samples: number[]): Float64Array {
   return sorted;
 }
 
+// An empty array gives NaN, as the interpolation does.
 export function percentile(sorted: Float64Array, p: number): number {
   const n = sorted.length;
-  if (n === 1) return sorted[0]!;
+  if (n === 1) return sorted[0] ?? Number.NaN;
   const idx = p * (n - 1);
   const lo = Math.floor(idx);
   const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo]!;
+  if (lo === hi) return sorted[lo] ?? Number.NaN;
   const frac = idx - lo;
-  return sorted[lo]! * (1 - frac) + sorted[hi]! * frac;
+  return (
+    (sorted[lo] ?? Number.NaN) * (1 - frac) + (sorted[hi] ?? Number.NaN) * frac
+  );
 }
 
 const FAST_COMMAND_NS = 5_000_000;
@@ -81,7 +85,7 @@ const FAST_COMMAND_NS = 5_000_000;
 /**
  * `reported`: samples are the command's own printed times (`timeSource`),
  * so the spawn-overhead heuristic doesn't apply. */
-export type TimingMode = "subprocess" | "inprocess" | "reported";
+type TimingMode = "subprocess" | "inprocess" | "reported";
 
 export function timingWarnings(
   stats: TimingStats,

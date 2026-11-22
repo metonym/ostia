@@ -1,24 +1,27 @@
 import { dlopen, FFIType, ptr, read } from "bun:ffi";
 
+import { errorMessage } from "../errors.ts";
+
 /**
  * Reads how many instructions the calling thread has retired in user mode.
  * Only differences between two reads mean anything. */
 type InstructionReader = () => number;
 
-export type InstructionCounter =
+type InstructionCounter =
   | { read: InstructionReader; unavailable?: undefined }
   /** Why this machine can't count instructions, for an error message. */
   | { read?: undefined; unavailable: string };
 
+// One counter per process: each Linux open holds a perf event fd.
+// eslint-disable-next-line no-restricted-syntax -- a lazy cache, opened once
 let counter: InstructionCounter | undefined;
 
-/**
- * The calling thread's retired-instruction counter: steadier than wall
- * time on a loaded machine, since another process taking the CPU doesn't
- * change what this thread executes. Per thread, user mode only, so neither
- * the kernel's work for a system call nor any other thread's (JIT
- * compiler, GC helpers, I/O pool) counts. Reads the hardware counter
- * through `thread_selfcounts` on macOS and `perf_event_open` on Linux. */
+// The calling thread's retired-instruction counter: steadier than wall
+// time on a loaded machine, since another process taking the CPU doesn't
+// change what this thread executes. Per thread, user mode only, so neither
+// the kernel's work for a system call nor any other thread's (JIT
+// compiler, GC helpers, I/O pool) counts. Reads the hardware counter
+// through `thread_selfcounts` on macOS and `perf_event_open` on Linux.
 export function instructionCounter(): InstructionCounter {
   counter ??= openCounter();
   return counter;
@@ -29,7 +32,7 @@ function openCounter(): InstructionCounter {
     if (process.platform === "darwin") return darwinCounter();
     if (process.platform === "linux") return linuxCounter();
   } catch (err) {
-    return { unavailable: (err as Error).message };
+    return { unavailable: errorMessage(err) };
   }
   return { unavailable: `not supported on ${process.platform}` };
 }
@@ -103,8 +106,9 @@ function linuxCounter(): InstructionCounter {
   attr[5] = PERF_USER_ONLY;
   const fd = Number(symbols.syscall(nr, ptr(attr), 0, -1, -1, 0));
   if (fd < 0) {
-    const errno = read.i32(symbols.__errno_location()!);
-    return { unavailable: perfError(errno) };
+    const errnoAt = symbols.__errno_location();
+    if (errnoAt === null) throw new Error("__errno_location returned null");
+    return { unavailable: perfError(read.i32(errnoAt)) };
   }
   const count = new BigUint64Array(1);
   const at = ptr(count);

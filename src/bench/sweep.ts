@@ -19,18 +19,20 @@ export function sweep<T extends Record<string, readonly unknown[]>>(
   dims: T,
   fn: (point: SweepPoint<T>) => void,
 ): void {
-  const keys = Object.keys(dims) as (keyof T)[];
+  const keys = Object.keys(dims);
 
   const go = (index: number, point: Record<string, unknown>): void => {
-    if (index === keys.length) {
+    const key = keys[index];
+    if (key === undefined) {
       withCurrentParams(
+        // eslint-disable-next-line typescript/consistent-type-assertions, no-restricted-syntax -- `dims` may hold any value, and params carry the point as given
         point as Record<string, string | number | boolean>,
+        // eslint-disable-next-line typescript/consistent-type-assertions, no-restricted-syntax -- every key of `dims` is set by now, which TS can't follow through a mapped type
         () => fn(point as SweepPoint<T>),
       );
       return;
     }
-    const key = keys[index]!;
-    for (const value of dims[key]!) {
+    for (const value of dims[key] ?? []) {
       go(index + 1, { ...point, [key]: value });
     }
   };

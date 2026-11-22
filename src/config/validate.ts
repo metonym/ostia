@@ -1,3 +1,5 @@
+import { errorMessage } from "../errors.ts";
+
 /**
  * A config file that exists but can't be used; the CLI reports it as
  * `config-invalid`.
@@ -5,21 +7,23 @@
 export class ConfigError extends Error {}
 
 type Rule = (v: unknown) => boolean;
+type Guard<T> = (v: unknown) => v is T;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
 const isInt =
-  (min: number): Rule =>
-  (v) =>
+  (min: number): Guard<number> =>
+  (v): v is number =>
     typeof v === "number" && Number.isInteger(v) && v >= min;
 const isNum =
-  (min: number): Rule =>
-  (v) =>
+  (min: number): Guard<number> =>
+  (v): v is number =>
     typeof v === "number" && Number.isFinite(v) && v >= min;
-const isString: Rule = (v) => typeof v === "string";
+const isString: Guard<string> = (v) => typeof v === "string";
 const isBool: Rule = (v) => typeof v === "boolean";
-const isStringArray: Rule = (v) => Array.isArray(v) && v.every(isString);
+const isStringArray: Guard<string[]> = (v): v is string[] =>
+  Array.isArray(v) && v.every(isString);
 const oneOf =
   (...values: unknown[]): Rule =>
   (v) =>
@@ -42,13 +46,13 @@ const THRESHOLD_FIELDS: Record<string, Field> = {
   frameSelfPct: field(isNum(0), "a non-negative number"),
   heapTypePct: field(isNum(0), "a non-negative number"),
   minFrameSelfUs: field(isNum(0), "a non-negative number"),
-  alpha: field((v) => isNum(0)(v) && (v as number) <= 1, "a number in [0, 1]"),
+  alpha: field((v) => isNum(0)(v) && v <= 1, "a number in [0, 1]"),
   bootstrapIterations: posInt,
 };
 
 const PROJECT_FIELDS: Record<string, Field> = {
   suites: field(
-    (v) => isStringArray(v) && (v as string[]).length > 0,
+    (v) => isStringArray(v) && v.length > 0,
     "a non-empty array of glob strings",
   ),
   preload: strings,
@@ -95,11 +99,11 @@ const COMMAND_ONLY = ["inputs", "prepare", "timeSource", "ignoreExitCodes"];
 const WORKLOAD_FIELDS: Record<string, Field> = {
   label: text,
   command: field(
-    (v) => isStringArray(v) && (v as string[]).length > 0,
+    (v) => isStringArray(v) && v.length > 0,
     "a non-empty array of strings (argv, no shell)",
   ),
   suites: field(
-    (v) => isStringArray(v) && (v as string[]).length > 0,
+    (v) => isStringArray(v) && v.length > 0,
     "a non-empty array of glob strings",
   ),
   inputs: strings,
@@ -117,8 +121,7 @@ const WORKLOAD_FIELDS: Record<string, Field> = {
   ),
   timeoutMs: posInt,
   ignoreExitCodes: field(
-    (v) =>
-      Array.isArray(v) && v.every((c) => isInt(0)(c) && (c as number) <= 255),
+    (v) => Array.isArray(v) && v.every((c) => isInt(0)(c) && c <= 255),
     "an array of exit codes 0-255",
   ),
 };
@@ -142,10 +145,9 @@ const describe = (v: unknown): string =>
       ? String(v)
       : (JSON.stringify(v) ?? String(v));
 
-/**
- * Checks each present (non-`undefined`) key of `obj` against `fields`;
- * unknown keys are reported to `warn` rather than failing, as they always
- * were ignored. A `$`-prefixed key (`"$schema"`) is never reported. */
+// Checks each present (non-`undefined`) key of `obj` against `fields`;
+// unknown keys are reported to `warn` rather than failing, as they always
+// were ignored. A `$`-prefixed key (`"$schema"`) is never reported.
 function checkFields(
   obj: Record<string, unknown>,
   fields: Record<string, Field>,
@@ -206,23 +208,22 @@ function checkWorkload(
       }
     }
   }
-  const source = (obj.timeSource as { pattern?: unknown } | undefined)?.pattern;
+  const source = isObject(obj.timeSource) ? obj.timeSource.pattern : undefined;
   if (typeof source === "string") {
     try {
       new RegExp(source);
     } catch (err) {
       throw new ConfigError(
-        `${file}: "${where}.timeSource.pattern" is not a valid regex: ${(err as Error).message}`,
+        `${file}: "${where}.timeSource.pattern" is not a valid regex: ${errorMessage(err)}`,
       );
     }
   }
 }
 
-/**
- * Throws `ConfigError` naming the offending key for a wrong type or value;
- * `warn` gets keys that are unknown (or inapplicable) and so ignored.
- * `raw` is the already-object-checked config with `undefined` values still
- * present. */
+// Throws `ConfigError` naming the offending key for a wrong type or value;
+// `warn` gets keys that are unknown (or inapplicable) and so ignored.
+// `raw` is the already-object-checked config with `undefined` values still
+// present.
 export function validateConfig(
   raw: Record<string, unknown>,
   file: string,
@@ -242,14 +243,19 @@ export function validateConfig(
   if (bench !== undefined) {
     const benchObj = checkObject(bench, "bench", file);
     checkFields(benchObj, BENCH_FIELDS, "bench", file, warn);
-    (benchObj.projects as unknown[] | undefined)?.forEach((project, i) => {
+    // checkFields has made `projects` an array when present.
+    const projects: unknown = benchObj.projects;
+    for (const [i, project] of (Array.isArray(projects)
+      ? projects
+      : []
+    ).entries()) {
       const where = `bench.projects[${i}]`;
       const obj = checkObject(project, where, file);
       if (obj.suites === undefined) {
         throw new ConfigError(`${file}: "${where}" needs "suites".`);
       }
       checkFields(obj, PROJECT_FIELDS, where, file, warn);
-    });
+    }
   }
   if (ab !== undefined) {
     checkFields(checkObject(ab, "ab", file), AB_FIELDS, "ab", file, warn);
@@ -260,8 +266,8 @@ export function validateConfig(
         `${file}: "workloads" must be an array, got ${describe(workloads)}.`,
       );
     }
-    workloads.forEach((wc, i) => {
+    for (const [i, wc] of workloads.entries()) {
       checkWorkload(wc, i, file, warn);
-    });
+    }
   }
 }

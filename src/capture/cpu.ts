@@ -1,12 +1,12 @@
 import type { CpuEvidence, Warning } from "../ir/types.ts";
 import { type ProfiledRunOptions, runProfiled } from "./bunflags.ts";
-import { parseCpuProfile, type RawCpuProfile } from "./cpu-parse.ts";
+import { isRawCpuProfile, parseCpuProfile } from "./cpu-parse.ts";
 
-export interface CpuCaptureOptions extends ProfiledRunOptions {
+interface CpuCaptureOptions extends ProfiledRunOptions {
   intervalUs: number;
 }
 
-export interface CpuCaptureResult {
+interface CpuCaptureResult {
   diagnosticWallNs: number;
   exitCode: number;
   artifactPath?: string;
@@ -19,7 +19,7 @@ export interface CpuCaptureResult {
 export async function runCpuCapture(
   opts: CpuCaptureOptions,
 ): Promise<CpuCaptureResult> {
-  const { raw, ...run } = await runProfiled<RawCpuProfile>(
+  const { raw, ...run } = await runProfiled(
     opts,
     [
       "--cpu-prof",
@@ -33,6 +33,9 @@ export async function runCpuCapture(
     { what: "a .cpuprofile", kind: "CPU" },
   );
   if (!raw) return run;
+  if (!isRawCpuProfile(raw)) {
+    throw new Error(`ostia: ${run.artifactPath} isn't a CPU profile`);
+  }
 
   if (raw.samples.length === 0) {
     run.warnings.push({

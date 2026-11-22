@@ -21,8 +21,8 @@ export type TimingRun = Measurement & {
   timing: NonNullable<Measurement["timing"]>;
 };
 
-export type FrameDelta = NonNullable<Comparison["frames"]>[number];
-export type HeapTypeDelta = NonNullable<Comparison["heapTypes"]>[number];
+type FrameDelta = NonNullable<Comparison["frames"]>[number];
+type HeapTypeDelta = NonNullable<Comparison["heapTypes"]>[number];
 
 export function workloadsById(doc: ProfileDocument): Map<string, Workload> {
   return new Map(doc.workloads.map((w) => [w.id, w]));
@@ -34,20 +34,14 @@ export function timingRuns(doc: ProfileDocument): TimingRun[] {
   );
 }
 
-/**
- * Timing measurements that produced no samples (every trial timed out or
- * missed the `timeSource` pattern). Renderers show them as "no samples"
- * rows so their warnings stay visible. */
+// Every trial timed out or missed the `timeSource` pattern. Renderers show
+// these as "no samples" rows so their warnings stay visible.
 export function noSampleRuns(doc: ProfileDocument): Measurement[] {
   return doc.measurements.filter(
     (r) => r.phase === "timing" && r.timing === undefined,
   );
 }
 
-/**
- * `task.skip()`'d workloads with no measurement, rendered as "- skipped"
- * rows.
- */
 export function skippedWorkloads(
   doc: ProfileDocument,
   runs: { workloadId: string }[],
@@ -56,10 +50,9 @@ export function skippedWorkloads(
   return doc.workloads.filter((w) => w.skipped && !measured.has(w.id));
 }
 
-/**
- * `environment-mismatch` is the same on every comparison (it concerns the
- * base/cand pair): renderers print it once, from here, and drop it per
- * row. */
+// `environment-mismatch` is the same on every comparison (it concerns the
+// base/cand pair): renderers print it once, from here, and drop it per
+// row.
 export function environmentMismatch(doc: ProfileDocument): Warning | undefined {
   for (const c of doc.comparisons ?? []) {
     const w = c.warnings?.find((w) => w.code === "environment-mismatch");
@@ -72,11 +65,9 @@ export function rowComparisonWarnings(cmp: Comparison): Warning[] {
   return (cmp.warnings ?? []).filter((w) => w.code !== "environment-mismatch");
 }
 
-/**
- * Resolves a comparison to its candidate measurement and workload, plus
- * the workload id (the display fallback when the document lacks the
- * workload). A skipped candidate has no measurement, so
- * `candidateMeasurementId` then holds the workload id itself. */
+// The workload id is the display fallback when the document lacks the
+// workload. A skipped candidate has no measurement, so
+// `candidateMeasurementId` then holds the workload id itself.
 function comparisonResolver(doc: ProfileDocument) {
   const workloads = workloadsById(doc);
   const runs = new Map(doc.measurements.map((m) => [m.id, m]));
@@ -102,7 +93,7 @@ export function shownHeapDeltas(
     .filter((h) => Math.abs(h.deltaPct) >= MIN_DISPLAY_DELTA_PCT);
 }
 
-export interface MemoryReadings {
+interface MemoryReadings {
   /** `--alloc`: heap each call retains, bytes. */
   retained?: number;
   /** `--peak-mem`: RSS rise of one call, bytes. */
@@ -127,7 +118,6 @@ export function memoryReadings(
   return byWorkload;
 }
 
-/** A timing run's warnings plus its workload's `memstats` warnings. */
 export function runWarnings(
   run: Measurement,
   memory: Map<string, MemoryReadings>,
@@ -136,16 +126,12 @@ export function runWarnings(
   return extra?.length ? [...run.warnings, ...extra] : run.warnings;
 }
 
-export interface MemoryColumn {
+interface MemoryColumn {
   header: string;
   /** Formatted bytes, or undefined when this workload has no reading. */
   cell: (workloadId: string) => string | undefined;
 }
 
-/**
- * `Retained/op` and `Peak mem` columns, each only when some workload has
- * it.
- */
 export function memoryColumns(
   memory: Map<string, MemoryReadings>,
 ): MemoryColumn[] {
@@ -168,11 +154,9 @@ export function memoryColumns(
     }));
 }
 
-/**
- * The document's `compared` rows, each with its `Comparison` (absent on a
- * one-sided task). A document compared before `compared` existed gets rows
- * rebuilt from `comparisons` and `unmatched`: no sample counts or memory,
- * the base median derived from the change, base-only tasks named by id. */
+// A document compared before `compared` existed gets rows rebuilt from
+// `comparisons` and `unmatched`: no sample counts or memory, the base
+// median derived from the change, base-only tasks named by id.
 export function comparedRows(
   doc: ProfileDocument,
 ): { row: ComparedTask; cmp: Comparison | undefined }[] {
@@ -251,9 +235,6 @@ const MEMORY_READING_LABELS: Record<MemoryDelta["reading"], string> = {
   maxRss: "max RSS",
 };
 
-/**
- * `heap used before 12.00MiB → 16.80MiB (+40.0%)` for each memory reading
- * that moved at least 10%. */
 export function shownMemoryDeltas(row: ComparedTask, arrow = "→"): string[] {
   return (row.memory ?? [])
     .filter((m) => !(Math.abs(m.deltaPct) < MIN_MEMORY_DISPLAY_PCT))
@@ -263,9 +244,6 @@ export function shownMemoryDeltas(row: ComparedTask, arrow = "→"): string[] {
     );
 }
 
-/**
- * `Timing threshold 5.0%, widened to 17.3% by machine noise and drift
- * (12.3%)`, when noise or drift widened it; else undefined. */
 export function thresholdNote(doc: ProfileDocument): string | undefined {
   const summary = doc.comparisonSummary;
   const base = doc.comparisons?.[0]?.thresholds.timingPct;
@@ -278,7 +256,6 @@ export function thresholdNote(doc: ProfileDocument): string | undefined {
   return `Timing threshold ${base.toFixed(1)}%, widened to ${summary.effectiveTimingPct.toFixed(1)}% by machine noise${drift}`;
 }
 
-/** "base only" / "candidate only", and what that usually means. */
 export function oneSidedNote(verdict: "missing-base" | "missing-cand"): string {
   return verdict === "missing-base"
     ? "candidate only (new, or renamed without `aliases`)"

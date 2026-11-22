@@ -25,7 +25,13 @@ export function createFrameTable(): {
       if (ix === undefined) {
         ix = frames.length;
         byUrl.set(urlKey, ix);
-        frames.push({ key: fp("fr", name, urlKey), name, url, line, col });
+        frames.push({
+          key: fp("fr", name, urlKey),
+          name,
+          ...(url !== undefined && { url }),
+          ...(line !== undefined && { line }),
+          ...(col !== undefined && { col }),
+        });
       }
       return ix;
     },

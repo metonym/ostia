@@ -112,6 +112,7 @@ export function abortedWarning(): Warning {
   };
 }
 
+/** Times each of `commands` as a subprocess, as `ostia time` does. */
 export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   assertSamplingOptions("time", opts);
 
@@ -133,6 +134,7 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
 
   const workloads: Workload[] = [];
   const measurements: Measurement[] = [];
+  const where = spawnLocation(opts);
 
   const entries = opts.commands.map((entry) => {
     const spec: CommandSpec =
@@ -147,7 +149,10 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     const workload = makeSubprocessWorkload(
       argv,
       spec.label ?? (Array.isArray(spec.command) ? undefined : spec.command),
-      { prepare, timeSource },
+      {
+        ...(prepare !== undefined && { prepare }),
+        ...(timeSource !== undefined && { timeSource }),
+      },
     );
     return {
       argv,
@@ -161,37 +166,39 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
 
   const interleave = (opts.interleave ?? true) && entries.length > 1;
 
-  const phases = entries.map((entry) =>
-    createTimingPhase({
+  const runs = entries.map((entry) => ({
+    entry,
+    phase: createTimingPhase({
       argv: entry.argv,
-      cwd: opts.cwd,
-      env: opts.env,
-      samples: opts.samples,
-      budgetMs: opts.budgetMs,
-      minSamples: opts.minSamples,
-      warmup: opts.warmup,
-      prepare: entry.prepare,
-      timeSource: entry.timeSource,
-      timeoutMs: entry.timeoutMs,
-      ignoreExitCodes: entry.ignoreExitCodes,
-      signal: opts.signal,
+      ...where,
+      ...(opts.samples !== undefined && { samples: opts.samples }),
+      ...(opts.budgetMs !== undefined && { budgetMs: opts.budgetMs }),
+      ...(opts.minSamples !== undefined && { minSamples: opts.minSamples }),
+      ...(opts.warmup !== undefined && { warmup: opts.warmup }),
+      ...(entry.prepare !== undefined && { prepare: entry.prepare }),
+      ...(entry.timeSource !== undefined && { timeSource: entry.timeSource }),
+      ...(entry.timeoutMs !== undefined && { timeoutMs: entry.timeoutMs }),
+      ...(entry.ignoreExitCodes !== undefined && {
+        ignoreExitCodes: entry.ignoreExitCodes,
+      }),
+      ...(opts.signal !== undefined && { signal: opts.signal }),
     }),
-  );
+  }));
 
-  const record = async (i: number) => {
-    const { argv, workload, prepare } = entries[i]!;
+  const record = async ({ entry, phase }: (typeof runs)[number]) => {
+    const { argv, workload, prepare } = entry;
     workloads.push(workload);
-    const phaseResult = phases[i]!.result();
+    const phaseResult = phase.result();
     const timingMeasurement = makeTimingMeasurement({
       workload,
       configFingerprint: cfgFp,
       trials: phaseResult.trials,
-      timing: phaseResult.timing,
+      ...(phaseResult.timing && { timing: phaseResult.timing }),
       warnings:
         noiseWarning && measurements.length === 0
           ? [...phaseResult.warnings, noiseWarning]
           : phaseResult.warnings,
-      interleaved: interleave ? true : undefined,
+      ...(interleave && { interleaved: true }),
     });
     measurements.push(timingMeasurement);
     // An instrumented capture is one more spawned run, so don't start it once
@@ -212,24 +219,24 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   };
 
   if (interleave) {
-    for (const phase of phases) await phase.warmup();
+    for (const { phase } of runs) await phase.warmup();
     let stepped = true;
     while (stepped) {
       stepped = false;
-      for (const phase of phases) {
+      for (const { phase } of runs) {
         if (await phase.step()) stepped = true;
       }
     }
-    for (let i = 0; i < entries.length; i++) await record(i);
+    for (const run of runs) await record(run);
   } else {
-    for (let i = 0; i < entries.length; i++) {
-      await drainTimingPhase(phases[i]!);
-      await record(i);
+    for (const run of runs) {
+      await drainTimingPhase(run.phase);
+      await record(run);
     }
   }
 
-  if (opts.signal?.aborted && measurements.length > 0) {
-    const last = measurements[measurements.length - 1]!;
+  const last = measurements.at(-1);
+  if (opts.signal?.aborted && last) {
     last.warnings = [...last.warnings, abortedWarning()];
   }
 
@@ -252,23 +259,18 @@ async function captureInstrumentedPhases({
   cfgFp: string;
   opts: TimeOptions;
   artifactDir: string;
-  prepare?: PrepareHook;
+  prepare: PrepareHook | undefined;
 }): Promise<Measurement[]> {
   const extra: Measurement[] = [];
+  const where = spawnLocation(opts);
   // A prepare hook (cold cache, fresh fixture) applies to an instrumented
   // run like a timing trial.
   const prepareFor = async (phase: PrepareRun["phase"]) => {
-    if (prepare)
-      await runPrepare(
-        prepare,
-        { phase, index: 0 },
-        { cwd: opts.cwd, env: opts.env },
-      );
+    if (prepare) await runPrepare(prepare, { phase, index: 0 }, where);
   };
   const captureOpts = (suffix: string) => ({
     argv,
-    cwd: opts.cwd,
-    env: opts.env,
+    ...where,
     artifactDir,
     fileName: `${timingMeasurementId}-${suffix}`,
   });
@@ -305,6 +307,16 @@ async function captureInstrumentedPhases({
   }
 
   return extra;
+}
+
+function spawnLocation(opts: TimeOptions): {
+  cwd?: string;
+  env?: Record<string, string>;
+} {
+  return {
+    ...(opts.cwd !== undefined && { cwd: opts.cwd }),
+    ...(opts.env !== undefined && { env: opts.env }),
+  };
 }
 
 async function instrumentedMeasurement({

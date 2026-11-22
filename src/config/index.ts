@@ -177,23 +177,34 @@ export const DEFAULT_CONFIG: OstiaConfig = {
 // Renamed fields fail loudly instead of being silently ignored.
 const RENAMED_FIELDS: Record<string, string> = { runs: "samples" };
 
-/** In discovery order: `.ts` wins over JSON. */
-export const CONFIG_FILES = ["ostia.config.ts", "ostia.config.json"];
+// In discovery order: `.ts` wins over JSON.
+export const CONFIG_FILES: string[] = ["ostia.config.ts", "ostia.config.json"];
 
 const warnConfig = (message: string) => console.warn(`ostia: ${message}`);
 
-/**
- * An explicit `undefined` (`warmup: undefined`) means "unset", not
- * "overwrite the default".
- */
+// An explicit `undefined` (`warmup: undefined`) means "unset", not
+// "overwrite the default".
 function withoutUndefined<T extends object>(obj: T): T {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== undefined),
-  ) as T;
+  const out = { ...obj };
+  for (const key in out) if (out[key] === undefined) delete out[key];
+  return out;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+// validateConfig checks every key OstiaConfigInput has; it warns on the
+// rest and leaves them in.
+function assertConfigInput(
+  raw: Record<string, unknown>,
+  path: string,
+): asserts raw is Record<string, unknown> & OstiaConfigInput {
+  validateConfig(raw, path, warnConfig);
 }
 
 function resolveConfig(raw: unknown, path: string): OstiaConfig {
-  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+  if (!isRecord(raw)) {
     throw new ConfigError(`${path}: expected an object.`);
   }
   for (const [old, current] of Object.entries(RENAMED_FIELDS)) {
@@ -201,8 +212,8 @@ function resolveConfig(raw: unknown, path: string): OstiaConfig {
       throw new ConfigError(`${path}: "${old}" was renamed to "${current}".`);
     }
   }
-  validateConfig(raw as Record<string, unknown>, path, warnConfig);
-  const input = withoutUndefined(raw as OstiaConfigInput);
+  assertConfigInput(raw, path);
+  const input = withoutUndefined(raw);
   return {
     ...DEFAULT_CONFIG,
     ...input,
@@ -219,7 +230,11 @@ async function readConfigFile(path: string): Promise<unknown> {
   if (!(await file.exists())) return undefined;
   try {
     if (!path.endsWith(".ts")) return await file.json();
-    const exported = (await import(absPath)).default;
+    const mod: unknown = await import(absPath);
+    const exported =
+      typeof mod === "object" && mod !== null && "default" in mod
+        ? mod.default
+        : undefined;
     if (exported === undefined) {
       throw new Error(
         `no default export; use "export default defineConfig({ ... })"`,
@@ -239,11 +254,10 @@ async function existingConfigFiles(): Promise<string[]> {
   return found;
 }
 
-/**
- * Loads `path` (`.ts` or JSON by extension), or with no `path` the file
- * `configFilePath()` finds. `undefined` when there is no such file. Throws
- * `ConfigError` for a file that exists but is unusable, naming the bad
- * key. */
+// Loads `path` (`.ts` or JSON by extension), or with no `path` the file
+// `configFilePath()` finds. `undefined` when there is no such file. Throws
+// `ConfigError` for a file that exists but is unusable, naming the bad
+// key.
 export async function loadConfig(
   path?: string,
 ): Promise<OstiaConfig | undefined> {
@@ -266,10 +280,8 @@ export function baselinePath(config: OstiaConfig, name?: string): string {
   return `${config.baselineDir}/${name ?? config.baseline}.json`;
 }
 
-/**
- * The config file discovery would load from the current directory, `.ts`
- * before JSON.
- */
+// The config file discovery would load from the current directory, `.ts`
+// before JSON.
 export async function configFilePath(): Promise<string | undefined> {
   return (await existingConfigFiles())[0];
 }

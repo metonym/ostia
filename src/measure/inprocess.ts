@@ -50,7 +50,7 @@ const MAX_TRIALS = 2 * TRIALS_TARGET;
 const WARMUP_CHUNK_NS = 1_000_000;
 const CALIBRATION_ROUNDS = 5;
 
-export interface InprocessTimingResult {
+interface InprocessTimingResult {
   trials: Trial[];
   timing: TimingStats;
   /** Per trial, where the machine counts them. */
@@ -58,10 +58,9 @@ export interface InprocessTimingResult {
   warnings: Warning[];
 }
 
-/** Samples a task's per-trial cost earns regardless of budget: 3 at 1ms or
- * less, two more per decade of cost, capped at 10 from about 3s up. Only
- * expensive tasks ever hit it; the budget fills cheap ones with thousands.
- * */
+// Samples a task's per-trial cost earns regardless of budget: 3 at 1ms or
+// less, two more per decade of cost, capped at 10 from about 3s up. Only
+// expensive tasks ever hit it; the budget fills cheap ones with thousands.
 export function rigorFloor(trialCostNs: number): number {
   const decadesAboveOneMs = Math.log10(Math.max(1, trialCostNs) / 1e6);
   const floor = Math.round(
@@ -70,8 +69,8 @@ export function rigorFloor(trialCostNs: number): number {
   return Math.min(RIGOR_FLOOR_CAP, Math.max(RIGOR_FLOOR_MIN, floor));
 }
 
-/** Default floor without `minSamples`: as many trials as fit in the budget
- * (capped at 20), never fewer than `rigorFloor`. */
+// Default floor without `minSamples`: as many trials as fit in the budget
+// (capped at 20), never fewer than `rigorFloor`.
 export function defaultSampleFloor(
   trialCostNs: number,
   timeBudgetNs: number,
@@ -81,14 +80,13 @@ export function defaultSampleFloor(
 }
 
 // Write-only on purpose: a store to module state is never provably dead.
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- see above
-let kept: unknown;
+const kept: { value?: unknown } = {};
 
 /** Pins `value` against dead-code elimination for an intermediate inside a
  * task body. A task's own return value is already pinned by the timing
  * loop. */
 export function keep(value: unknown): void {
-  kept = value;
+  kept.value = value;
 }
 
 function sizeBatch(singleCallNs: number, timeBudgetNs: number): number {
@@ -101,7 +99,7 @@ function sizeBatch(singleCallNs: number, timeBudgetNs: number): number {
 
 function medianOf(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
-  return sorted[sorted.length >> 1]!;
+  return sorted[sorted.length >> 1] ?? 0;
 }
 
 export async function measureTask(

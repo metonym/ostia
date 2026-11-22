@@ -23,12 +23,13 @@ export const VIZ_FORMATS = [
   "cpuprofile",
 ] as const;
 
-export const REPORT_FORMATS = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const;
+export const REPORT_FORMATS: readonly [
+  ...typeof DOCUMENT_FORMATS,
+  ...typeof VIZ_FORMATS,
+] = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const;
 
-/**
- * Integer flag value >= `opts.min` (default 1); `opts.allowAuto` also
- * accepts "auto" as the available job count.
- */
+// Integer flag value >= `opts.min` (default 1); `opts.allowAuto` also
+// accepts "auto" as the available job count.
 export function parseIntFlag(
   name: string,
   raw: string | undefined,
@@ -78,25 +79,24 @@ type FlagTable = Record<string, FlagDef>;
 
 const def = (dest: string, spec: FlagSpec): FlagDef => ({ dest, spec });
 
-/**
- * Builders for `FlagTable` entries; `dest` is the property set on the
- * parsed args.
- */
+// Builders for `FlagTable` entries; `dest` is the property set on the
+// parsed args.
 export const flag = {
-  str: (dest: string) => def(dest, { kind: "string" }),
-  int: (dest: string, min = 1, allowAuto = false) =>
+  str: (dest: string): FlagDef => def(dest, { kind: "string" }),
+  int: (dest: string, min: number = 1, allowAuto: boolean = false): FlagDef =>
     def(dest, { kind: "int", min, allowAuto }),
-  num: (dest: string, min: number) => def(dest, { kind: "number", min }),
-  on: (dest: string) => def(dest, { kind: "bool", value: true }),
-  off: (dest: string) => def(dest, { kind: "bool", value: false }),
-  oneOf: (dest: string, values: readonly string[]) =>
+  num: (dest: string, min: number): FlagDef =>
+    def(dest, { kind: "number", min }),
+  on: (dest: string): FlagDef => def(dest, { kind: "bool", value: true }),
+  off: (dest: string): FlagDef => def(dest, { kind: "bool", value: false }),
+  oneOf: (dest: string, values: readonly string[]): FlagDef =>
     def(dest, { kind: "enum", values }),
   /** Repeatable; each occurrence appends one value. */
-  list: (dest: string) => def(dest, { kind: "list" }),
+  list: (dest: string): FlagDef => def(dest, { kind: "list" }),
   /** Repeatable; each occurrence is whitespace-split and appended. */
-  words: (dest: string) => def(dest, { kind: "words" }),
+  words: (dest: string): FlagDef => def(dest, { kind: "words" }),
   /** `--flag[=CODE,...]`: bare means every non-zero exit code. */
-  exitCodes: (dest: string) => def(dest, { kind: "exitCodes" }),
+  exitCodes: (dest: string): FlagDef => def(dest, { kind: "exitCodes" }),
 };
 
 export interface OutputArgs {
@@ -116,7 +116,9 @@ export const OUTPUT_DEFAULTS = {
   help: false,
 } as const;
 
-export const RUN_DEFAULTS = { ...OUTPUT_DEFAULTS, noiseCheck: true } as const;
+export const RUN_DEFAULTS: typeof OUTPUT_DEFAULTS & {
+  readonly noiseCheck: true;
+} = { ...OUTPUT_DEFAULTS, noiseCheck: true } as const;
 
 export const HELP_FLAGS: FlagTable = {
   "--help": flag.on("help"),
@@ -134,10 +136,8 @@ export const NOISE_CHECK_FLAGS: FlagTable = {
   "--no-noise-check": flag.off("noiseCheck"),
 };
 
-/**
- * `--config PATH`: for the commands that read a config file (bench, ab,
- * compare, ci, baseline).
- */
+// `--config PATH`: for the commands that read a config file (bench, ab,
+// compare, ci, baseline).
 export const CONFIG_FLAGS: FlagTable = {
   "--config": flag.str("config"),
 };
@@ -146,10 +146,8 @@ export interface ConfigArgs {
   config?: string;
 }
 
-/**
- * Flags shared by every command that runs measurements (`ci` has no
- * per-run flags).
- */
+// Flags shared by every command that runs measurements (`ci` has no
+// per-run flags).
 export const RUN_FLAGS: FlagTable = {
   ...OUTPUT_FLAGS,
   ...NOISE_CHECK_FLAGS,
@@ -157,7 +155,7 @@ export const RUN_FLAGS: FlagTable = {
   "--out-dir": flag.str("outDir"),
 };
 
-/** Flags shared by `bench` and `ab`. */
+// Flags shared by `bench` and `ab`.
 export const SUITE_FLAGS: FlagTable = {
   ...RUN_FLAGS,
   ...CONFIG_FLAGS,
@@ -165,6 +163,15 @@ export const SUITE_FLAGS: FlagTable = {
   "--preload": flag.list("preload"),
   "--bun-flags": flag.words("bunFlags"),
 };
+
+// A repeatable flag's `dest` starts as an array in the command's defaults.
+function listAt(args: object, dest: string): unknown[] {
+  const list: unknown = Reflect.get(args, dest);
+  if (!Array.isArray(list)) {
+    throw new TypeError(`ostia: flag destination "${dest}" isn't an array`);
+  }
+  return list;
+}
 
 interface ParseSpec<T> {
   command: string;
@@ -179,17 +186,15 @@ interface ParseSpec<T> {
   rest?: (rest: string[], args: T) => void;
 }
 
-/**
- * Parses `argv` into `args` per `flags`; `--flag=value` equals `--flag
- * value`. Throws `CliUsageError`.
- */
+// Parses `argv` into `args` per `flags`; `--flag=value` equals `--flag
+// value`. Throws `CliUsageError`.
 export function parseFlags<T extends object>(
   argv: string[],
   { command, flags, args, positional, rest }: ParseSpec<T>,
 ): T {
-  const bag = args as Record<string, unknown>;
+  const set = (dest: string, value: unknown) => Reflect.set(args, dest, value);
   for (let i = 0; i < argv.length; i++) {
-    const arg = argv[i]!;
+    const arg = argv[i] ?? "";
     if (arg === "--" && rest) {
       rest(argv.slice(i + 1), args);
       break;
@@ -211,15 +216,15 @@ export function parseFlags<T extends object>(
       if (i + 1 >= argv.length) {
         throw new CliUsageError(`Missing value for ${name}.`);
       }
-      return argv[++i]!;
+      return argv[++i] ?? "";
     };
     const { dest, spec } = flagDef;
     switch (spec.kind) {
       case "string":
-        bag[dest] = value();
+        set(dest, value());
         break;
       case "int":
-        bag[dest] = parseIntFlag(name, value(), spec);
+        set(dest, parseIntFlag(name, value(), spec));
         break;
       case "number": {
         const raw = value();
@@ -229,20 +234,20 @@ export function parseFlags<T extends object>(
             `Invalid ${name} "${raw}": expected a number ≥ ${spec.min}`,
           );
         }
-        bag[dest] = n;
+        set(dest, n);
         break;
       }
       case "bool":
-        bag[dest] = spec.value;
+        set(dest, spec.value);
         break;
       case "list":
-        (bag[dest] as string[]).push(value());
+        listAt(args, dest).push(value());
         break;
       case "words":
-        (bag[dest] as string[]).push(...splitCommand(value()));
+        listAt(args, dest).push(...splitCommand(value()));
         break;
       case "exitCodes":
-        (bag[dest] as number[]).push(
+        listAt(args, dest).push(
           ...(eq > 0
             ? parseExitCodes(name, arg.slice(eq + 1))
             : Array.from({ length: 255 }, (_, n) => n + 1)),
@@ -255,7 +260,7 @@ export function parseFlags<T extends object>(
             `Invalid ${name} "${raw}": expected one of: ${spec.values.join(", ")}`,
           );
         }
-        bag[dest] = raw;
+        set(dest, raw);
         break;
       }
     }

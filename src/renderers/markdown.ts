@@ -89,43 +89,49 @@ function warningBullets(label: string, warnings: Warning[]): string[] {
   return warnings.map((w) => `- **${label}**: ${warningNote(w)}`);
 }
 
-/**
- * The two param keys every workload shares, when each has exactly those
- * two (a `sweep()` over two dimensions): the shape a pivot table needs. */
+// The two param keys every workload shares, when each has exactly those
+// two (a `sweep()` over two dimensions): the shape a pivot table needs.
 function pivotKeysFor(
   workloads: (Workload | undefined)[],
 ): [string, string] | undefined {
-  let keys: string[] | undefined;
+  let keys: [string, string] | undefined;
   for (const w of workloads) {
-    const k = w?.params ? Object.keys(w.params) : undefined;
-    if (k?.length !== 2) return undefined;
-    if (keys === undefined) keys = k;
-    else if (k.some((kk, i) => kk !== keys![i])) return undefined;
+    const k = w?.params ? Object.keys(w.params) : [];
+    const [first, second] = k;
+    if (k.length !== 2 || first === undefined || second === undefined) {
+      return undefined;
+    }
+    if (keys === undefined) keys = [first, second];
+    else if (keys[0] !== first || keys[1] !== second) return undefined;
   }
-  return keys as [string, string] | undefined;
+  return keys;
 }
 
 export const markdownRenderer: Renderer = {
   name: "markdown",
-  async render(doc: ProfileDocument): Promise<RenderResult> {
-    const byWorkload = workloadsById(doc);
-    const gitSuffix = doc.git ? ` · ${formatGit(doc.git)}` : "";
-    const mismatch = environmentMismatch(doc);
+  render(doc: ProfileDocument): Promise<RenderResult> {
+    return Promise.try(() => {
+      const byWorkload = workloadsById(doc);
+      const gitSuffix = doc.git ? ` · ${formatGit(doc.git)}` : "";
+      const mismatch = environmentMismatch(doc);
 
-    const lines = [
-      "# Profile Report",
-      "",
-      `Bun ${doc.bunVersion} · ostia ${doc.toolVersion} · ${doc.platform.os}/${doc.platform.arch} · ${doc.createdAt}${gitSuffix}`,
-      "",
-      ...(doc.environment ? [formatEnvironmentLine(doc.environment), ""] : []),
-      ...(mismatch ? [`> ⚠ ${mismatch.message}`, ""] : []),
-      // Only `ab()` writes paired measurements, and it always stamps `ab`.
-      ...(doc.ab ? abSection(doc, doc.ab, byWorkload) : []),
-      ...timingSection(doc, byWorkload),
-      ...captureSections(doc, byWorkload),
-      ...comparisonSection(doc),
-    ];
-    return { text: lines.join("\n") };
+      const lines = [
+        "# Profile Report",
+        "",
+        `Bun ${doc.bunVersion} · ostia ${doc.toolVersion} · ${doc.platform.os}/${doc.platform.arch} · ${doc.createdAt}${gitSuffix}`,
+        "",
+        ...(doc.environment
+          ? [formatEnvironmentLine(doc.environment), ""]
+          : []),
+        ...(mismatch ? [`> ⚠ ${mismatch.message}`, ""] : []),
+        // Only `ab()` writes paired measurements, and it always stamps `ab`.
+        ...(doc.ab ? abSection(doc, doc.ab, byWorkload) : []),
+        ...timingSection(doc, byWorkload),
+        ...captureSections(doc, byWorkload),
+        ...comparisonSection(doc),
+      ];
+      return { text: lines.join("\n") };
+    });
   },
 };
 
@@ -190,7 +196,10 @@ function abSection(
   if (threw.length > 0) {
     lines.push(`Threw (${threw.length}):`, "");
     for (const run of threw) {
-      const message = run.threw.message.split("\n")[0]!.replaceAll("`", "'");
+      const message = (run.threw.message.split("\n")[0] ?? "").replaceAll(
+        "`",
+        "'",
+      );
       lines.push(
         `- **${taskCell(byWorkload.get(run.workloadId), run.workloadId)}**: ${formatThrew(run.threw)}: \`${message}\``,
       );
@@ -259,8 +268,12 @@ function timingSection(
   const flat: TimingRow[] = [];
   for (const row of rows) {
     const group = groupOf(row.workload);
-    if (group === undefined) flat.push(row);
-    else if (byGroup.has(group)) byGroup.get(group)!.push(row);
+    if (group === undefined) {
+      flat.push(row);
+      continue;
+    }
+    const groupRows = byGroup.get(group);
+    if (groupRows) groupRows.push(row);
     else byGroup.set(group, [row]);
   }
   const pivots: { group: string; keys: [string, string]; rows: TimingRow[] }[] =
@@ -302,8 +315,12 @@ function timingSection(
     if (ratios) {
       optional.push({
         header: "Relative",
-        cell: (row) =>
-          formatRelative(ratios.get(row)!, !!row.workload?.baseline),
+        cell: (row) => {
+          const ratio = ratios.get(row);
+          return ratio === undefined
+            ? "-"
+            : formatRelative(ratio, !!row.workload?.baseline);
+        },
       });
     }
 
@@ -356,8 +373,11 @@ function timingSection(
     const colValues: ParamValue[] = [];
     const medianAt = new Map<string, number>();
     for (const { run, workload } of groupRows) {
-      const v1 = workload!.params![key1]!;
-      const v2 = workload!.params![key2]!;
+      const v1 = workload?.params?.[key1];
+      const v2 = workload?.params?.[key2];
+      // invariant: `pivotKeysFor` pivots only rows whose params hold both
+      // keys.
+      if (v1 === undefined || v2 === undefined) continue;
       if (!rowValues.includes(v1)) rowValues.push(v1);
       if (!colValues.includes(v2)) colValues.push(v2);
       medianAt.set(`${v1} ${v2}`, run.timing.median);

@@ -70,7 +70,7 @@ interface Column<R> {
 
 interface TableRow<R> {
   label: string;
-  group?: string;
+  group?: string | undefined;
   /** Absent when there is nothing to tabulate; `status` says why. */
   data?: R;
   /** The row's text when `data` is absent: `skipped` or `no samples`. */
@@ -122,32 +122,34 @@ function finish(lines: string[]): RenderResult {
 
 export const terminalRenderer: Renderer = {
   name: "table",
-  async render(doc: ProfileDocument): Promise<RenderResult> {
-    const env = doc.environment
-      ? [formatEnvironmentLine(doc.environment), ""]
-      : [];
+  render(doc: ProfileDocument): Promise<RenderResult> {
+    return Promise.try(() => {
+      const env = doc.environment
+        ? [formatEnvironmentLine(doc.environment), ""]
+        : [];
 
-    // Only `ab()` writes paired measurements, and it always stamps `ab`.
-    if (doc.ab) return finish(renderPaired(doc, doc.ab, env));
+      // Only `ab()` writes paired measurements, and it always stamps `ab`.
+      if (doc.ab) return finish(renderPaired(doc, doc.ab, env));
 
-    const runs = timingRuns(doc);
-    const empty = noSampleRuns(doc);
-    const comparisons = renderComparisons(doc);
-    if (
-      runs.length === 0 &&
-      empty.length === 0 &&
-      skippedWorkloads(doc, runs).length === 0
-    ) {
-      return comparisons.length > 0
-        ? finish([...env, ...comparisons])
-        : { text: "(no timing runs)\n" };
-    }
+      const runs = timingRuns(doc);
+      const empty = noSampleRuns(doc);
+      const comparisons = renderComparisons(doc);
+      if (
+        runs.length === 0 &&
+        empty.length === 0 &&
+        skippedWorkloads(doc, runs).length === 0
+      ) {
+        return comparisons.length > 0
+          ? finish([...env, ...comparisons])
+          : { text: "(no timing runs)\n" };
+      }
 
-    const lines = [...env, ...renderTiming(doc, runs, empty)];
-    const instrumented = renderInstrumentedRuns(doc);
-    if (instrumented.length > 0) lines.push("", ...instrumented);
-    if (comparisons.length > 0) lines.push("", ...comparisons);
-    return finish(lines);
+      const lines = [...env, ...renderTiming(doc, runs, empty)];
+      const instrumented = renderInstrumentedRuns(doc);
+      if (instrumented.length > 0) lines.push("", ...instrumented);
+      if (comparisons.length > 0) lines.push("", ...comparisons);
+      return finish(lines);
+    });
   },
 };
 
@@ -167,15 +169,13 @@ function renderTiming(
     const run = runByWorkloadId.get(workload.id);
     const label = workloadLabel(workload);
     const group = groupOf(workload);
+    const noSample = noSampleByWorkloadId.get(workload.id);
     if (run) {
       const data = { run, workload };
       measured.push(data);
       rows.push({ label, group, data, warnings: runWarnings(run, memory) });
-    } else if (noSampleByWorkloadId.has(workload.id)) {
-      const warnings = runWarnings(
-        noSampleByWorkloadId.get(workload.id)!,
-        memory,
-      );
+    } else if (noSample) {
+      const warnings = runWarnings(noSample, memory);
       rows.push({ label, group, status: "no samples", warnings });
     } else if (workload.skipped) {
       rows.push({ label, group, status: "skipped", warnings: [] });
@@ -238,7 +238,12 @@ function renderTiming(
     columns.push({
       header: "Relative",
       width: 8,
-      cell: (row) => formatRelative(ratios.get(row)!, !!row.workload?.baseline),
+      cell: (row) => {
+        const ratio = ratios.get(row);
+        return ratio === undefined
+          ? ""
+          : formatRelative(ratio, !!row.workload?.baseline);
+      },
     });
   }
 

@@ -2,6 +2,7 @@ import type { GitMetadata } from "./types.ts";
 
 const GIT_TIMEOUT_MS = 200;
 
+// eslint-disable-next-line no-restricted-syntax -- the process-lifetime memo captureGitMetadata keeps
 let memo: { git: GitMetadata | undefined } | undefined;
 
 function runGit(args: string[]): string | undefined {
@@ -27,9 +28,9 @@ function readGitMetadata(): GitMetadata | undefined {
   }
 }
 
-/** Repo state of the process's cwd, memoized for the process lifetime.
- * Undefined outside a repo, without `git`, or past the 200ms per-call
- * timeout: metadata is never worth failing a measurement over. */
+// Repo state of the process's cwd, memoized for the process lifetime.
+// Undefined outside a repo, without `git`, or past the 200ms per-call
+// timeout: metadata is never worth failing a measurement over.
 export function captureGitMetadata(): GitMetadata | undefined {
   memo ??= { git: readGitMetadata() };
   return memo.git;

@@ -9,10 +9,9 @@ export interface MemorySnapshot {
   liveBytes: number;
 }
 
-/**
- * Taken before the suite loads so `measurePeakMem` can split the starting
- * RSS into live data and memory setup freed that the allocator still
- * holds. */
+// Taken before the suite loads so `measurePeakMem` can split the starting
+// RSS into live data and memory setup freed that the allocator still
+// holds.
 export function memorySnapshot(): MemorySnapshot {
   const { heapSize, extraMemorySize } = heapStats();
   const rssBytes = process.memoryUsage.rss();
@@ -32,6 +31,7 @@ function residentBytes(): number | undefined {
   return readResident();
 }
 
+// eslint-disable-next-line no-restricted-syntax -- a lazy cache: dlopen once per process
 let readResident: (() => number | undefined) | undefined;
 
 // Asks the kernel directly: spawning `ps` costs a few ms a call.
@@ -101,9 +101,9 @@ export async function startRssSampler(
   });
   try {
     worker.postMessage(slots.buffer);
-    const deadline = Date.now() + HANDSHAKE_TIMEOUT_MS;
+    const deadline = Bun.nanoseconds() + HANDSHAKE_TIMEOUT_MS * 1e6;
     while (Atomics.load(slots, 0) !== CONTROL.ready) {
-      if (Date.now() > deadline) {
+      if (Bun.nanoseconds() > deadline) {
         throw new Error("RSS sampler worker failed: did not start in time");
       }
       await Promise.race([Bun.sleep(1), died]);
@@ -127,9 +127,9 @@ export async function startRssSampler(
         ) {
           // Spin.
         }
-        const deadline = Date.now() + HANDSHAKE_TIMEOUT_MS;
+        const deadline = Bun.nanoseconds() + HANDSHAKE_TIMEOUT_MS * 1e6;
         while (Atomics.load(slots, 0) !== CONTROL.sampling) {
-          if (Date.now() > deadline) {
+          if (Bun.nanoseconds() > deadline) {
             throw new Error(
               "RSS sampler worker failed: did not start sampling",
             );
@@ -158,17 +158,16 @@ export interface PeakMemResult {
   wallNs: number;
 }
 
-/**
- * How far one call of `fn` raises this process's RSS, garbage included:
- * the higher of the worker-sampled peak and the `maxRSS` high-water mark
- * (if the call moved it), after a full GC. Sampling alone can miss a spike
- * between polls; the high-water mark alone misses any call peaking below
- * an earlier peak (on Linux, every call smaller than process startup).
- * Meant for the first call in a fresh process: memory an earlier call
- * freed but the allocator holds (macOS returns it seconds later) is reused
- * unseen. */
+// How far one call of `fn` raises this process's RSS, garbage included:
+// the higher of the worker-sampled peak and the `maxRSS` high-water mark
+// (if the call moved it), after a full GC. Sampling alone can miss a spike
+// between polls; the high-water mark alone misses any call peaking below
+// an earlier peak (on Linux, every call smaller than process startup).
+// Meant for the first call in a fresh process: memory an earlier call
+// freed but the allocator holds (macOS returns it seconds later) is reused
+// unseen.
 export async function measurePeakMem(
-  fn: () => unknown | Promise<unknown>,
+  fn: () => unknown,
   since?: MemorySnapshot,
   sampler?: RssSampler,
 ): Promise<PeakMemResult> {

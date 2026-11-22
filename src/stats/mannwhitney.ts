@@ -1,6 +1,6 @@
 import { sortedCopy } from "./index.ts";
 
-export interface MannWhitneyResult {
+interface MannWhitneyResult {
   /** U statistic for `a`. */
   u: number;
   z: number;
@@ -8,7 +8,7 @@ export interface MannWhitneyResult {
   pValue: number;
 }
 
-/** Abramowitz & Stegun 7.1.26: erf approximation, max error ~1.5e-7. */
+// Abramowitz & Stegun 7.1.26: erf approximation, max error ~1.5e-7.
 function erf(x: number): number {
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -28,11 +28,10 @@ function normalCdf(z: number): number {
   return 0.5 * (1 + erf(z / Math.SQRT2));
 }
 
-/**
- * Mann-Whitney U test: whether `a` and `b` share a distribution, without
- * the normality a t-test assumes (wall-clock samples are right-skewed).
- * Ranks come from a merge walk over the two sorted sides. An empty side
- * gives `pValue: 1`. */
+// Mann-Whitney U test: whether `a` and `b` share a distribution, without
+// the normality a t-test assumes (wall-clock samples are right-skewed).
+// Ranks come from a merge walk over the two sorted sides. An empty side
+// gives `pValue: 1`.
 export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   const n1 = a.length;
   const n2 = b.length;
@@ -51,7 +50,9 @@ export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   let j = 0;
   let pos = 0; // 0-based rank position consumed so far
   while (i < n1 || j < n2) {
-    const v = j >= n2 || (i < n1 && sa[i]! <= sb[j]!) ? sa[i]! : sb[j]!;
+    const ai = sa[i] ?? 0;
+    const bj = sb[j] ?? 0;
+    const v = j >= n2 || (i < n1 && ai <= bj) ? ai : bj;
     let ca = 0;
     while (i < n1 && sa[i] === v) {
       ca++;

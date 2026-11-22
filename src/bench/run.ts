@@ -1,3 +1,4 @@
+import { errorMessage } from "../errors.ts";
 import type { ProfileDocument } from "../ir/types.ts";
 import { renderers } from "../renderers/index.ts";
 import type { FormatName } from "../renderers/types.ts";
@@ -37,7 +38,7 @@ export async function run(opts: RunOptions = {}): Promise<ProfileDocument> {
   try {
     tasks = selectTasks(registered, opts.filter, suiteFile);
   } catch (err) {
-    throw new Error(`run(): ${(err as Error).message}`, { cause: err });
+    throw new Error(`run(): ${errorMessage(err)}`, { cause: err });
   }
   const doc = await measureTasks(suiteFile, tasks, opts);
 

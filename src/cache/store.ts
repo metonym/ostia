@@ -4,8 +4,8 @@ function cachePath(outDir: string, key: string): string {
   return `${outDir}/cache/${key}.json`;
 }
 
-// A missing or unreadable (e.g. truncated by an interrupted write) entry
-// is a miss.
+// A missing or unreadable entry (e.g. truncated by an interrupted write)
+// is a miss, never an error.
 export async function readCachedRun(
   outDir: string,
   key: string,
@@ -18,8 +18,8 @@ export async function readCachedRun(
   }
 }
 
-// The cache holds ostia's own output: this checks the fields readers reach
-// first, not every field.
+// The cache holds ostia's own output, so this checks only the fields
+// readers reach first.
 function isMeasurement(value: unknown): value is Measurement {
   return (
     typeof value === "object" &&

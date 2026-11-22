@@ -43,7 +43,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 // Below this many samples on either side, fall back to the point-estimate
-// rule (with a `thin-comparison` warning): CI and p-value are too noisy.
+// rule (with a `thin-comparison` warning), because CI and p-value are too
+// noisy.
 const MIN_SAMPLES_FOR_TEST = 5;
 
 function pctDelta(base: number, cand: number): number {
@@ -86,8 +87,6 @@ type MemoryReadings = {
   [K in MemoryDelta["reading"]]?: number | undefined;
 };
 
-// Every memory reading per workload, from its timing and `memstats`
-// measurements.
 function indexMemory(doc: ProfileDocument): (id: string) => MemoryReadings {
   const byWorkload = new Map<string, MemoryReadings>();
   for (const m of doc.measurements) {
@@ -108,8 +107,8 @@ function indexMemory(doc: ProfileDocument): (id: string) => MemoryReadings {
   return (id) => byWorkload.get(id) ?? {};
 }
 
-// The reference loop's mean speed over a run: the start and end readings
-// averaged when the run re-measured it.
+// The mean of the run's start and end reference readings: the end one is
+// `driftPct` slower than the start, so the mean is `driftPct / 2` slower.
 function meanReferenceNs(env: Environment): number {
   const { referenceMedianNs, driftPct } = env.noise;
   return referenceMedianNs * (1 + (driftPct ?? 0) / 200);
@@ -204,9 +203,8 @@ export interface CompareResult {
   summary: ComparisonSummary;
 }
 
-// Geometric mean of `cand/base` median ratios over comparisons with a
-// timing verdict, as a signed percent (`-4.2` means ~4.2% faster). `null`
-// when none has a finite ratio.
+// A signed percent, so `-4.2` means ~4.2% faster; `null` only when no
+// comparison with a timing verdict has a finite ratio.
 function geomeanTimingPct(comparisons: Comparison[]): number | null {
   const logRatios: number[] = [];
   for (const c of comparisons) {
@@ -259,7 +257,8 @@ export function createComparer(
     unmatched,
     compared(matched) {
       // A candidate workload whose base has no measurement of it (a base
-      // `task.skip()`) has no comparison either: it's missing its base too.
+      // `task.skip()`) has no comparison either, so it's missing its base
+      // too.
       const compared = new Set(matched.map(([id]) => id));
       const candOnly = cand.workloads.filter((w) => !compared.has(w.id));
       const { baseOnly } = unmatched();
@@ -281,7 +280,7 @@ export function createComparer(
   };
 }
 
-// Memory readings in the order rows list them.
+// invariant: rows list memory readings in this order.
 const MEMORY_READINGS: MemoryDelta["reading"][] = [
   "heapUsedBefore",
   "heapUsedAfter",
@@ -346,7 +345,6 @@ function comparedTask(
   return row;
 }
 
-// The `comparisonSummary` stamped on a compared document.
 export function summarizeComparisons(
   comparisons: Comparison[],
   effectiveTimingPct: number,

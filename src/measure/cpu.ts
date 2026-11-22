@@ -3,11 +3,12 @@ import { cpuSampleCount } from "../ir/cpu.ts";
 import type { CpuEvidence, JitTierBreakdown, Warning } from "../ir/types.ts";
 import { isPromiseLike } from "./loop.ts";
 
-// JSC's 1000µs default gives a ~3ms task about three samples per call, too
-// few for a top-frame table to hold still between runs.
+// JSC's 1000µs default would give a ~3ms task about three samples per
+// call, too few for a top-frame table to hold still between runs.
 export const DEFAULT_TASK_CPU_INTERVAL_US = 100;
-// The sampler manages well under one sample per interval (about 0.6 at
-// 100µs, 0.8 at 1000µs on an idle M2), hence the 2x slack on the window.
+// perf: the sampler manages well under one sample per interval (about 0.6
+// at 100µs, 0.8 at 1000µs on an idle M2), hence the 2x slack on the
+// window.
 const TARGET_SAMPLES = 2000;
 const WINDOW_SLACK = 2;
 const MIN_WINDOW_MS = 200;
@@ -26,8 +27,8 @@ interface TaskCpuCaptureResult {
   warnings: Warning[];
 }
 
-// Capture window, ms: about `TARGET_SAMPLES` at `intervalUs`, clamped to
-// [200ms, 10s]. A task slower than the window still runs once, whole.
+// In ms. A task slower than the window still runs once, whole: the window
+// never cuts a call short.
 export function cpuWindowMs(intervalUs: number): number {
   const ms = (TARGET_SAMPLES * WINDOW_SLACK * intervalUs) / 1000;
   return Math.min(MAX_WINDOW_MS, Math.max(MIN_WINDOW_MS, ms));

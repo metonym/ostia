@@ -53,7 +53,8 @@ export function parseJscProfile(
   const { frames, intern } = createFrameTable();
   function frameIxFromRaw(rf: RawJscFrame): number {
     const isSentinel = rf.line === UINT32_SENTINEL;
-    // jsc lines/columns are 1-based; stored 0-based like cpu-prof/inspector.
+    // spec: jsc lines and columns are 1-based; stored 0-based so they match
+    // cpu-prof and the inspector.
     const line = isSentinel ? undefined : rf.line - 1;
     const col =
       isSentinel || rf.column === UINT32_SENTINEL ? undefined : rf.column - 1;

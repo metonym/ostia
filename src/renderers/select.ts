@@ -14,7 +14,8 @@ import {
   workloadLabel,
 } from "./format.ts";
 
-// Below this absolute percent a frame/heap-type delta is noise, not a row.
+// Below this absolute percent a frame/heap-type delta is noise, so it gets
+// no row.
 const MIN_DISPLAY_DELTA_PCT = 0.5;
 
 export type TimingRun = Measurement & {
@@ -50,9 +51,9 @@ export function skippedWorkloads(
   return doc.workloads.filter((w) => w.skipped && !measured.has(w.id));
 }
 
-// `environment-mismatch` is the same on every comparison (it concerns the
-// base/cand pair): renderers print it once, from here, and drop it per
-// row.
+// `environment-mismatch` is the same on every comparison because it
+// concerns the base/cand pair, so renderers print it once, from here, and
+// drop it per row.
 export function environmentMismatch(doc: ProfileDocument): Warning | undefined {
   for (const c of doc.comparisons ?? []) {
     const w = c.warnings?.find((w) => w.code === "environment-mismatch");

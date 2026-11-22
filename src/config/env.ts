@@ -6,7 +6,7 @@ export function processEnv(): Record<string, string | undefined> {
   return process.env;
 }
 
-// The one wall-clock reader, for comparisons against file times.
+// The only wall-clock reader, for comparisons against file times.
 export function nowMs(): number {
   // eslint-disable-next-line no-restricted-properties -- the one clock reader
   return Date.now();

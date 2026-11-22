@@ -1,14 +1,15 @@
 import { resolve } from "node:path";
 
 const SKIPPED_DIRS = ["node_modules", ".git"];
-// Where `ostia ab` extracts base trees: copies of the project.
+// Wildcards skip it because `ostia ab` extracts copies of the project
+// there.
 const AB_TREES = ".ostia/ab";
-// `@(` and `+(` open extglobs (Bun 1.4.4+); a bare `(` stays literal, as
-// in `app/(marketing)`.
+// compat: `@(` and `+(` open extglobs since Bun 1.4.4; a bare `(` isn't a
+// glob character, so `app/(marketing)` stays literal.
 const GLOB_CHARS = /[*?[\]{}!]|[@+]\(/;
 
-// Segments after the pattern's literal prefix, i.e. the part the wildcards
-// chose.
+// Only the segments past the pattern's literal prefix were chosen by a
+// wildcard, so only those can wander into a skipped directory.
 function wildcardSegments(pattern: string, path: string): [string[], string[]] {
   const patternSegs = pattern.split("/");
   const literal = patternSegs.findIndex((s) => GLOB_CHARS.test(s));

@@ -65,7 +65,6 @@ class TimeSourceNoMatchError extends Error {}
 
 const compiledPatterns = new WeakMap<TimeSource, RegExp>();
 
-// Once per `TimeSource` object, not per trial.
 function compiledPattern(source: TimeSource): RegExp {
   if (typeof source.pattern !== "string") return source.pattern;
   let re = compiledPatterns.get(source);
@@ -106,8 +105,8 @@ const UNIT_NS: Record<TimeUnit, number> = {
   s: 1e9,
 };
 
-// The spawn options SIGKILL on either; `timedOut()` tells the two apart
-// afterwards.
+// One kill for a timeout and an abort alike, since the spawn options
+// SIGKILL on either; `timedOut()` tells the two apart afterwards.
 export function killSwitch(
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
@@ -279,7 +278,6 @@ export async function readBoundedText(
       }
       tailChunks.push(chunk);
       tailBytes += chunk.byteLength;
-      // Keep only the last `halfBytes`.
       while (tailBytes > halfBytes) {
         const first = tailChunks[0];
         if (first === undefined) break;
@@ -362,7 +360,8 @@ export function prepareArgv(
   return commandArgv(hook);
 }
 
-// A `RegExp` pattern becomes its source string (flags dropped).
+// A `RegExp` pattern is stored as its source alone: the document is JSON,
+// so flags are dropped.
 export function timeSourceSpec(
   source: TimeSource | undefined,
 ): SerializedTimeSource | undefined {

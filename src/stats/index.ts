@@ -66,7 +66,7 @@ export function sortedCopy(samples: number[]): Float64Array {
   return sorted;
 }
 
-// An empty array gives NaN, as the interpolation does.
+// An empty array gives NaN, never a throw, as the interpolation does.
 export function percentile(sorted: Float64Array, p: number): number {
   const n = sorted.length;
   if (n === 1) return sorted[0] ?? Number.NaN;

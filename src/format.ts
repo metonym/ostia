@@ -1,9 +1,6 @@
 // Duration formatting shared by the stats warnings and every renderer; a
 // leaf module so neither imports the other.
 
-/**
- * Duration formatting shared by the stats warnings and every renderer; a
- * leaf module so neither imports the other. */
 export type DurationUnit = "ns" | "µs" | "ms" | "s";
 
 const UNIT_DIVISORS: Record<DurationUnit, number> = {
@@ -27,7 +24,8 @@ function sigFigDecimals(value: number): number {
   return Math.max(1, 3 - intDigits);
 }
 
-// Pass `unit` to keep a row's columns in one unit.
+// Pass `unit` so a row's columns share one unit instead of each picking
+// its own.
 export function formatDuration(
   ns: number,
   unit: DurationUnit = pickDurationUnit(ns),

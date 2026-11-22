@@ -82,8 +82,8 @@ async function main(): Promise<number> {
 
   const opts: RunnerOpts = optsJson ? parseRunnerOpts(optsJson) : {};
 
-  // Baseline for `measurePeakMem`, taken once ostia (which the suite
-  // imports) is loaded.
+  // The `measurePeakMem` baseline waits until ostia, which the suite
+  // imports, is loaded, so ostia's own load isn't counted in the peak.
   let launched: MemorySnapshot | undefined;
   let sampler: RssSampler | undefined;
   if (opts.peakMemFor) {

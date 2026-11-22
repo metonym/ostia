@@ -235,8 +235,6 @@ function timingSection(
   const runs = timingRuns(doc);
   const noSamples = noSampleRuns(doc);
   const memory = memoryReadings(doc);
-  // Rows with nothing to tabulate: `task.skip()`'d and sample-less
-  // workloads.
   const empty: {
     id: string;
     workload: Workload | undefined;

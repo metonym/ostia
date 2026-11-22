@@ -94,14 +94,14 @@ export interface AbRunnerProgress {
   label: string;
 }
 
-// Tasks pair across sides by "group/name" plus `params`, the workload id's
-// identity.
+// invariant: tasks pair across sides by "group/name" plus `params`, the
+// workload id's identity.
 function pairKey(t: RegisteredTask, id: string = taskId(t)): string {
   return `${id}\u0000${canonicalJSON(t.params ?? null)}`;
 }
 
-// The task's own key, then one per alias: a base task under any of them
-// pairs.
+// A base task pairs under the task's id or any former one, so a rename
+// doesn't break the pair.
 function pairKeys(t: RegisteredTask): string[] {
   return [taskId(t), ...formerTaskIds(t)].map((id) => pairKey(t, id));
 }
@@ -112,7 +112,8 @@ async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
   return [...getRegisteredTasks()];
 }
 
-// The parent writes optsJson; this checks the fields every run reads.
+// The parent writes optsJson, so this checks only the fields every run
+// reads.
 function isRunnerOpts(v: unknown): v is AbRunnerOpts {
   return (
     typeof v === "object" &&
@@ -133,9 +134,8 @@ function errorText(err: unknown): string {
   return text.split("\n").slice(0, ERROR_LINES).join("\n");
 }
 
-// Reports a failure that stops the whole suite: on stderr, and in
-// `<outputPath>.error` (and `.side`, when it's one side's) for `ab()` to
-// put in the error it throws.
+// For a failure that stops the whole suite. The `.error` and `.side` files
+// exist because `ab()` reads them back for the error it throws.
 async function fail(
   outputPath: string,
   message: string,
@@ -166,7 +166,6 @@ async function measureTask(
   order: Side[],
 ): Promise<MeasureOutcome> {
   const tasks = { base, cand };
-  // The first error from each side.
   const errors = new Map<Side, unknown>();
   const record = (side: Side, err: unknown) => {
     if (!errors.has(side)) errors.set(side, err);
@@ -249,8 +248,8 @@ async function measureMemory(
   preload: string[],
 ): Promise<number> {
   const { workloadId, side } = memoryFor;
-  // Baseline for `measurePeakMem`, taken once ostia (which the suite
-  // imports) is loaded.
+  // The `measurePeakMem` baseline waits until ostia, which the suite
+  // imports, is loaded, so ostia's own load isn't counted in the peak.
   const sampler = memoryFor.peakMem ? await startRssSampler() : undefined;
   await import("../index.ts");
   const launched = memorySnapshot();

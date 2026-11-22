@@ -44,7 +44,8 @@ const BATCH_THRESHOLD_NS = 1000;
 // trial is sorted, serialized over IPC and parsed back, which costs
 // seconds at millions.
 const TRIALS_TARGET = 10_000;
-// Hard stop for a task that got faster than its calibration predicted.
+// A hard stop, since a task that got faster than its calibration predicted
+// would otherwise run far past `TRIALS_TARGET`.
 const MAX_TRIALS = 2 * TRIALS_TARGET;
 // Warmup doubles its batch until one spans this long.
 const WARMUP_CHUNK_NS = 1_000_000;
@@ -110,8 +111,8 @@ export async function measureTask(
   const warmupBudgetNs =
     timeBudgetNs * (opts.warmup ?? DEFAULT_WARMUP_FRACTION);
 
-  // The first call picks the loop and is the cost estimate when warmup is
-  // off.
+  // The first call picks the loop, and is the only cost estimate when
+  // warmup is off.
   const first = await probeFirstCall(fn);
   let singleCallNs = first.ns;
   const timeBatch = batchTimer(fn, first.isAsync);
@@ -144,7 +145,8 @@ export async function measureTask(
   const effectiveBudgetNs = opts.samples !== undefined ? 0 : timeBudgetNs;
   const maxTrials = opts.samples ?? Math.max(MAX_TRIALS, minSamples);
 
-  // Read around each batch, outside the loop's own clock reads.
+  // Read around each batch, outside the loop's own clock reads, so reading
+  // the counter never adds to the measured time.
   const count = instructionCounter().read;
   const instructions: number[] = [];
   const trials: Trial[] = [];

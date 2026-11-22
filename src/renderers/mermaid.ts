@@ -17,7 +17,8 @@ function label(name: string, selfUs: number, totalUs: number): string {
   return `${name.replace(/"/g, "'")} (self ${formatUsAsMs(selfUs)}ms, total ${formatUsAsMs(totalUs)}ms)`;
 }
 
-// Insertion into a sorted window: O(count * n) with n small.
+// Insertion into a sorted window instead of a full sort, since n is
+// small: O(count * n).
 function topNBySelf(
   selfUs: Float64Array,
   count: number,

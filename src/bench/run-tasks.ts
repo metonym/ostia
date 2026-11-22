@@ -77,8 +77,8 @@ export function taskWorkload(
   });
 }
 
-// `tasks` are already selected by the caller; isolation is the caller's
-// concern.
+// The caller has already selected `tasks` and handled isolation, so
+// neither happens here.
 export async function measureTasks(
   suiteFile: string,
   tasks: readonly RegisteredTask[],

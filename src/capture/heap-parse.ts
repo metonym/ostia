@@ -12,8 +12,8 @@ export interface RawHeapSnapshot {
   strings: string[];
 }
 
-// The parse step for a snapshot from JSON: checks the arrays
-// `parseHeapSnapshot` walks and the count it reports.
+// Checks only the arrays `parseHeapSnapshot` walks and the count it
+// reports.
 export function isRawHeapSnapshot(value: unknown): value is RawHeapSnapshot {
   if (typeof value !== "object" || value === null) return false;
   if (!("nodes" in value) || !Array.isArray(value.nodes)) return false;
@@ -56,7 +56,8 @@ export function parseHeapSnapshot(raw: RawHeapSnapshot): HeapEvidence {
 
   const typeCount = typeNames.length;
   const buckets = new Array<TypeBucket | undefined>(typeCount);
-  // A truncated `nodes` reads `undefined` for its last type.
+  // Keyed by `number | undefined` because a truncated `nodes` reads
+  // `undefined` for its last type.
   const unknownBuckets = new Map<number | undefined, TypeBucket>();
   const seen: TypeBucket[] = [];
   const newBucket = (type: string): TypeBucket => {

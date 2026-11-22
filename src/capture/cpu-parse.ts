@@ -24,8 +24,7 @@ export interface RawCpuProfile {
   timeDeltas: number[];
 }
 
-// The parse step for a profile from JSON or the inspector: checks the
-// arrays `parseCpuProfile` walks, not each node.
+// Checks only the arrays `parseCpuProfile` walks, not each node.
 export function isRawCpuProfile(value: unknown): value is RawCpuProfile {
   return (
     typeof value === "object" &&
@@ -39,8 +38,8 @@ export function isRawCpuProfile(value: unknown): value is RawCpuProfile {
   );
 }
 
-// cpu-prof/inspector: sourcemapped file:// URLs, 0-based lines (jsc is
-// 1-based).
+// spec: cpu-prof and the inspector report sourcemapped `file://` URLs and
+// 0-based lines (jsc's are 1-based).
 function normalizeUrl(url: string): string {
   return url.startsWith("file://") ? url.slice("file://".length) : url;
 }

@@ -12,8 +12,8 @@ import {
   type MinimalRenderOptions,
 } from "../renderers/minimal.ts";
 
-// Bun.write skips process.stdout/stderr's Node stream setup, which costs
-// startup time.
+// Bun.write, because it skips the Node stream setup process.stdout and
+// process.stderr cost at startup.
 export const out = (text: string): Promise<number> =>
   Bun.write(Bun.stdout, text);
 const errOut = (text: string) => Bun.write(Bun.stderr, text);
@@ -74,7 +74,8 @@ const MACHINE_FORMATS = new Set(["minimal", "json", "jsonl"]);
 // Machine errors are for scripts and agents: stderr isn't a terminal, or a
 // machine `--format` was asked for.
 async function wantsMachineErrors(): Promise<boolean> {
-  // Imported lazily: loading node:tty up front costs every invocation ~15ms.
+  // perf: imported lazily, since loading node:tty up front costs every
+  // invocation ~15ms.
   const { isatty } = await import("node:tty");
   if (!isatty(2)) return true;
   const argv = process.argv.slice(2);
@@ -106,8 +107,6 @@ export async function writeCliError(
   );
 }
 
-// Prints help and returns the exit code: 0 when asked for, 2 when shown
-// for missing input.
 export async function showHelp(
   text: string,
   requested: boolean,

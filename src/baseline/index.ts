@@ -33,8 +33,6 @@ interface BaselineInfo {
   git?: GitMetadata;
 }
 
-// Every `<baselineDir>/*.json` that parses as a `ProfileDocument`, sorted
-// by name. A missing `baselineDir` yields an empty list.
 export async function listBaselines(
   config: OstiaConfig,
 ): Promise<BaselineInfo[]> {

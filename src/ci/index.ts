@@ -43,7 +43,7 @@ interface CiOptions {
   signal?: AbortSignal;
 }
 
-// Hung workloads time out rather than block a CI job;
+// So a hung workload times out instead of blocking a CI job;
 // `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` override this.
 const DEFAULT_CI_TIMEOUT_MS = 600_000;
 
@@ -154,7 +154,6 @@ async function measureSuiteWorkloads(
   const doc = await bench({
     ...benchOpts,
     outDir: benchOpts.outDir ?? config.outDir,
-    // The workload's own limit, then `bench.timeoutMs`, as for a command.
     timeoutMs: wc.timeoutMs ?? benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
     ...(signal && { signal }),
   });

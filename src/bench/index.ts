@@ -108,7 +108,6 @@ export interface BenchOptions {
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname;
 
-// For `--jobs auto`.
 export function availableJobs(): number {
   return Math.max(1, navigator.hardwareConcurrency || 1);
 }
@@ -138,8 +137,8 @@ export interface BenchCliOverrides {
 
 // A CLI value wins per field, then the config's, then `bench()`'s own
 // defaults (left undefined). `suites`, `preload` and `bunFlags` are
-// replaced wholesale, not merged. With no CLI suites, the files to run are
-// the config's `suites` plus whatever its `projects` match. A CLI
+// replaced wholesale, never merged. With no CLI suites, the files to run
+// are the config's `suites` plus whatever its `projects` match. A CLI
 // `preload` / `bunFlags` also replaces that field in every project.
 export async function resolveBenchOptions(
   cli: BenchCliOverrides,
@@ -261,8 +260,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
   }
 
   const cwd = opts.cwd ?? process.cwd();
-  // Against `cwd`, where the runner subprocesses write, not this process's
-  // cwd, where it reads their results back.
+  // Resolved against `cwd` because the runner subprocesses write there;
+  // this process's own cwd may differ.
   const tmpDir = uniqueTmpDir(
     absolutePath(cwd, opts.outDir ?? DEFAULT_OUT_DIR),
     "bench",
@@ -369,7 +368,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       })),
     );
 
-    // A suite killed mid-run wrote neither file and contributes nothing.
+    // A suite killed mid-run wrote neither file, so it contributes no tasks.
     const planTasks = await Promise.all(
       primaries.map(async (p): Promise<PlannedTask[]> => {
         if (!(await Bun.file(p.planPath).exists())) return [];
@@ -389,7 +388,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
       doc: primaryDocs[i],
     }));
 
-    // Phase 2: each isolated task in its own subprocess.
+    // Phase 2: each isolated task in its own subprocess, so its JIT state
+    // and heap are its own.
     const isolated = plans
       .flatMap(({ suite, tasks }) =>
         tasks.filter((task) => task.isolate).map((task) => ({ task, suite })),
@@ -419,7 +419,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     );
 
     // Phase 3: each `peakMem` task's first call, alone in a fresh process,
-    // PEAK_MEM_PROCESSES times.
+    // since memory an earlier call freed would hide part of its peak.
     const peakRuns = plans
       .flatMap(({ suite, tasks }) =>
         tasks
@@ -466,7 +466,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
 
     // Plan order (registration order, filtered) within a suite, suites in
     // command-line order. Measurements are matched by workload id, not
-    // position: a task.skip()'d task has a workload but no measurement.
+    // position, because a task.skip()'d task has a workload but no
+    // measurement.
     const workloads: Workload[] = [];
     const measurements: Measurement[] = [];
     for (const { suite, tasks, doc: sharedDoc } of plans) {

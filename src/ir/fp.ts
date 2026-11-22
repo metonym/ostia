@@ -1,5 +1,5 @@
-// Key-order-independent JSON: equal values give equal text, which keeps
-// `fp()` ids and saved documents stable.
+// Key-order-independent JSON: equal values give equal text, so `fp()` ids
+// and saved documents stay stable.
 export function canonicalJSON(value: unknown, indent?: number): string {
   return JSON.stringify(sortKeysDeep(value), null, indent);
 }

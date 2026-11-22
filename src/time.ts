@@ -263,8 +263,8 @@ async function captureInstrumentedPhases({
 }): Promise<Measurement[]> {
   const extra: Measurement[] = [];
   const where = spawnLocation(opts);
-  // A prepare hook (cold cache, fresh fixture) applies to an instrumented
-  // run like a timing trial.
+  // An instrumented run gets the prepare hook too, since it must start from
+  // the same state (cold cache, fresh fixture) as a timing trial.
   const prepareFor = async (phase: PrepareRun["phase"]) => {
     if (prepare) await runPrepare(prepare, { phase, index: 0 }, where);
   };

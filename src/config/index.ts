@@ -159,7 +159,7 @@ export type OstiaConfigInput = Omit<Partial<OstiaConfig>, "thresholds"> & {
   thresholds?: Partial<Thresholds>;
 };
 
-// node_modules/.cache is gitignored everywhere already.
+// Under node_modules/.cache because it's gitignored everywhere already.
 export const DEFAULT_OUT_DIR = "node_modules/.cache/ostia";
 
 // Baselines must survive node_modules churn, so they live outside outDir.
@@ -177,13 +177,13 @@ export const DEFAULT_CONFIG: OstiaConfig = {
 // Renamed fields fail loudly instead of being silently ignored.
 const RENAMED_FIELDS: Record<string, string> = { runs: "samples" };
 
-// In discovery order: `.ts` wins over JSON.
+// invariant: in discovery order, so `.ts` wins over JSON.
 export const CONFIG_FILES: string[] = ["ostia.config.ts", "ostia.config.json"];
 
 const warnConfig = (message: string) => console.warn(`ostia: ${message}`);
 
-// An explicit `undefined` (`warmup: undefined`) means "unset", not
-// "overwrite the default".
+// An explicit `undefined` (`warmup: undefined`) means "unset", so it must
+// not overwrite the default.
 function withoutUndefined<T extends object>(obj: T): T {
   const out = { ...obj };
   for (const key in out) if (out[key] === undefined) delete out[key];
@@ -194,8 +194,8 @@ function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
-// validateConfig checks every key OstiaConfigInput has; it warns on the
-// rest and leaves them in.
+// Sound because validateConfig checks every key OstiaConfigInput has; it
+// only warns on the rest and leaves them in.
 function assertConfigInput(
   raw: Record<string, unknown>,
   path: string,
@@ -254,10 +254,8 @@ async function existingConfigFiles(): Promise<string[]> {
   return found;
 }
 
-// Loads `path` (`.ts` or JSON by extension), or with no `path` the file
-// `configFilePath()` finds. `undefined` when there is no such file. Throws
-// `ConfigError` for a file that exists but is unusable, naming the bad
-// key.
+// `undefined` only when there is no such file; one that exists but is
+// unusable throws `ConfigError` naming the bad key.
 export async function loadConfig(
   path?: string,
 ): Promise<OstiaConfig | undefined> {
@@ -280,8 +278,6 @@ export function baselinePath(config: OstiaConfig, name?: string): string {
   return `${config.baselineDir}/${name ?? config.baseline}.json`;
 }
 
-// The config file discovery would load from the current directory, `.ts`
-// before JSON.
 export async function configFilePath(): Promise<string | undefined> {
   return (await existingConfigFiles())[0];
 }

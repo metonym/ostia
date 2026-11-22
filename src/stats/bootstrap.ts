@@ -30,8 +30,8 @@ interface BootstrapResult {
   };
 }
 
-// Partial Fisher-Yates; returns `samples` itself when already within
-// `max`.
+// Partial Fisher-Yates: only the first `max` positions are shuffled, since
+// only they are kept.
 function subsample(
   samples: number[],
   rng: () => number,
@@ -81,7 +81,7 @@ function resampleMedian(s: Side, rng: () => number): number {
     const rank = rankOf[Math.floor(rng() * n)] ?? 0;
     counts[rank] = (counts[rank] ?? 0) + 1;
   }
-  // 1-based middle order statistic(s) of the draws.
+  // Ranks are 1-based because `seen` counts draws, not indices.
   const loRank = (n + 1) >> 1;
   const hiRank = n % 2 === 0 ? loRank + 1 : loRank;
   let seen = 0;

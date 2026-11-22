@@ -267,8 +267,8 @@ type PairedMeasurementInput = {
     }
 );
 
-// `timing` is the candidate side; `paired` holds the base side and the
-// ratios.
+// invariant: `timing` is the candidate side; `paired` holds the base side
+// and the ratios.
 export function makePairedMeasurement(
   input: PairedMeasurementInput,
 ): Measurement {

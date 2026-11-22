@@ -28,8 +28,6 @@ export const REPORT_FORMATS: readonly [
   ...typeof VIZ_FORMATS,
 ] = [...DOCUMENT_FORMATS, ...VIZ_FORMATS] as const;
 
-// Integer flag value >= `opts.min` (default 1); `opts.allowAuto` also
-// accepts "auto" as the available job count.
 export function parseIntFlag(
   name: string,
   raw: string | undefined,
@@ -79,8 +77,6 @@ type FlagTable = Record<string, FlagDef>;
 
 const def = (dest: string, spec: FlagSpec): FlagDef => ({ dest, spec });
 
-// Builders for `FlagTable` entries; `dest` is the property set on the
-// parsed args.
 export const flag = {
   str: (dest: string): FlagDef => def(dest, { kind: "string" }),
   int: (dest: string, min: number = 1, allowAuto: boolean = false): FlagDef =>
@@ -136,8 +132,6 @@ export const NOISE_CHECK_FLAGS: FlagTable = {
   "--no-noise-check": flag.off("noiseCheck"),
 };
 
-// `--config PATH`: for the commands that read a config file (bench, ab,
-// compare, ci, baseline).
 export const CONFIG_FLAGS: FlagTable = {
   "--config": flag.str("config"),
 };
@@ -146,8 +140,8 @@ export interface ConfigArgs {
   config?: string;
 }
 
-// Flags shared by every command that runs measurements (`ci` has no
-// per-run flags).
+// Every command that runs measurements takes these, except `ci`, which
+// doesn't take per-run flags.
 export const RUN_FLAGS: FlagTable = {
   ...OUTPUT_FLAGS,
   ...NOISE_CHECK_FLAGS,
@@ -155,7 +149,6 @@ export const RUN_FLAGS: FlagTable = {
   "--out-dir": flag.str("outDir"),
 };
 
-// Flags shared by `bench` and `ab`.
 export const SUITE_FLAGS: FlagTable = {
   ...RUN_FLAGS,
   ...CONFIG_FLAGS,
@@ -164,7 +157,8 @@ export const SUITE_FLAGS: FlagTable = {
   "--bun-flags": flag.words("bunFlags"),
 };
 
-// A repeatable flag's `dest` starts as an array in the command's defaults.
+// invariant: a repeatable flag's `dest` starts as an array in the
+// command's defaults.
 function listAt(args: object, dest: string): unknown[] {
   const list: unknown = Reflect.get(args, dest);
   if (!Array.isArray(list)) {
@@ -186,8 +180,8 @@ interface ParseSpec<T> {
   rest?: (rest: string[], args: T) => void;
 }
 
-// Parses `argv` into `args` per `flags`; `--flag=value` equals `--flag
-// value`. Throws `CliUsageError`.
+// Throws only `CliUsageError`, so the dispatcher can print a `--help`
+// pointer for any parse failure. `--flag=value` equals `--flag value`.
 export function parseFlags<T extends object>(
   argv: string[],
   { command, flags, args, positional, rest }: ParseSpec<T>,

@@ -24,7 +24,8 @@ type ThrewRun = Measurement & {
   threw: NonNullable<Measurement["threw"]>;
 };
 
-// On either side, in its first process or a repeat.
+// Matches a throw on either side, in the first process or a repeat, since
+// both set `threw`.
 function isThrewRun(m: Measurement): m is ThrewRun {
   return m.phase === "paired" && m.threw !== undefined;
 }
@@ -62,7 +63,6 @@ export function formatThrew(threw: ThrewRun["threw"]): string {
   return `${sideLabel(threw.side)} threw${threw.repeat ? ` (repeat ${threw.repeat})` : ""}`;
 }
 
-// A candidate/base ratio: `1.032` is `+3.2%`.
 function formatRatio(ratio: number): string {
   return formatSignedPct((ratio - 1) * 100);
 }

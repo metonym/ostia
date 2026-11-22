@@ -116,8 +116,6 @@ async function loadProjectConfig(
   return config;
 }
 
-// Loads the project config; with `needsWorkloadsFor`, also requires at
-// least one workload.
 async function requireConfig(
   needsWorkloadsFor?: string,
   configPath?: string,
@@ -143,7 +141,6 @@ async function requireConfig(
   return config;
 }
 
-// compare/ab/ci exit code: 2 nothing matched, 1 gate failed, 0 pass.
 function gateExitCode(summary: { matched: number; verdict: string }): number {
   return summary.matched === 0 ? 2 : summary.verdict === "fail" ? 1 : 0;
 }
@@ -295,8 +292,8 @@ async function timeCommand(argv: string[]): Promise<number> {
   await emitDocument(doc, parsed);
   if (aborted) return 130;
 
-  // A failing command is exit 2 (couldn't measure), not 1: 1 is reserved for
-  // compare/ci's regression verdict.
+  // A failing command is exit 2 (couldn't measure), not 1, because 1 is
+  // reserved for compare/ci's regression verdict.
   const timingRuns = doc.workloads.map((w) =>
     doc.measurements.find((m) => m.workloadId === w.id && m.phase === "timing"),
   );
@@ -433,6 +430,7 @@ const AB_FLAGS = {
   "--no-progress": flag.off("progress"),
 };
 
+// One line, so a terminal can overwrite it with the next:
 // `[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex`
 function formatAbProgress(p: AbProgress): string {
   switch (p.phase) {
@@ -686,8 +684,8 @@ async function compareCommand(argv: string[]): Promise<number> {
     }
   }
 
-  // Computed before rendering: `minimal`'s trailing `summary` event carries
-  // it.
+  // Computed before rendering because `minimal`'s trailing `summary` event
+  // carries it.
   const exitCode = gateExitCode(result.summary);
 
   await emitDocument(outDoc, parsed, {
@@ -745,7 +743,6 @@ function parseReportArgs(argv: string[]): ReportArgs {
 const NO_CPU_EVIDENCE =
   "No CPU evidence in this document; rerun with --cpu (ostia time) or --cpu (ostia bench)";
 
-// Renders `path`; shared by `report` and `baseline show`.
 async function renderReport(
   path: string,
   { format, measurementId, outDir }: ReportArgs,
@@ -867,8 +864,8 @@ async function ciCommand(argv: string[]): Promise<number> {
     await saveDocument(document, baselineFile);
   }
 
-  // Computed before rendering: `minimal`'s trailing `summary` event carries
-  // it.
+  // Computed before rendering because `minimal`'s trailing `summary` event
+  // carries it.
   const exitCode = summary.failed > 0 ? 2 : summary.regressed > 0 ? 1 : 0;
 
   if (summary.failed > 0) {

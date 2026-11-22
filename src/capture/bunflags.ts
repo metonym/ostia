@@ -49,9 +49,6 @@ interface ProfiledRun {
   warnings: Warning[];
 }
 
-// Runs the workload under bun with profiler `flags` and loads the JSON
-// artifact it wrote; `raw` is absent (with an `artifact-missing` warning)
-// when none appeared.
 export async function runProfiled(
   opts: ProfiledRunOptions,
   flags: string[],

@@ -151,7 +151,6 @@ export interface RegisteredTask {
 
 type Flags = { skip?: boolean; only?: boolean };
 
-// What an enclosing group passes to the tasks and groups inside it.
 interface GroupScope {
   path: string;
   chain: readonly GroupFrame[];
@@ -300,8 +299,8 @@ export function resetRegistry(): void {
   currentParams = undefined;
 }
 
-// `task()` calls inside `fn` inherit `params` as theirs (explicit
-// `TaskOptions.params` keys win).
+// `task()` calls inside `fn` inherit `params` as theirs, unless their own
+// `TaskOptions.params` sets the same key.
 export function withCurrentParams<T>(
   params: Record<string, string | number | boolean>,
   fn: () => T,
@@ -325,8 +324,6 @@ export function formerTaskIds(t: RegisteredTask): string[] {
   );
 }
 
-// Effective per-task flags: the task's own value, then its group's, then
-// the suite-wide default.
 export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
   return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate;
 }
@@ -390,7 +387,7 @@ export async function runGroupHooks(
   }
 }
 
-// mitata-compatible: filter value is a JS regex source, substring-matched
+// compat: as in mitata, the filter is a JS regex source, substring-matched
 // (no anchoring), case-sensitive, against the "group/name" task id.
 export function filterTasks(
   tasks: readonly RegisteredTask[],

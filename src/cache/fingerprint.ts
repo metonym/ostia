@@ -27,7 +27,8 @@ export function computeCacheKey(input: CacheKeyInput): string {
   );
 }
 
-// Keeps a large glob under the process's open-file limit (EMFILE).
+// Caps parallel reads because a large glob would otherwise pass the
+// process's open-file limit (EMFILE).
 const READ_CONCURRENCY = 32;
 
 export async function computeInputsDigest(
@@ -44,7 +45,8 @@ export async function computeInputsDigest(
       const k = next++;
       const path = paths[k];
       if (path === undefined) continue;
-      // Absolute patterns scan to absolute paths; `resolve` handles both.
+      // `resolve`, not a join, since absolute patterns scan to absolute
+      // paths.
       const buf = await Bun.file(resolve(cwd, path)).arrayBuffer();
       entries[k] = {
         path,

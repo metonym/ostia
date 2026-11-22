@@ -80,7 +80,7 @@ interface RatioStats {
 }
 
 const DEFAULT_ROUNDS = 15;
-// Long enough that timer resolution vanishes, short enough that the
+// Long enough that timer resolution can't matter, short enough that the
 // machine barely changes between a round's two halves.
 const ROUND_BATCH_NS = 10_000_000;
 // Warmup doubles each side's batch until it spans this long.
@@ -158,7 +158,8 @@ export async function measurePaired(
     for (const name of order) await timers[name](batch);
   }
 
-  // Read around each batch, outside the loop's own clock reads.
+  // Read around each batch, outside the loop's own clock reads, so reading
+  // the counter never adds to the measured time.
   const count = instructionCounter().read;
   const instructions: InstructionSamples = { baseSamples: [], candSamples: [] };
   const baseSamples: number[] = [];
@@ -200,8 +201,7 @@ function median(values: number[]): number {
 
 type RatioQuartiles = Omit<RatioStats, "flagged">;
 
-// `metric`'s ratios of a paired task or one of its repeats; undefined when
-// its instructions weren't counted.
+// Undefined only when `metric` is instructions and they weren't counted.
 export function metricRatios(
   r: RatioQuartiles & { instructions?: RatioQuartiles },
   metric: AbSummary["metric"],
@@ -209,8 +209,6 @@ export function metricRatios(
   return metric === "instructions" ? r.instructions : r;
 }
 
-// A paired task's evidence from its rounds (one process's, or several
-// pooled), `flagged` by `metric`'s ratios.
 export function pairedEvidence(
   input: Pick<
     PairedTimingResult,
@@ -258,9 +256,9 @@ export function pairedEvidence(
   };
 }
 
-// False when the suite file changed and the two sides' outputs differ:
-// the sides then likely ran different benchmarks, and their time ratio
-// says nothing about the code under test.
+// False when the suite file changed and the two sides' outputs differ,
+// because the sides then likely ran different benchmarks, and their time
+// ratio says nothing about the code under test.
 export function comparable(p: {
   suiteChanged?: true;
   sameOutput: boolean;
@@ -268,9 +266,6 @@ export function comparable(p: {
   return !(p.suiteChanged && !p.sameOutput);
 }
 
-// `regressed` when the candidate exceeds the base by more than
-// `thresholdPct` of the base and more than `floorBytes`; `improved` is the
-// mirror.
 export function memoryChange(
   baseBytes: number,
   candBytes: number,
@@ -290,8 +285,8 @@ export function memoryChange(
 
 // `regressed` when the median ratio is above `1 + thresholdPct/100` and
 // the 25th percentile is above 1 (slower in at least three quarters of
-// rounds); `improved` is the mirror. The quartile condition keeps a few
-// wild rounds from flagging a workload whose typical round shows no
+// rounds); `improved` is the mirror. The quartile condition is there so a
+// few wild rounds can't flag a workload whose typical round shows no
 // change.
 export function ratioStats(ratios: number[], thresholdPct: number): RatioStats {
   const sorted = sortedCopy(ratios);

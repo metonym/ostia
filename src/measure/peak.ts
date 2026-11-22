@@ -34,7 +34,7 @@ function residentBytes(): number | undefined {
 // eslint-disable-next-line no-restricted-syntax -- a lazy cache: dlopen once per process
 let readResident: (() => number | undefined) | undefined;
 
-// Asks the kernel directly: spawning `ps` costs a few ms a call.
+// Asks the kernel directly, since spawning `ps` costs a few ms a call.
 function residentReader(): () => number | undefined {
   const { symbols } = dlopen("/usr/lib/libSystem.B.dylib", {
     proc_pid_rusage: {
@@ -42,8 +42,8 @@ function residentReader(): () => number | undefined {
       returns: FFIType.i32,
     },
   });
-  // rusage_info_v0: a 16-byte uuid, then u64s; ri_resident_size is at byte
-  // 64.
+  // spec: rusage_info_v0 is a 16-byte uuid, then u64s; ri_resident_size is
+  // at byte 64.
   const info = new BigUint64Array(12);
   return () =>
     symbols.proc_pid_rusage(process.pid, 0, ptr(info)) === 0
@@ -163,9 +163,9 @@ export interface PeakMemResult {
 // (if the call moved it), after a full GC. Sampling alone can miss a spike
 // between polls; the high-water mark alone misses any call peaking below
 // an earlier peak (on Linux, every call smaller than process startup).
-// Meant for the first call in a fresh process: memory an earlier call
-// freed but the allocator holds (macOS returns it seconds later) is reused
-// unseen.
+// Only meaningful for the first call in a fresh process, because memory
+// an earlier call freed but the allocator holds (macOS returns it seconds
+// later) is reused unseen.
 export async function measurePeakMem(
   fn: () => unknown,
   since?: MemorySnapshot,

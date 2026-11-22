@@ -243,7 +243,7 @@ export function validateConfig(
   if (bench !== undefined) {
     const benchObj = checkObject(bench, "bench", file);
     checkFields(benchObj, BENCH_FIELDS, "bench", file, warn);
-    // checkFields has made `projects` an array when present.
+    // invariant: checkFields has made `projects` an array when present.
     const projects: unknown = benchObj.projects;
     for (const [i, project] of (Array.isArray(projects)
       ? projects

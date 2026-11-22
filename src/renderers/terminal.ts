@@ -80,7 +80,6 @@ interface TableRow<R> {
 
 function textTable<R>(columns: Column<R>[], rows: TableRow<R>[]): string[] {
   const indentOf = (row: TableRow<R>) => (row.group !== undefined ? "  " : "");
-  // Under its group's header, a row shows the task name alone.
   const shown = (row: TableRow<R>) => labelInGroup(row.label, row.group);
   let labelWidth = 4;
   for (const r of rows) {

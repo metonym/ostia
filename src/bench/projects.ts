@@ -9,10 +9,6 @@ export interface SuiteLaunch {
   bunFlags: string[];
 }
 
-// The first project whose globs match the file (against its path relative
-// to `cwd`) overrides the top-level `preload` / `bunFlags` field by field;
-// a field the project leaves unset, or a file no project matches, keeps
-// the top-level value.
 export function suiteLauncher(
   cwd: string,
   base: { preload?: string[]; bunFlags?: string[] },

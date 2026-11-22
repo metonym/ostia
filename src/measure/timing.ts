@@ -76,7 +76,8 @@ export function createTimingPhase(
   let totalNs = 0;
   let i = 0;
   let failedEarly = false;
-  // One representative excerpt is enough for the aggregate warning.
+  // Only the first, since one representative excerpt is enough for the
+  // aggregate warning.
   let firstNoMatchOutput: string | undefined;
 
   function done(): boolean {

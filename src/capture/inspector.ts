@@ -16,8 +16,8 @@ export async function captureInspectorProfile<T>(
   opts: SamplingOptions = {},
 ): Promise<InspectorCaptureResult<T>> {
   const intervalUs = opts.intervalUs ?? DEFAULT_SAMPLING_INTERVAL_US;
-  // Lazy: importing node:inspector costs ~4ms of startup for every
-  // invocation.
+  // perf: imported lazily, since importing node:inspector costs ~4ms of
+  // startup for every invocation.
   const { Session } = await import("node:inspector/promises");
   const session = new Session();
   session.connect();

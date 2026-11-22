@@ -242,7 +242,6 @@ export function abTreesDir(toplevel: string): string {
   return `${toplevel}/.ostia/ab`;
 }
 
-// Keeps git, and tools that read `.gitignore`, out of the base trees.
 function ignoreTrees(abDir: string): void {
   if (existsSync(`${abDir}/.gitignore`)) return;
   mkdirSync(abDir, { recursive: true });
@@ -256,8 +255,6 @@ const SETUP_OUTPUT_BYTES = 64 * 1024;
 // killed. Only a descendant that left the group can hold it open longer.
 const SETUP_DRAIN_MS = 1000;
 
-// Reads `stream` as text in the background, keeping its last
-// `SETUP_OUTPUT_BYTES`. `stop()` cancels the read and returns the text.
 function readTail(stream: ReadableStream<Uint8Array>): {
   done: Promise<void>;
   stop: () => Promise<string>;
@@ -445,7 +442,8 @@ async function extractTree(
   return true;
 }
 
-// A tree used this recently may belong to a run still going.
+// Never pruned within this long of its last use, since the tree may
+// belong to a run still going.
 const PRUNE_GRACE_MS = 60 * 60 * 1000;
 
 function pidAlive(pid: number): boolean {
@@ -457,8 +455,8 @@ function pidAlive(pid: number): boolean {
   }
 }
 
-// Marks a base tree as just used: pruning goes by modification time,
-// which, unlike access time, every filesystem keeps.
+// Sets the modification time because pruning goes by it: unlike access
+// time, every filesystem keeps it.
 function touchTree(dir: string): void {
   const now = new Date();
   try {
@@ -468,9 +466,6 @@ function touchTree(dir: string): void {
   }
 }
 
-// Removes base trees under `abDir` past the `keep` most recently used,
-// except any used in the last hour, and temp directories whose process has
-// exited. Returns how many it removed.
 async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   if (!existsSync(abDir)) return 0;
   const now = nowMs();
@@ -498,9 +493,9 @@ async function pruneAbTrees(abDir: string, keep: number): Promise<number> {
   return doomed.length;
 }
 
-// A base tree's name under `<outDir>/ab`, where they were cached before
-// they moved out of node_modules: `<sha>` or `<sha>-<hash>`, or a temp
-// directory for one.
+// compat: base trees were cached under `<outDir>/ab` before they moved
+// out of node_modules; this matches their names (`<sha>`, `<sha>-<hash>`,
+// or a temp directory for one).
 const LEGACY_TREE = /^[0-9a-f]{40}(?:-[0-9a-f]{8})?(?:\.tmp-\d+(?:-\w+)?)?$/;
 
 // Removes the base trees left under `dir` by earlier versions, and `dir`
@@ -514,9 +509,8 @@ async function removeLegacyTrees(dir: string): Promise<number> {
   return trees.length;
 }
 
-// Removes every base tree `ab()` has cached for the project at `cwd`,
-// and any left under `<outDir>/ab`, where they were cached before. Returns
-// how many there were.
+// compat: also removes the trees left under `<outDir>/ab`, where they were
+// cached before.
 export async function cleanAbTrees(
   opts: { outDir?: string; cwd?: string } = {},
 ): Promise<number> {
@@ -533,7 +527,8 @@ export async function cleanAbTrees(
   return count;
 }
 
-// A memory process asked for a reading always writes it.
+// invariant: a memory process asked for a reading always writes it, so a
+// missing one is a bug, not a result.
 function reading<T>(value: T | undefined, what: string): T {
   if (value === undefined) {
     throw new Error(`ab: a memory process wrote no ${what} reading`);
@@ -544,7 +539,6 @@ function reading<T>(value: T | undefined, what: string): T {
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v);
 
-// The parse steps for what a runner process writes.
 function isMemoryResult(v: unknown): v is AbMemoryResult {
   if (!isRecord(v)) return false;
   const { peak, alloc } = v;
@@ -579,8 +573,6 @@ function isSide(v: string): v is Side {
   return v === "base" || v === "cand";
 }
 
-// Puts a task's memory readings on its measurement: the median of each
-// side's processes, judged against the base's.
 function judgeMemory(
   m: Measurement,
   p: PairedEvidence,
@@ -608,7 +600,8 @@ function judgeMemory(
   }
   if (task.peakMem) {
     const peaks = all.map((r) => reading(r.peak, "peak"));
-    // Memory freed before the call can hide up to that much of its peak.
+    // Memory freed before the call can hide up to `slackBytes` of its peak,
+    // so a warned reading's noise floor rises to the slack.
     const warning = peakHiddenWarning(peaks);
     const slack = Math.max(...peaks.map((r) => r.slackBytes));
     p.peak = judge(
@@ -735,7 +728,8 @@ export function summarizePaired(
   const threw = measurements.filter((m) => m.threw);
   const candThrew = threw.some((m) => m.threw?.side === "cand");
   const { memThresholdPct, ...rest } = settings;
-  // Each task counts once: regressed if either reading regressed.
+  // One verdict pair per task, so a task counts once even when both its
+  // readings regressed.
   const memVerdicts = paired
     .filter((p) => p.retained || p.peak)
     .map((p) => [p.retained?.verdict, p.peak?.verdict]);
@@ -897,8 +891,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
 
   const onProgress = opts.onProgress;
   let spawned = 0;
-  // Runs the A/B runner on suite `s`; resolves with its output path, or
-  // undefined when cancelled.
+  // Resolves undefined only when cancelled.
   const runRunner = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
@@ -976,8 +969,8 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     }
     return ran ? outPath : undefined;
   };
-  // Runs suite `s` twice, base first and then candidate first, splitting
-  // the rounds, and pools the two; undefined when cancelled.
+  // Each order gets half the rounds, so the pooled run costs what one order
+  // alone would. Undefined only when cancelled.
   const runSuite = async (
     s: number,
     extra: Partial<AbRunnerOpts> = {},
@@ -987,7 +980,7 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
       rounds: Math.ceil(rounds / 2),
     });
     if (!first) return undefined;
-    // The plan is the first pass's to write.
+    // Only the first pass writes the plan, so the second drops `planPath`.
     const { planPath: _planPath, ...secondExtra } = extra;
     const second = await runRunner(s, {
       ...secondExtra,
@@ -1105,7 +1098,6 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     });
     const memoryRuns = memoryTasks.length * PEAK_MEM_PROCESSES * 2;
     let memoryRun = 0;
-    // Until each side has PEAK_MEM_PROCESSES readings, or a cancel.
     const readMemory = async (task: (typeof memoryTasks)[number]) => {
       const { workloadId, suite, peakMem } = task;
       const readings: Record<Side, AbMemoryResult[]> = { base: [], cand: [] };

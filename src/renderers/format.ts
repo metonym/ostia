@@ -22,7 +22,7 @@ export function formatUsAsMs(us: number): string {
   return (us / 1000).toFixed(2);
 }
 
-// Every byte count ostia prints is 1024-based.
+// invariant: every byte count ostia prints is 1024-based.
 export function formatBytes(bytes: number): string {
   if (bytes < 1024) return `${bytes.toFixed(0)}B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)}KiB`;

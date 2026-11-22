@@ -37,8 +37,9 @@ function openCounter(): InstructionCounter {
   return { unavailable: `not supported on ${process.platform}` };
 }
 
-// thread_selfcounts(1, ...) fills { instructions, cycles } for the calling
-// thread: what `/usr/bin/time -l` totals over a process, read per thread.
+// spec: thread_selfcounts(1, ...) fills { instructions, cycles } for the
+// calling thread: what `/usr/bin/time -l` totals over a process, read per
+// thread.
 function darwinCounter(): InstructionCounter {
   const { symbols } = dlopen("/usr/lib/libSystem.B.dylib", {
     thread_selfcounts: {
@@ -70,11 +71,12 @@ const PERF_TYPE_HARDWARE = 0;
 const PERF_COUNT_HW_INSTRUCTIONS = 1;
 // perf_event_attr's first version, which every kernel since takes.
 const PERF_ATTR_SIZE_VER0 = 64;
-// exclude_kernel | exclude_hv: what `perf_event_paranoid` 2 still allows.
+// spec: exclude_kernel | exclude_hv, because `perf_event_paranoid` 2 still
+// allows that much.
 const PERF_USER_ONLY = (1n << 5n) | (1n << 6n);
 
-// An event opened with pid 0 and cpu -1 counts the calling thread, on any
-// CPU, from the moment it's opened.
+// spec: an event opened with pid 0 and cpu -1 counts the calling thread,
+// on any CPU, from the moment it's opened.
 function linuxCounter(): InstructionCounter {
   const nr = PERF_EVENT_OPEN[process.arch];
   if (nr === undefined) {

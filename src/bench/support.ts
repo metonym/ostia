@@ -29,7 +29,6 @@ export function absolutePath(cwd: string, file: string): string {
 /** A suite file named on the command line or in config doesn't exist. */
 class SuiteNotFoundError extends OstiaUsageError {}
 
-// `given` is the path as the caller wrote it, for the message.
 export function assertSuiteExists(given: string, absolute: string): void {
   if (!statSync(absolute, { throwIfNoEntry: false })?.isFile()) {
     throw new SuiteNotFoundError(`Suite not found: ${given}`);
@@ -57,14 +56,13 @@ export async function loadIfExists(
   return (await Bun.file(path).exists()) ? loadDocument(path) : undefined;
 }
 
-// Fresh processes per `--peak-mem` reading; the median is reported.
+// invariant: a `--peak-mem` reading is the median of this many fresh
+// processes.
 export const PEAK_MEM_PROCESSES = 3;
-// Below this, slack is what any suite that loads fixtures leaves behind
-// (8MB for caligula's) and too common to warn about.
+// Slack below this is what any suite that loads fixtures leaves behind
+// (8MB for caligula's), so it's too common to warn about.
 const PEAK_SLACK_NOISE_BYTES = 16 * 1024 * 1024;
 
-// Memory freed before the call may have hidden part of its peak in
-// `readings` (one task's fresh processes).
 export function peakHiddenWarning(
   readings: PeakMemResult[],
 ): Warning | undefined {
@@ -122,8 +120,8 @@ interface RunnerProcessOptions {
   errorFile?: string;
 }
 
-// Resolves `false` when the caller's signal cancelled it (not a failure),
-// `true` on a clean exit.
+// A cancel resolves `false` instead of rejecting, since it isn't a
+// failure; a clean exit resolves `true`.
 export async function runRunnerProcess(
   argv: string[],
   opts: RunnerProcessOptions,

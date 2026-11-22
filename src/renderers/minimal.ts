@@ -232,6 +232,7 @@ interface MinimalSummaryLine {
   exitCode: number;
 }
 
+/** One parsed line of `--format minimal` output; narrow on `event`. */
 export type MinimalEvent =
   MinimalRunLine | MinimalUnmatchedLine | MinimalSummaryLine;
 
@@ -310,8 +311,6 @@ function deltaFrom(
   return delta;
 }
 
-// A `task.skip()`'d workload, or one whose trials produced no samples
-// (`samples: 0`).
 function statlessLine(
   doc: ProfileDocument,
   workload: Workload,
@@ -427,7 +426,7 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       line.userNs = sig(times.userNs);
       line.systemNs = sig(times.systemNs);
     }
-    // An `ab` run's stats are the candidate's, memory included.
+    // invariant: an `ab` run's stats are the candidate's, memory included.
     const readings = memory.get(run.workloadId);
     const retained = readings?.retained ?? run.paired?.retained?.candBytes;
     if (retained !== undefined) line.retainedBytesPerOp = Math.round(retained);

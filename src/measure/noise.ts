@@ -6,8 +6,8 @@ const DEFAULT_BUDGET_MS = 200;
 // dominate.
 const HASHES_PER_TRIAL = 64;
 
-// Fixed, allocation-free workload: trial-to-trial variance is the
-// machine's noise.
+// Fixed and allocation-free, so trial-to-trial variance is the machine's
+// noise.
 const REFERENCE_BUFFER = (() => {
   const buf = new Uint8Array(4096);
   for (let i = 0; i < buf.length; i++) buf[i] = (i * 2654435761) & 0xff;
@@ -23,7 +23,6 @@ function hashBuffer(buf: Uint8Array, seed: number): number {
   return h >>> 0;
 }
 
-// `mad / median` of `samples`, as a percent.
 export function computeNoiseFloor(samples: number[]): NoiseFloor {
   const stats = computeTimingStats(samples);
   return {

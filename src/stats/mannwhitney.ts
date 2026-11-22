@@ -8,7 +8,7 @@ interface MannWhitneyResult {
   pValue: number;
 }
 
-// Abramowitz & Stegun 7.1.26: erf approximation, max error ~1.5e-7.
+// spec: Abramowitz & Stegun 7.1.26 erf approximation, max error ~1.5e-7.
 function erf(x: number): number {
   const sign = x < 0 ? -1 : 1;
   const ax = Math.abs(x);
@@ -42,8 +42,8 @@ export function mannWhitneyU(a: number[], b: number[]): MannWhitneyResult {
   const sa = sortedCopy(a);
   const sb = sortedCopy(b);
 
-  // One tie group (distinct value) at a time; each member gets the group's
-  // average rank.
+  // spec: tied values share their group's average rank, so the walk takes
+  // one tie group (distinct value) at a time.
   let r1 = 0; // rank sum of `a`
   let tieCorrection = 0;
   let i = 0;

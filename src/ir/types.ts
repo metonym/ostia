@@ -424,9 +424,9 @@ export interface AbSummary {
  * Every `Warning.code`. A runtime array so a test can assert each is
  * emitted.
  */
-// compat: annotated, not `as const`: Bun 1.4.6 canary's declaration
-// build overflows its stack when another module imports a type
-// derived from an `as const` array (WarningCode, below).
+// compat: annotated, since Bun 1.4.6 canary's declaration build overflows
+// its stack when another module imports a type taken with `typeof` from
+// an unannotated array (WarningCode, below).
 export const WARNING_CODES: readonly [
   "slow-first-run",
   "outliers-detected",

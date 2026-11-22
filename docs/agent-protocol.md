@@ -1,9 +1,11 @@
 # Machine-readable output
 
-`--format minimal` is a line protocol for scripts and LLM agents: one JSON object per
-line on stdout, nothing else. It drops the raw sample arrays and prose that make a full
-`ProfileDocument` large. It works on `time`, `bench`, `ab`, `compare`, `ci`, `report` and
-`baseline show`.
+`--format minimal` is a line protocol for scripts and LLM agents:
+one JSON object per line on stdout, nothing else.
+It drops the raw sample arrays and prose that make a full
+`ProfileDocument` large.
+It works on `time`, `bench`, `ab`, `compare`, `ci`,
+`report` and `baseline show`.
 
 ```sh
 ostia time --samples 10 "bun a.ts" --format minimal
@@ -13,12 +15,15 @@ ostia compare before.json after.json --format minimal
 ostia ci --format minimal; echo $?
 ```
 
-`ostia ab` can run for many minutes. Add `--progress` to see where it is: it writes
-`[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex` lines to stderr, never
-stdout, so the protocol stays clean. Without the flag, progress only shows when stderr is
-a terminal.
+`ostia ab` can run for many minutes.
+Add `--progress` to see where it is:
+it writes
+`[ab] suite 4/13 bench/search.bench.ts · task 3/7 search/regex` lines to
+stderr, never stdout, so the protocol stays clean.
+Without the flag, progress only shows when stderr is a terminal.
 
-The TypeScript type for a parsed line is exported as `MinimalEvent`; narrow on `event`.
+The TypeScript type for a parsed line is exported as `MinimalEvent`;
+narrow on `event`.
 
 ```ts
 import type { MinimalEvent } from "ostia"
@@ -29,20 +34,23 @@ const regressed = events.some((e) => e.event === "run" && e.delta?.verdict === "
 
 ## Versioning
 
-Every line carries `protocolVersion: 2` (`MINIMAL_PROTOCOL_VERSION`). Within version 2,
-keys are only added, never renamed or removed, so a consumer that reads the fields it
-knows keeps working. Version 2 renamed `paired.p25`/`paired.p75` (`ab` runs) to
-`ratioP25`/`ratioP75`, so they can't be mistaken for the ns percentiles `p75`/`p99`, and
-added `"error"` to the `summary` `verdict` values (it was `"fail"` for every non-zero exit
-code). `run` lines also carry the document's `schemaVersion` (currently 2).
+Every line carries `protocolVersion: 2` (`MINIMAL_PROTOCOL_VERSION`).
+Within version 2, keys are only added, never renamed or removed,
+so a consumer that reads the fields it knows keeps working.
+Version 2 renamed `paired.p25`/`paired.p75` (`ab` runs) to
+`ratioP25`/`ratioP75`, so they can't be mistaken for the ns percentiles
+`p75`/`p99`, and added `"error"` to the `summary` `verdict` values
+(it was `"fail"` for every non-zero exit code).
+`run` lines also carry the document's `schemaVersion` (currently 2).
 
 ## Events
 
 ### `run`
 
-One per timing measurement, for every command; for `ab`, one per paired task, with the
-candidate's stats. Times are in nanoseconds (`unit: "ns"`), rounded to 6 significant
-digits.
+One per timing measurement, for every command;
+for `ab`, one per paired task, with the candidate's stats.
+Times are in nanoseconds (`unit: "ns"`),
+rounded to 6 significant digits.
 
 | Field | Present | Meaning |
 |---|---|---|
@@ -101,7 +109,8 @@ digits.
 
 ### `unmatched`
 
-`compare`/`ci`/`ab` only. One per workload present in only one of the two documents.
+`compare`/`ci`/`ab` only.
+One per workload present in only one of the two documents.
 
 ```json
 {"event":"unmatched","protocolVersion":2,"workloadId":"wl_…","task":"old-task","side":"base"}
@@ -109,8 +118,8 @@ digits.
 
 ### `summary`
 
-`compare`/`ci`/`ab` only; always the last line. Never emitted for `time`, `bench` or
-`report`.
+`compare`/`ci`/`ab` only; always the last line.
+Never emitted for `time`, `bench` or `report`.
 
 | Field | Meaning |
 |---|---|
@@ -155,19 +164,22 @@ The same across commands:
 | `2` | Harness error: the numbers couldn't be produced or compared. |
 | `130` | Cancelled with Ctrl-C (`time`, `bench`, `ab`, `ci`). |
 
-`--help` exits 0; a missing required argument prints the help and exits 2.
+`--help` exits 0; a missing required argument prints the help
+and exits 2.
 
 ## Errors
 
-On exit 2, stderr gets a prose message. When stderr is not a TTY, or `--format` is
-`minimal`, `json` or `jsonl`, one more line follows it as the last line of stderr:
+On exit 2, stderr gets a prose message.
+When stderr is not a TTY, or `--format` is `minimal`, `json` or `jsonl`,
+one more line follows it as the last line of stderr:
 
 ```json
 {"event":"error","protocolVersion":2,"code":"command-failed","message":"One or more commands failed to produce a clean measurement; see the report above for details."}
 ```
 
-`message` is the first line of the prose message; `data` is included when there is
-structured detail. stdout stays pure JSON for the machine formats.
+`message` is the first line of the prose message;
+`data` is included when there is structured detail.
+stdout stays pure JSON for the machine formats.
 
 | `code` | Cause |
 |---|---|
@@ -187,11 +199,12 @@ structured detail. stdout stays pure JSON for the machine formats.
 
 ## `--format jsonl`
 
-For the full document rather than the condensed protocol: a `kind: "document"` header
-line (the document minus `measurements`), then one `kind: "measurement"` line per
-measurement, including raw samples and trials.
+For the full document rather than the condensed protocol:
+a `kind: "document"` header line (the document minus `measurements`),
+then one `kind: "measurement"` line per measurement,
+including raw samples and trials.
 
 ## `--format json`
 
-The whole document, byte-identical to what `--export-json` writes. Schema:
-[document-schema.md](document-schema.md).
+The whole document, byte-identical to what `--export-json` writes.
+Schema: [document-schema.md](document-schema.md).

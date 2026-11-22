@@ -1,8 +1,8 @@
-import { withCurrentParams } from "./registry.ts"
+import { withCurrentParams } from "./registry.ts";
 
 type SweepPoint<T extends Record<string, readonly unknown[]>> = {
-  [K in keyof T]: T[K][number]
-}
+  [K in keyof T]: T[K][number];
+};
 
 /** Cartesian product over `dims`, calling `fn` once per point. Inside `fn`,
  * `task()` calls automatically inherit the point as their params (an
@@ -19,21 +19,21 @@ export function sweep<T extends Record<string, readonly unknown[]>>(
   dims: T,
   fn: (point: SweepPoint<T>) => void,
 ): void {
-  const keys = Object.keys(dims) as (keyof T)[]
+  const keys = Object.keys(dims) as (keyof T)[];
 
   const go = (index: number, point: Record<string, unknown>): void => {
     if (index === keys.length) {
       withCurrentParams(
         point as Record<string, string | number | boolean>,
         () => fn(point as SweepPoint<T>),
-      )
-      return
+      );
+      return;
     }
-    const key = keys[index]!
+    const key = keys[index]!;
     for (const value of dims[key]!) {
-      go(index + 1, { ...point, [key]: value })
+      go(index + 1, { ...point, [key]: value });
     }
-  }
+  };
 
-  go(0, {})
+  go(0, {});
 }

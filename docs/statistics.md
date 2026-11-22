@@ -1,96 +1,120 @@
 # Statistics
 
-How ostia samples, summarizes, and decides whether a change is a regression.
+How ostia samples, summarizes, and decides whether a change is a
+regression.
 
 ## Summary statistics
 
-Every timing measurement stores its raw samples plus `mean`, `median`, `stddev`
-(population), `min`, `max`, `p25`, `p75`, `p99`, `mad` (median absolute deviation) and
-IQR-based outlier counts (mild: beyond 1.5×IQR from the quartiles; severe: beyond 3×IQR).
+Every timing measurement stores its raw samples plus `mean`, `median`,
+`stddev` (population), `min`, `max`, `p25`, `p75`, `p99`,
+`mad` (median absolute deviation) and IQR-based outlier counts
+(mild: beyond 1.5×IQR from the quartiles; severe: beyond 3×IQR).
 Percentiles interpolate linearly between order statistics.
 
-Reports lead with the median and show Spread as p75…p99, since wall-clock timings have a
-long right tail that skews the mean and standard deviation.
+Reports lead with the median and show Spread as p75…p99,
+since wall-clock timings have a long right tail that skews the mean
+and standard deviation.
 
 ## Sampling
 
 ### Subprocess commands (`time`, `ci`)
 
-3 warmup trials, then timed trials until 3s of wall time have passed and at least 10
-trials have run, unless `samples` sets an exact count. With several commands the trials
-are interleaved round-robin. Details: [cli.md](cli.md#sampling).
+3 warmup trials, then timed trials until 3s of wall time have passed
+and at least 10 trials have run, unless `samples` sets an exact count.
+With several commands the trials are interleaved round-robin.
+Details: [cli.md](cli.md#sampling).
 
 ### In-process tasks (`bench`, `run`)
 
-- One untimed first call, then warmup for 10% of the budget. Warmup doubles its batch size
-  until a batch takes about 1ms, so the loop is hot at the size it will be sampled at.
-- Calls are batched so one trial spans at least 1µs (keeping timer resolution out of the
-  reading) and a full budget yields about 10,000 trials. For batched tasks, five
-  calibration batches settle the per-call estimate on their median before sampling starts.
+- One untimed first call, then warmup for 10% of the budget.
+  Warmup doubles its batch size until a batch takes about 1ms,
+  so the loop is hot at the size it will be sampled at.
+- Calls are batched so one trial spans at least 1µs
+  (keeping timer resolution out of the reading) and a full budget yields
+  about 10,000 trials.
+  For batched tasks, five calibration batches settle the per-call
+  estimate on their median before sampling starts.
   The reported numbers are per call (`batch` records the batch size).
-- Sampling runs until the budget (default 500ms) is spent and the floor is met. The
-  budget-driven loop stops at 20,000 trials.
-- The default floor is cost-aware: as many trials as fit in the budget (capped at 20), but
-  never below 3 at ≤1ms per trial, plus 2 per decade of cost, up to 10. See the table in
-  [cli.md](cli.md#sampling-1).
-- Each task runs through its own compiled timing loop. A loop shared between tasks lets
-  the JIT specialize its call site for whichever task ran first, which made later tasks
-  read slower depending on their order in the file.
-- Every result is stored into a ring buffer, and `keep()` is available for intermediate
-  values, so the JIT can't eliminate the work being measured.
+- Sampling runs until the budget (default 500ms) is spent
+  and the floor is met.
+  The budget-driven loop stops at 20,000 trials.
+- The default floor is cost-aware: as many trials as fit in the budget
+  (capped at 20), but never below 3 at ≤1ms per trial,
+  plus 2 per decade of cost, up to 10.
+  See the table in [cli.md](cli.md#sampling-1).
+- Each task runs through its own compiled timing loop.
+  A loop shared between tasks lets the JIT specialize its call site for
+  whichever task ran first, which made later tasks read slower depending
+  on their order in the file.
+- Every result is stored into a ring buffer,
+  and `keep()` is available for intermediate values,
+  so the JIT can't eliminate the work being measured.
 
-Tasks that share a process still share builtin call-site feedback and the GC heap. For
-the most comparable numbers, run tasks with `isolate`.
+Tasks that share a process still share builtin call-site feedback
+and the GC heap.
+For the most comparable numbers, run tasks with `isolate`.
 
 ## Noise floor
 
-Before measuring, `time()`, `bench()` and `ostia ci` each run a fixed, allocation-free
-hash loop for about 200ms, once per call, and record `mad / median` of its trial times as
-`environment.noise.floorPct`. This is how much this machine's timings are varying right
-now, independent of the workload. `noiseCheck: false` / `--no-noise-check` skips it (and
-the widening below).
+Before measuring, `time()`, `bench()` and `ostia ci` each run a fixed,
+allocation-free hash loop for about 200ms, once per call,
+and record `mad / median` of its trial times as
+`environment.noise.floorPct`.
+This is how much this machine's timings vary at the moment,
+independent of the workload.
+`noiseCheck: false` / `--no-noise-check` skips it
+(and the widening below).
 
-`time()`, `bench()` and `ostia ci` run the loop again when they finish and record how much
-slower it ran at the end than at the start as `environment.noise.driftPct`: the
-machine's drift over the run (thermal throttling, a neighbour on a shared CI runner).
+`time()`, `bench()` and `ostia ci` run the loop again when they finish
+and record how much slower it ran at the end than at the start as
+`environment.noise.driftPct`: the machine's drift over the run
+(thermal throttling, a neighbour on a shared CI runner).
 
-A `noisy-machine` warning is added when the 1-minute load average exceeds 75% of the
-available cores.
+A `noisy-machine` warning is added when the 1-minute load average
+exceeds 75% of the available cores.
 
 ## Comparing two measurements
 
-`compareDocuments` (and `ostia compare`/`ostia ci`) matches workloads by id and, for each
-pair of timing measurements with at least 5 samples on each side, runs two tests on the
-raw samples:
+`compareDocuments` (and `ostia compare`/`ostia ci`) matches workloads by
+id and, for each pair of timing measurements with at least 5 samples on
+each side, runs two tests on the raw samples:
 
-- **Bootstrap confidence interval** on the difference of medians. Each round resamples
-  both sides with replacement and takes the difference of the resampled medians, as a
-  percent of the baseline median; the 2.5th and 97.5th percentiles over
-  `bootstrapIterations` rounds (default 2000) form `ci95`. A side with more than 2000
-  samples is randomly subsampled to 2000 first, which bounds the cost.
-- **Mann-Whitney U test**, two-sided, tie-corrected, normal approximation, reported as
-  `pValue`. It tests whether the two distributions differ without assuming normality.
+- **Bootstrap confidence interval** on the difference of medians.
+  Each round resamples both sides with replacement
+  and takes the difference of the resampled medians,
+  as a percent of the baseline median;
+  the 2.5th and 97.5th percentiles over `bootstrapIterations` rounds
+  (default 2000) form `ci95`.
+  A side with more than 2000 samples is randomly subsampled to 2000
+  first, which bounds the cost.
+- **Mann-Whitney U test**, two-sided, tie-corrected,
+  normal approximation, reported as `pValue`.
+  It tests whether the two distributions differ without assuming
+  normality.
 
-The bootstrap PRNG is seeded from a hash of the two sample arrays, so the same two
-documents always produce the same interval and verdict. The seed is stored in
-`Comparison.timing.seed`.
+The bootstrap PRNG is seeded from a hash of the two sample arrays,
+so the same two documents always produce the same interval and verdict.
+The seed is stored in `Comparison.timing.seed`.
 
 ### Verdict
 
 Let `T = effectiveTimingPct` (below).
 
-- `regressed`: `pValue < alpha` and `ci95[0] > T`, so the whole interval is above the
-  threshold.
+- `regressed`: `pValue < alpha` and `ci95[0] > T`,
+  so the whole interval is above the threshold.
 - `improved`: `pValue < alpha` and `ci95[1] < -T`.
 - `unchanged`: anything else.
 
-A large point estimate is not enough. For example, `+21.4% median, 95% CI [+5.6%,
-+23.9%], p=0.023` against `T = 10` and `alpha = 0.01` is `unchanged`: the interval
-reaches below the threshold and the p-value is above `alpha`.
+A large point estimate is not enough.
+For example, `+21.4% median, 95% CI [+5.6%, +23.9%], p=0.023` against
+`T = 10` and `alpha = 0.01` is `unchanged`:
+the interval reaches below the threshold and the p-value is above
+`alpha`.
 
-With fewer than 5 samples on either side, the tests are skipped and the verdict uses the
-median change alone against `T`; the comparison carries a `thin-comparison` warning and
-has no `ci95`/`pValue`.
+With fewer than 5 samples on either side,
+the tests are skipped and the verdict uses the median change alone
+against `T`; the comparison carries a `thin-comparison` warning
+and has no `ci95`/`pValue`.
 
 ### Threshold widening
 
@@ -105,68 +129,90 @@ driftPct = max(|base.environment.noise.driftPct|,
                |candReference / baseReference - 1| × 100)
 ```
 
-`candReference` and `baseReference` are each run's average reference-loop time (start and
-end). A change smaller than the machine's current jitter is never called a regression,
-and when the machine ran faster or slower for one run than the other, every task shifts
-by about as much, so the shift adds to the threshold. `driftPct` is `0` for a document
-without `driftPct` (before ostia measured it) beyond the shift between the runs, and is
-left out entirely when either document skipped the noise check. The values are stored per
-comparison (`thresholds.effectiveTimingPct`) and in the summary (`effectiveTimingPct`,
-`driftPct`).
+`candReference` and `baseReference` are each run's average
+reference-loop time (start and end).
+A change smaller than the machine's current jitter is never called a
+regression, and when the machine ran faster or slower for one run than
+the other, every task shifts by about as much,
+so the shift adds to the threshold.
+`driftPct` is `0` for a document without `driftPct`
+(before ostia measured it) beyond the shift between the runs,
+and is left out entirely when either document skipped the noise check.
+The values are stored per comparison (`thresholds.effectiveTimingPct`)
+and in the summary (`effectiveTimingPct`, `driftPct`).
 
-Widening trades sensitivity for fewer false alarms: on a machine that drifts 10% between
-two runs, a 12% regression reads `unchanged`. `ostia ab` pairs base and candidate in one
-process instead, so drift can't favor either side; prefer it for gating pull requests.
+Widening trades sensitivity for fewer false alarms:
+on a machine that drifts 10% between two runs,
+a 12% regression reads `unchanged`.
+`ostia ab` pairs base and candidate in one process instead,
+so drift can't favor either side; prefer it for gating pull requests.
 
 ### CPU frames and heap types
 
-When both sides have CPU evidence, per-frame self-time changes are reported; a frame
-fails the comparison when its self time grows by more than `frameSelfPct` and it has at
-least `minFrameSelfUs` of self time on either side. When both sides have heap snapshots,
-a heap object type fails when its count grows by more than `heapTypePct` (the count only;
-`retainedBytes` is informational and is never gated). These make the
-comparison's overall `verdict` `"fail"` (exit 1) without changing the timing verdict.
-They are plain percentage thresholds, not significance tests: each side is a single
-instrumented run.
+When both sides have CPU evidence, per-frame self-time changes are
+reported; a frame fails the comparison when its self time grows by more
+than `frameSelfPct` and it has at least `minFrameSelfUs` of self time on
+either side.
+When both sides have heap snapshots,
+a heap object type fails when its count grows by more than `heapTypePct`
+(the count only; `retainedBytes` is informational and is never gated).
+These make the comparison's overall `verdict` `"fail"` (exit 1) without
+changing the timing verdict.
+They are plain percentage thresholds, not significance tests:
+each side is a single instrumented run.
 
 ### Summary
 
-`summary.geomeanPct` is the geometric mean of candidate/base median ratios over matched
-timing comparisons, as a signed percent (negative means faster on average).
+`summary.geomeanPct` is the geometric mean of candidate/base median
+ratios over matched timing comparisons,
+as a signed percent (negative means faster on average).
 `summary.verdict` is `"fail"` when any comparison failed.
 
 ## Paired A/B (`ab`)
 
-`compareDocuments` compares documents measured at different times, so it has to widen its
-threshold to the noisier side's noise floor. `ab()` measures base and candidate in the
-same process, in alternating ~10ms batches, and never compares across time at all:
+`compareDocuments` compares documents measured at different times,
+so it has to widen its threshold to the noisier side's noise floor.
+`ab()` measures base and candidate in the same process,
+in alternating ~10ms batches, and never compares across time at all:
 
-- Each round yields one ratio, candidate time over base time. Drift over the run affects
-  both halves of a round alike, so it divides out.
-- A task is flagged when the median ratio is past `1 ± thresholdPct/100` and the 25th
-  (for a regression) or 75th (for an improvement) percentile is on the same side of 1:
-  the change held in at least three quarters of rounds. No p-value; with 15 rounds, the
-  quartile condition is what keeps a few disturbed rounds from flagging a task.
-- A flagged task is re-measured in fresh processes (`confirm`, default 2) and counts only
-  when every repeat flags it the same way. Rounds share one process's JIT decisions, and
-  the two sides are separate copies of the code that the JIT compiles separately, so one
-  process can consistently favor one side.
-- `geomeanPct` is the geometric mean of the tasks' median ratios (for a flagged task, the
-  median over its first run and repeats). The run fails when it exceeds
-  `geomeanThresholdPct`, which catches a slowdown spread across many tasks.
+- Each round yields one ratio, candidate time over base time.
+  Drift over the run affects both halves of a round alike,
+  so it divides out.
+- A task is flagged when the median ratio is past `1 ± thresholdPct/100`
+  and the 25th (for a regression) or 75th (for an improvement)
+  percentile is on the same side of 1:
+  the change held in at least three quarters of rounds.
+  No p-value; with 15 rounds, the quartile condition is what keeps a few
+  disturbed rounds from flagging a task.
+- A flagged task is re-measured in fresh processes
+  (`confirm`, default 2) and counts only when every repeat flags it the
+  same way.
+  Rounds share one process's JIT decisions,
+  and the two sides are separate copies of the code that the JIT
+  compiles separately, so one process can consistently favor one side.
+- `geomeanPct` is the geometric mean of the tasks' median ratios
+  (for a flagged task, the median over its first run and repeats).
+  The run fails when it exceeds `geomeanThresholdPct`,
+  which catches a slowdown spread across many tasks.
 
-The noise floor is still measured and reported, but doesn't widen `thresholdPct`.
+The noise floor is still measured and reported,
+but doesn't widen `thresholdPct`.
 
-With `metric: "instructions"`, each round's ratio is candidate over base instructions
-retired per call, counted on the thread running the task around each batch, and
-everything above applies to those ratios instead. Pairing cancels drift slower than a
-round; it can't cancel load that changes within one, which is where time ratios get their
-spread on a busy machine. Instruction counts don't depend on load, so their quartiles
-stay within about 1% where time's span tens of percent; what still moves them is the
-JIT, which is why the quartile rule and confirmation stay.
+With `metric: "instructions"`, each round's ratio is candidate over base
+instructions retired per call, counted on the thread running the task
+around each batch, and everything above applies to those ratios instead.
+Pairing cancels drift slower than a round;
+it can't cancel load that changes within one,
+which is where time ratios get their spread on a busy machine.
+Instruction counts don't depend on load,
+so their quartiles stay within about 1% where time's span tens of
+percent; what still moves them is the JIT,
+which is why the quartile rule and confirmation stay.
 
 ### Environment mismatch
 
-When base and candidate differ in OS, architecture, Bun version, or (when both have it)
-CPU model or core count, every comparison carries an `environment-mismatch` warning with
-the differing fields: the delta may reflect the machine rather than the code.
+When base and candidate differ in OS, architecture, Bun version,
+or (when both have it) CPU model or core count,
+every comparison carries an `environment-mismatch` warning with the
+differing fields: the delta may reflect the machine rather than the
+code.

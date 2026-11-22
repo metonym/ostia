@@ -1,38 +1,41 @@
-/** A config file that exists but can't be used; the CLI reports it as `config-invalid`. */
+/**
+ * A config file that exists but can't be used; the CLI reports it as
+ * `config-invalid`.
+ */
 export class ConfigError extends Error {}
 
-type Rule = (v: unknown) => boolean
+type Rule = (v: unknown) => boolean;
 
 const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v)
+  typeof v === "object" && v !== null && !Array.isArray(v);
 
 const isInt =
   (min: number): Rule =>
   (v) =>
-    typeof v === "number" && Number.isInteger(v) && v >= min
+    typeof v === "number" && Number.isInteger(v) && v >= min;
 const isNum =
   (min: number): Rule =>
   (v) =>
-    typeof v === "number" && Number.isFinite(v) && v >= min
-const isString: Rule = (v) => typeof v === "string"
-const isBool: Rule = (v) => typeof v === "boolean"
-const isStringArray: Rule = (v) => Array.isArray(v) && v.every(isString)
+    typeof v === "number" && Number.isFinite(v) && v >= min;
+const isString: Rule = (v) => typeof v === "string";
+const isBool: Rule = (v) => typeof v === "boolean";
+const isStringArray: Rule = (v) => Array.isArray(v) && v.every(isString);
 const oneOf =
   (...values: unknown[]): Rule =>
   (v) =>
-    values.includes(v)
+    values.includes(v);
 
 interface Field {
-  ok: Rule
-  expects: string
+  ok: Rule;
+  expects: string;
 }
 
-const field = (ok: Rule, expects: string): Field => ({ ok, expects })
-const posInt = field(isInt(1), "a positive integer")
-const nonNegInt = field(isInt(0), "a non-negative integer")
-const text = field(isString, "a string")
-const flag = field(isBool, "a boolean")
-const strings = field(isStringArray, "an array of strings")
+const field = (ok: Rule, expects: string): Field => ({ ok, expects });
+const posInt = field(isInt(1), "a positive integer");
+const nonNegInt = field(isInt(0), "a non-negative integer");
+const text = field(isString, "a string");
+const flag = field(isBool, "a boolean");
+const strings = field(isStringArray, "an array of strings");
 
 const THRESHOLD_FIELDS: Record<string, Field> = {
   timingPct: field(isNum(0), "a non-negative number"),
@@ -41,7 +44,7 @@ const THRESHOLD_FIELDS: Record<string, Field> = {
   minFrameSelfUs: field(isNum(0), "a non-negative number"),
   alpha: field((v) => isNum(0)(v) && (v as number) <= 1, "a number in [0, 1]"),
   bootstrapIterations: posInt,
-}
+};
 
 const PROJECT_FIELDS: Record<string, Field> = {
   suites: field(
@@ -50,7 +53,7 @@ const PROJECT_FIELDS: Record<string, Field> = {
   ),
   preload: strings,
   bunFlags: strings,
-}
+};
 
 const BENCH_FIELDS: Record<string, Field> = {
   suites: strings,
@@ -73,7 +76,7 @@ const BENCH_FIELDS: Record<string, Field> = {
   isolate: flag,
   outDir: text,
   timeoutMs: posInt,
-}
+};
 
 const AB_FIELDS: Record<string, Field> = {
   setup: field(
@@ -85,9 +88,9 @@ const AB_FIELDS: Record<string, Field> = {
   alloc: flag,
   peakMem: flag,
   memThresholdPct: field(isNum(0), "a non-negative number"),
-}
+};
 
-const COMMAND_ONLY = ["inputs", "prepare", "timeSource", "ignoreExitCodes"]
+const COMMAND_ONLY = ["inputs", "prepare", "timeSource", "ignoreExitCodes"];
 
 const WORKLOAD_FIELDS: Record<string, Field> = {
   label: text,
@@ -118,7 +121,7 @@ const WORKLOAD_FIELDS: Record<string, Field> = {
       Array.isArray(v) && v.every((c) => isInt(0)(c) && (c as number) <= 255),
     "an array of exit codes 0-255",
   ),
-}
+};
 
 const TOP_FIELDS: Record<string, Field> = {
   samples: posInt,
@@ -130,18 +133,19 @@ const TOP_FIELDS: Record<string, Field> = {
   baseline: field((v) => isString(v) && v !== "", "a non-empty string"),
   onMissingBaseline: field(oneOf("warn", "fail"), `"warn" or "fail"`),
   noiseCheck: flag,
-}
+};
 
 const describe = (v: unknown): string =>
   typeof v === "function"
     ? "a function"
     : v instanceof RegExp
       ? String(v)
-      : (JSON.stringify(v) ?? String(v))
+      : (JSON.stringify(v) ?? String(v));
 
-/** Checks each present (non-`undefined`) key of `obj` against `fields`; unknown
- * keys are reported to `warn` rather than failing, as they always were
- * ignored. A `$`-prefixed key (`"$schema"`) is never reported. */
+/**
+ * Checks each present (non-`undefined`) key of `obj` against `fields`;
+ * unknown keys are reported to `warn` rather than failing, as they always
+ * were ignored. A `$`-prefixed key (`"$schema"`) is never reported. */
 function checkFields(
   obj: Record<string, unknown>,
   fields: Record<string, Field>,
@@ -149,18 +153,18 @@ function checkFields(
   file: string,
   warn: (message: string) => void,
 ): void {
-  const prefix = where === "" ? "" : `${where}.`
+  const prefix = where === "" ? "" : `${where}.`;
   for (const [key, value] of Object.entries(obj)) {
-    if (value === undefined) continue
-    const spec = Object.hasOwn(fields, key) ? fields[key] : undefined
+    if (value === undefined) continue;
+    const spec = Object.hasOwn(fields, key) ? fields[key] : undefined;
     if (!spec) {
       if (!key.startsWith("$")) {
-        warn(`${file}: unknown key "${prefix}${key}" is ignored.`)
+        warn(`${file}: unknown key "${prefix}${key}" is ignored.`);
       }
     } else if (!spec.ok(value)) {
       throw new ConfigError(
         `${file}: "${prefix}${key}" must be ${spec.expects}, got ${describe(value)}.`,
-      )
+      );
     }
   }
 }
@@ -173,9 +177,9 @@ function checkObject(
   if (!isObject(value)) {
     throw new ConfigError(
       `${file}: "${where}" must be an object, got ${describe(value)}.`,
-    )
+    );
   }
-  return value
+  return value;
 }
 
 function checkWorkload(
@@ -184,46 +188,48 @@ function checkWorkload(
   file: string,
   warn: (message: string) => void,
 ): void {
-  const where = `workloads[${i}]`
-  const obj = checkObject(wc, where, file)
-  const has = (key: string) => obj[key] !== undefined
+  const where = `workloads[${i}]`;
+  const obj = checkObject(wc, where, file);
+  const has = (key: string) => obj[key] !== undefined;
   if (has("command") === has("suites")) {
     throw new ConfigError(
       `${file}: "${where}" needs exactly one of "command" or "suites".`,
-    )
+    );
   }
-  checkFields(obj, WORKLOAD_FIELDS, where, file, warn)
+  checkFields(obj, WORKLOAD_FIELDS, where, file, warn);
   if (has("suites")) {
     for (const key of COMMAND_ONLY) {
       if (has(key)) {
         warn(
           `${file}: "${where}.${key}" applies to command workloads only; ignored on a suites workload.`,
-        )
+        );
       }
     }
   }
-  const source = (obj.timeSource as { pattern?: unknown } | undefined)?.pattern
+  const source = (obj.timeSource as { pattern?: unknown } | undefined)?.pattern;
   if (typeof source === "string") {
     try {
-      new RegExp(source)
+      new RegExp(source);
     } catch (err) {
       throw new ConfigError(
         `${file}: "${where}.timeSource.pattern" is not a valid regex: ${(err as Error).message}`,
-      )
+      );
     }
   }
 }
 
-/** Throws `ConfigError` naming the offending key for a wrong type or value;
- * `warn` gets keys that are unknown (or inapplicable) and so ignored. `raw` is
- * the already-object-checked config with `undefined` values still present. */
+/**
+ * Throws `ConfigError` naming the offending key for a wrong type or value;
+ * `warn` gets keys that are unknown (or inapplicable) and so ignored.
+ * `raw` is the already-object-checked config with `undefined` values still
+ * present. */
 export function validateConfig(
   raw: Record<string, unknown>,
   file: string,
   warn: (message: string) => void,
 ): void {
-  const { thresholds, workloads, bench, ab, ...rest } = raw
-  checkFields(rest, TOP_FIELDS, "", file, warn)
+  const { thresholds, workloads, bench, ab, ...rest } = raw;
+  checkFields(rest, TOP_FIELDS, "", file, warn);
   if (thresholds !== undefined) {
     checkFields(
       checkObject(thresholds, "thresholds", file),
@@ -231,31 +237,31 @@ export function validateConfig(
       "thresholds",
       file,
       warn,
-    )
+    );
   }
   if (bench !== undefined) {
-    const benchObj = checkObject(bench, "bench", file)
-    checkFields(benchObj, BENCH_FIELDS, "bench", file, warn)
-    ;(benchObj.projects as unknown[] | undefined)?.forEach((project, i) => {
-      const where = `bench.projects[${i}]`
-      const obj = checkObject(project, where, file)
+    const benchObj = checkObject(bench, "bench", file);
+    checkFields(benchObj, BENCH_FIELDS, "bench", file, warn);
+    (benchObj.projects as unknown[] | undefined)?.forEach((project, i) => {
+      const where = `bench.projects[${i}]`;
+      const obj = checkObject(project, where, file);
       if (obj.suites === undefined) {
-        throw new ConfigError(`${file}: "${where}" needs "suites".`)
+        throw new ConfigError(`${file}: "${where}" needs "suites".`);
       }
-      checkFields(obj, PROJECT_FIELDS, where, file, warn)
-    })
+      checkFields(obj, PROJECT_FIELDS, where, file, warn);
+    });
   }
   if (ab !== undefined) {
-    checkFields(checkObject(ab, "ab", file), AB_FIELDS, "ab", file, warn)
+    checkFields(checkObject(ab, "ab", file), AB_FIELDS, "ab", file, warn);
   }
   if (workloads !== undefined) {
     if (!Array.isArray(workloads)) {
       throw new ConfigError(
         `${file}: "workloads" must be an array, got ${describe(workloads)}.`,
-      )
+      );
     }
     workloads.forEach((wc, i) => {
-      checkWorkload(wc, i, file, warn)
-    })
+      checkWorkload(wc, i, file, warn);
+    });
   }
 }

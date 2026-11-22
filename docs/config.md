@@ -1,15 +1,22 @@
 # Configuration
 
-`ostia ci`, `ostia baseline` and `ostia compare` read a config file from the current
-directory; `ostia bench` reads its `bench` section when present. Discovery checks
-`ostia.config.ts` first (default export, typically wrapped in `defineConfig` for type
-checking), then `ostia.config.json`. Both support the same fields, except that functions
-and `RegExp` values only work in `.ts`. `--config PATH` (on `bench`, `ab`, `compare`, `ci`
-and `baseline`) loads a specific file instead; paths inside it (`baselineDir`, `suites`,
-`inputs`, ...) still resolve against the current directory, not the file's.
+`ostia ci`, `ostia baseline` and `ostia compare` read a config file from
+the current directory; `ostia bench` reads its `bench` section
+when present.
+Discovery checks `ostia.config.ts` first
+(a default export, wrapped in `defineConfig` for type checking),
+then `ostia.config.json`.
+Both support the same fields, except that functions
+and `RegExp` values only work in `.ts`.
+`--config PATH` (on `bench`, `ab`, `compare`, `ci` and `baseline`) loads
+a specific file instead; paths inside it
+(`baselineDir`, `suites`, `inputs` and the rest) still resolve against
+the current directory, not the file's.
 
-If both `ostia.config.ts` and `ostia.config.json` exist, the `.ts` file is used and the
-JSON one ignored, with a warning on stderr. A `.ts` config must have a default export.
+If both `ostia.config.ts` and `ostia.config.json` exist,
+the `.ts` file is used and the JSON one ignored,
+with a warning on stderr.
+A `.ts` config must have a default export.
 
 ```ts
 // ostia.config.ts
@@ -47,22 +54,28 @@ export default defineConfig({
 }
 ```
 
-A config that isn't valid JSON, isn't an object, has no default export (`.ts`), uses a
-renamed field, or has a value of the wrong type fails with error code `config-invalid`
-(exit 2); the message names the key (`"bench.jobs" must be a positive integer or "auto",
-got "many"`). The top-level `runs` field was renamed to `samples`; a config that still has
-`runs` is rejected with a message saying so.
+A config that isn't valid JSON, isn't an object,
+has no default export (`.ts`), uses a renamed field,
+or has a value of the wrong type fails with error code `config-invalid`
+(exit 2); the message names the key
+(`"bench.jobs" must be a positive integer or "auto", got "many"`).
+The top-level `runs` field was renamed to `samples`;
+a config that still has `runs` is rejected with a message saying so.
 
-Validation covers the type and range of every documented field (the tables below show
-them): counts are positive integers, `warmup` a non-negative integer, `thresholds`
-fields non-negative numbers (`alpha` at most 1), `workloads` an array where each entry
-has exactly one of `command` (a non-empty argv array) or `suites`, and so on. A key set
-to `undefined` in `ostia.config.ts` counts as unset and keeps its default.
+Validation covers the type and range of every documented field
+(the tables below show them): counts are positive integers,
+`warmup` a non-negative integer, `thresholds` fields non-negative
+numbers (`alpha` at most 1), `workloads` an array
+where each entry has exactly one of `command` (a non-empty argv array)
+or `suites`, and so on.
+A key set to `undefined` in `ostia.config.ts` counts as unset
+and keeps its default.
 
-Unknown keys (a typo like `baselineDirr`) and command-only keys (`inputs`, `prepare`,
-`timeSource`, `ignoreExitCodes`) on a `suites` workload don't fail: they are ignored with
-a one-line warning on stderr naming the key. Keys starting with `$` (`"$schema"`) are
-never reported.
+Unknown keys (a typo like `baselineDirr`) and command-only keys
+(`inputs`, `prepare`, `timeSource`, `ignoreExitCodes`) on a `suites`
+workload don't fail: they are ignored with a one-line warning on stderr
+naming the key.
+Keys starting with `$` (`"$schema"`) are never reported.
 
 ## Top-level fields
 
@@ -110,17 +123,20 @@ Each workload has exactly one of `command` or `suites`.
 | `timeoutMs` | both | `command`: kill a trial or prepare hook after this long. `suites`: kill a suite file's (or isolated task's) process after this long, overriding `bench.timeoutMs`. Default under `ci`: 10 minutes. |
 | `ignoreExitCodes` | command | Exit codes treated as success. |
 
-`prepare` and `timeSource` are part of the workload id; `label`, `inputs`, `timeoutMs` and
-`ignoreExitCodes` are not, so changing them doesn't orphan a baseline. A function-form
-`prepare` can't be fingerprinted, so that workload is never served from cache.
+`prepare` and `timeSource` are part of the workload id;
+`label`, `inputs`, `timeoutMs` and `ignoreExitCodes` are not,
+so changing them doesn't orphan a baseline.
+A function-form `prepare` can't be fingerprinted,
+so that workload is never served from cache.
 
 Caching rules for `inputs` are in [cli.md](cli.md#caching).
 
 ## `bench`
 
-Used by `ostia bench` (as defaults under its flags) and by `ostia ci`/`ostia baseline save`
-for `suites` workloads. `ostia ab` reads `suites`, `filter`, `preload`, `bunFlags`, `outDir`
-and `timeoutMs` from it.
+Used by `ostia bench` (as defaults under its flags)
+and by `ostia ci`/`ostia baseline save` for `suites` workloads.
+`ostia ab` reads `suites`, `filter`, `preload`, `bunFlags`,
+`outDir` and `timeoutMs` from it.
 
 | Field | Default | CLI flag |
 |---|---|---|
@@ -144,11 +160,13 @@ and `timeoutMs` from it.
 
 ### Projects
 
-`preload` and `bunFlags` apply to every suite file, so a repository that benchmarks both
-DOM components and plain functions pays the DOM setup for the plain ones too. On a
-benchmark suite of pure functions, loading a jsdom preload added about 600ms to each suite
-file's run and made its tasks read 2-5% slower. `projects` gives each group of files its
-own launch settings:
+`preload` and `bunFlags` apply to every suite file,
+so a repository that benchmarks both DOM components
+and plain functions pays the DOM setup for the plain ones too.
+On a benchmark suite of pure functions,
+loading a jsdom preload added about 600ms to each suite file's run
+and made its tasks read 2-5% slower.
+`projects` gives each group of files its own launch settings:
 
 ```ts
 bench: {
@@ -170,18 +188,22 @@ bench: {
 | `preload` | Replaces the top-level `preload` for these files. `[]` runs them with none. Unset: the top-level list applies. |
 | `bunFlags` | Replaces the top-level `bunFlags` for these files, the same way. |
 
-A suite file takes the first project that matches it, so list the narrower globs first;
-a file no project matches gets the top-level `preload` and `bunFlags`. Projects apply
-to files named on the command line as well, and to `ostia ab` and `suites` workloads in
-`ostia ci`. With no files named, `ostia bench` and `ostia ab` run the config's `suites` plus
-every file the projects' globs match. `--preload` and `--bun-flags` still win: each
-replaces its field for every file, projects included.
+A suite file takes the first project that matches it,
+so list the narrower globs first; a file no project matches gets the
+top-level `preload` and `bunFlags`.
+Projects apply to files named on the command line as well,
+and to `ostia ab` and `suites` workloads in `ostia ci`.
+With no files named, `ostia bench` and `ostia ab` run the config's
+`suites` plus every file the projects' globs match.
+`--preload` and `--bun-flags` still win:
+each replaces its field for every file, projects included.
 
-Suite globs resolve against the current directory. Globs match dotfiles and dot
-directories (`.github/**`), but a wildcard never descends into `node_modules`, `.git` or
-`.ostia/ab` (`ostia ab`'s base trees) unless the pattern names that directory
-(`node_modules/foo/**`). The same rules apply to a
-command workload's `inputs`.
+Suite globs resolve against the current directory.
+Globs match dotfiles and dot directories (`.github/**`),
+but a wildcard never descends into `node_modules`,
+`.git` or `.ostia/ab` (`ostia ab`'s base trees) unless the pattern names
+that directory (`node_modules/foo/**`).
+The same rules apply to a command workload's `inputs`.
 
 ## `ab`
 
@@ -196,15 +218,16 @@ command workload's `inputs`.
 | `peakMem` | `false` | `--peak-mem` / `--no-peak-mem` |
 | `memThresholdPct` | 10 | `--mem-threshold` |
 
-`setup` is a shell command, or a list run in order, that runs once in each freshly
-extracted base tree, before it's used. Use it to build files the suites import that git
-doesn't hold, such as generated or gitignored sources:
+`setup` is a shell command, or a list run in order,
+that runs once in each freshly extracted base tree, before it's used.
+Use it to build files the suites import that git doesn't hold,
+such as generated or gitignored sources:
 
 ```json
 { "ab": { "setup": "bun scripts/generate.ts" } }
 ```
 
-`bench.alloc` and `bench.peakMem` don't apply to `ab`: memory readings add time to every
-A/B run, so `ab` has its own switches.
+`bench.alloc` and `bench.peakMem` don't apply to `ab`:
+memory readings add time to every A/B run, so `ab` has its own switches.
 
 See [cli.md](cli.md#ostia-ab) for what the command can rely on.

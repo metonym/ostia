@@ -1,11 +1,11 @@
-import { formatDuration, pickDurationUnit } from "../../format.ts"
-import { cpuSampleCount } from "../../ir/cpu.ts"
+import { formatDuration, pickDurationUnit } from "../../format.ts";
+import { cpuSampleCount } from "../../ir/cpu.ts";
 import type {
   Measurement,
   ProfileDocument,
   Warning,
   Workload,
-} from "../../ir/types.ts"
+} from "../../ir/types.ts";
 import {
   cpuTimes,
   escapeMdCell,
@@ -22,7 +22,7 @@ import {
   frameName,
   labelOrId,
   topSelfFrames,
-} from "../format.ts"
+} from "../format.ts";
 import {
   abNotes,
   alsoHeader,
@@ -35,8 +35,8 @@ import {
   pairedCells,
   pairedRuns,
   threwRuns,
-} from "../paired.ts"
-import { groupOf, relativeRatios, type TimingRow } from "../relative.ts"
+} from "../paired.ts";
+import { groupOf, relativeRatios, type TimingRow } from "../relative.ts";
 import {
   comparedRows,
   environmentMismatch,
@@ -53,63 +53,64 @@ import {
   thresholdNote,
   timingRuns,
   workloadsById,
-} from "../select.ts"
-import type { Renderer, RenderResult } from "../types.ts"
+} from "../select.ts";
+import type { Renderer, RenderResult } from "../types.ts";
 
-const TOP_FRAMES = 10
-const TOP_TYPES = 10
+const TOP_FRAMES = 10;
+const TOP_TYPES = 10;
 
-type ParamValue = string | number | boolean
+type ParamValue = string | number | boolean;
 
-const cell = (v: ParamValue): string => escapeMdCell(String(v))
+const cell = (v: ParamValue): string => escapeMdCell(String(v));
 
 function mdTable(headers: string[], rows: string[][]): string[] {
   return [
     `| ${headers.join(" | ")} |`,
     `|${headers.map(() => "---").join("|")}|`,
     ...rows.map((r) => `| ${r.join(" | ")} |`),
-  ]
+  ];
 }
 
 function paramsSuffix(w: Workload | undefined): string {
-  if (!w?.params) return ""
-  const pairs = Object.entries(w.params).map(([k, v]) => `${k}=${v}`)
-  return ` (${pairs.join(", ")})`
+  if (!w?.params) return "";
+  const pairs = Object.entries(w.params).map(([k, v]) => `${k}=${v}`);
+  return ` (${pairs.join(", ")})`;
 }
 
 function taskCell(w: Workload | undefined, id: string): string {
-  return cell(labelOrId(w, id) + paramsSuffix(w))
+  return cell(labelOrId(w, id) + paramsSuffix(w));
 }
 
 function warningNote(w: Warning): string {
-  return `${w.message} (\`${w.code}\`)`
+  return `${w.message} (\`${w.code}\`)`;
 }
 
 function warningBullets(label: string, warnings: Warning[]): string[] {
-  return warnings.map((w) => `- **${label}**: ${warningNote(w)}`)
+  return warnings.map((w) => `- **${label}**: ${warningNote(w)}`);
 }
 
-/** The two param keys every workload shares, when each has exactly those two
- * (a `sweep()` over two dimensions): the shape a pivot table needs. */
+/**
+ * The two param keys every workload shares, when each has exactly those
+ * two (a `sweep()` over two dimensions): the shape a pivot table needs. */
 function pivotKeysFor(
   workloads: (Workload | undefined)[],
 ): [string, string] | undefined {
-  let keys: string[] | undefined
+  let keys: string[] | undefined;
   for (const w of workloads) {
-    const k = w?.params ? Object.keys(w.params) : undefined
-    if (k?.length !== 2) return undefined
-    if (keys === undefined) keys = k
-    else if (k.some((kk, i) => kk !== keys![i])) return undefined
+    const k = w?.params ? Object.keys(w.params) : undefined;
+    if (k?.length !== 2) return undefined;
+    if (keys === undefined) keys = k;
+    else if (k.some((kk, i) => kk !== keys![i])) return undefined;
   }
-  return keys as [string, string] | undefined
+  return keys as [string, string] | undefined;
 }
 
 export const markdownRenderer: Renderer = {
   name: "markdown",
   async render(doc: ProfileDocument): Promise<RenderResult> {
-    const byWorkload = workloadsById(doc)
-    const gitSuffix = doc.git ? ` · ${formatGit(doc.git)}` : ""
-    const mismatch = environmentMismatch(doc)
+    const byWorkload = workloadsById(doc);
+    const gitSuffix = doc.git ? ` · ${formatGit(doc.git)}` : "";
+    const mismatch = environmentMismatch(doc);
 
     const lines = [
       "# Profile Report",
@@ -123,20 +124,20 @@ export const markdownRenderer: Renderer = {
       ...timingSection(doc, byWorkload),
       ...captureSections(doc, byWorkload),
       ...comparisonSection(doc),
-    ]
-    return { text: lines.join("\n") }
+    ];
+    return { text: lines.join("\n") };
   },
-}
+};
 
 function abSection(
   doc: ProfileDocument,
   ab: NonNullable<ProfileDocument["ab"]>,
   byWorkload: Map<string, Workload>,
 ): string[] {
-  const paired = pairedRuns(doc)
-  const lines = ["## A/B", "", formatAbHeader(ab), ""]
+  const paired = pairedRuns(doc);
+  const lines = ["## A/B", "", formatAbHeader(ab), ""];
   if (paired.length > 0) {
-    const also = alsoHeader(doc, ab.metric)
+    const also = alsoHeader(doc, ab.metric);
     lines.push(
       ...mdTable(
         [
@@ -149,29 +150,29 @@ function abSection(
           "Verdict",
         ],
         paired.map((run) => {
-          const c = pairedCells(run, ab.metric)
+          const c = pairedCells(run, ab.metric);
           const row = [
             taskCell(byWorkload.get(run.workloadId), run.workloadId),
             c.base,
             c.candidate,
             c.change,
             c.spread,
-          ]
-          if (also) row.push(c.also)
-          row.push(c.verdict ? `**${cell(c.verdict)}**` : "")
-          return row
+          ];
+          if (also) row.push(c.also);
+          row.push(c.verdict ? `**${cell(c.verdict)}**` : "");
+          return row;
         }),
       ),
       "",
-    )
+    );
   }
-  const memory = memoryRows(doc)
+  const memory = memoryRows(doc);
   if (memory.length > 0) {
     lines.push(
       ...mdTable(
         ["Task", "Memory", "Base", "Candidate", "Change", "Verdict"],
         memory.map((row) => {
-          const c = memoryCells(row)
+          const c = memoryCells(row);
           return [
             taskCell(byWorkload.get(row.run.workloadId), row.run.workloadId),
             c.reading,
@@ -179,57 +180,58 @@ function abSection(
             c.candidate,
             c.change,
             c.verdict ? `**${c.verdict}**` : "",
-          ]
+          ];
         }),
       ),
       "",
-    )
+    );
   }
-  const threw = threwRuns(doc)
+  const threw = threwRuns(doc);
   if (threw.length > 0) {
-    lines.push(`Threw (${threw.length}):`, "")
+    lines.push(`Threw (${threw.length}):`, "");
     for (const run of threw) {
-      const message = run.threw.message.split("\n")[0]!.replaceAll("`", "'")
+      const message = run.threw.message.split("\n")[0]!.replaceAll("`", "'");
       lines.push(
         `- **${taskCell(byWorkload.get(run.workloadId), run.workloadId)}**: ${formatThrew(run.threw)}: \`${message}\``,
-      )
+      );
     }
-    lines.push("")
+    lines.push("");
   }
-  const notes = abNotes(doc)
+  const notes = abNotes(doc);
   const listed = (title: string, labels: string[]) =>
-    labels.length > 0 ? `${title}: ${labels.map(cell).join(", ")}` : undefined
+    labels.length > 0 ? `${title}: ${labels.map(cell).join(", ")}` : undefined;
   for (const note of [
     listed("Output differs from the base", notes.outputDiffers),
     formatNewSuites(ab),
     listed("Base only", notes.baseOnly),
     listed("Candidate only", notes.candOnly),
   ]) {
-    if (note) lines.push(note, "")
+    if (note) lines.push(note, "");
   }
   const bullets = paired.flatMap((run) =>
     warningBullets(
       labelOrId(byWorkload.get(run.workloadId), run.workloadId),
       run.warnings,
     ),
-  )
-  if (bullets.length > 0) lines.push(...bullets, "")
-  lines.push(`**${formatAbSummary(ab)}**`, "")
-  return lines
+  );
+  if (bullets.length > 0) lines.push(...bullets, "");
+  lines.push(`**${formatAbSummary(ab)}**`, "");
+  return lines;
 }
 
 function timingSection(
   doc: ProfileDocument,
   byWorkload: Map<string, Workload>,
 ): string[] {
-  const runs = timingRuns(doc)
-  const noSamples = noSampleRuns(doc)
-  const memory = memoryReadings(doc)
-  // Rows with nothing to tabulate: `task.skip()`'d and sample-less workloads.
+  const runs = timingRuns(doc);
+  const noSamples = noSampleRuns(doc);
+  const memory = memoryReadings(doc);
+  // Rows with nothing to tabulate: `task.skip()`'d and sample-less
+  // workloads.
   const empty: {
-    id: string
-    workload: Workload | undefined
-    status: string
+    id: string;
+    workload: Workload | undefined;
+    status: string;
   }[] = [
     ...skippedWorkloads(doc, runs).map((workload) => ({
       id: workload.id,
@@ -241,10 +243,10 @@ function timingSection(
       workload: byWorkload.get(run.workloadId),
       status: "no samples",
     })),
-  ]
-  if (runs.length === 0 && empty.length === 0) return []
+  ];
+  if (runs.length === 0 && empty.length === 0) return [];
 
-  const lines = ["## Timing", ""]
+  const lines = ["## Timing", ""];
 
   // A group pivots into its own table when all its tasks share the same two
   // param keys; everything else is a normal row, with a `key=value` suffix
@@ -252,35 +254,35 @@ function timingSection(
   const rows: TimingRow[] = runs.map((run) => ({
     run,
     workload: byWorkload.get(run.workloadId),
-  }))
-  const byGroup = new Map<string, TimingRow[]>()
-  const flat: TimingRow[] = []
+  }));
+  const byGroup = new Map<string, TimingRow[]>();
+  const flat: TimingRow[] = [];
   for (const row of rows) {
-    const group = groupOf(row.workload)
-    if (group === undefined) flat.push(row)
-    else if (byGroup.has(group)) byGroup.get(group)!.push(row)
-    else byGroup.set(group, [row])
+    const group = groupOf(row.workload);
+    if (group === undefined) flat.push(row);
+    else if (byGroup.has(group)) byGroup.get(group)!.push(row);
+    else byGroup.set(group, [row]);
   }
   const pivots: { group: string; keys: [string, string]; rows: TimingRow[] }[] =
-    []
+    [];
   for (const [group, groupRows] of byGroup) {
-    const keys = pivotKeysFor(groupRows.map((r) => r.workload))
-    if (keys) pivots.push({ group, keys, rows: groupRows })
-    else flat.push(...groupRows)
+    const keys = pivotKeysFor(groupRows.map((r) => r.workload));
+    if (keys) pivots.push({ group, keys, rows: groupRows });
+    else flat.push(...groupRows);
   }
 
   if (flat.length > 0 || empty.length > 0) {
-    const ratios = relativeRatios(rows)
-    const optional: { header: string; cell: (row: TimingRow) => string }[] = []
-    const cpuByRow = new Map(flat.map((row) => [row, cpuTimes(row.run)]))
+    const ratios = relativeRatios(rows);
+    const optional: { header: string; cell: (row: TimingRow) => string }[] = [];
+    const cpuByRow = new Map(flat.map((row) => [row, cpuTimes(row.run)]));
     if ([...cpuByRow.values()].some(Boolean)) {
       optional.push({
         header: "User/Sys",
         cell: (row) => {
-          const times = cpuByRow.get(row)
-          return times ? formatCpuTimes(times) : "-"
+          const times = cpuByRow.get(row);
+          return times ? formatCpuTimes(times) : "-";
         },
-      })
+      });
     }
     if (flat.some((row) => row.run.instructions)) {
       optional.push({
@@ -289,20 +291,20 @@ function timingSection(
           row.run.instructions
             ? formatInstructions(row.run.instructions.median)
             : "-",
-      })
+      });
     }
     for (const col of memoryColumns(memory)) {
       optional.push({
         header: col.header,
         cell: (row) => col.cell(row.run.workloadId) ?? "-",
-      })
+      });
     }
     if (ratios) {
       optional.push({
         header: "Relative",
         cell: (row) =>
           formatRelative(ratios.get(row)!, !!row.workload?.baseline),
-      })
+      });
     }
 
     lines.push(
@@ -318,8 +320,8 @@ function timingSection(
         ],
         [
           ...flat.map((row) => {
-            const t = row.run.timing
-            const unit = pickDurationUnit(t.median)
+            const t = row.run.timing;
+            const unit = pickDurationUnit(t.median);
             return [
               taskCell(row.workload, row.run.workloadId),
               formatDuration(t.median, unit),
@@ -328,7 +330,7 @@ function timingSection(
               formatSpan(t.min, t.max, unit),
               formatDuration(t.mad, unit),
               ...optional.map((c) => c.cell(row)),
-            ]
+            ];
           }),
           ...empty.map(({ id, workload, status }) => [
             taskCell(workload, id),
@@ -342,7 +344,7 @@ function timingSection(
         ],
       ),
       "",
-    )
+    );
   }
 
   for (const {
@@ -350,15 +352,15 @@ function timingSection(
     keys: [key1, key2],
     rows: groupRows,
   } of pivots) {
-    const rowValues: ParamValue[] = []
-    const colValues: ParamValue[] = []
-    const medianAt = new Map<string, number>()
+    const rowValues: ParamValue[] = [];
+    const colValues: ParamValue[] = [];
+    const medianAt = new Map<string, number>();
     for (const { run, workload } of groupRows) {
-      const v1 = workload!.params![key1]!
-      const v2 = workload!.params![key2]!
-      if (!rowValues.includes(v1)) rowValues.push(v1)
-      if (!colValues.includes(v2)) colValues.push(v2)
-      medianAt.set(`${v1} ${v2}`, run.timing.median)
+      const v1 = workload!.params![key1]!;
+      const v2 = workload!.params![key2]!;
+      if (!rowValues.includes(v1)) rowValues.push(v1);
+      if (!colValues.includes(v2)) colValues.push(v2);
+      medianAt.set(`${v1} ${v2}`, run.timing.median);
     }
     lines.push(
       `### ${cell(group)} (${cell(key1)} × ${cell(key2)})`,
@@ -368,13 +370,13 @@ function timingSection(
         rowValues.map((v1) => [
           cell(v1),
           ...colValues.map((v2) => {
-            const median = medianAt.get(`${v1} ${v2}`)
-            return median === undefined ? "-" : formatDuration(median)
+            const median = medianAt.get(`${v1} ${v2}`);
+            return median === undefined ? "-" : formatDuration(median);
           }),
         ]),
       ),
       "",
-    )
+    );
   }
 
   const warned = [...runs, ...noSamples].flatMap((run) =>
@@ -382,19 +384,19 @@ function timingSection(
       labelOrId(byWorkload.get(run.workloadId), run.workloadId),
       runWarnings(run, memory),
     ),
-  )
-  if (warned.length > 0) lines.push("### Warnings", "", ...warned, "")
-  return lines
+  );
+  if (warned.length > 0) lines.push("### Warnings", "", ...warned, "");
+  return lines;
 }
 
 function captureSections(
   doc: ProfileDocument,
   byWorkload: Map<string, Workload>,
 ): string[] {
-  const lines: string[] = []
+  const lines: string[] = [];
   for (const run of doc.measurements) {
-    if (run.phase !== "cpu" && run.phase !== "heap") continue
-    const label = labelOrId(byWorkload.get(run.workloadId), run.workloadId)
+    if (run.phase !== "cpu" && run.phase !== "heap") continue;
+    const label = labelOrId(byWorkload.get(run.workloadId), run.workloadId);
     lines.push(
       run.phase === "cpu"
         ? `## CPU capture - ${label}`
@@ -403,20 +405,20 @@ function captureSections(
       `instrumented, diagnostic wall ${formatNsAsMs(run.diagnosticWallNs ?? 0)}ms`,
       "",
       ...(run.phase === "cpu" ? cpuDetail(run) : heapDetail(run)),
-    )
+    );
 
     const notes = [
       ...run.artifacts.map((a) => `- artifact: \`${a.path}\``),
       ...run.warnings.map((w) => `- ! ${warningNote(w)}`),
-    ]
-    if (notes.length > 0) lines.push(...notes, "")
+    ];
+    if (notes.length > 0) lines.push(...notes, "");
   }
-  return lines
+  return lines;
 }
 
 function cpuDetail(run: Measurement): string[] {
-  const { cpu } = run
-  if (!cpu) return []
+  const { cpu } = run;
+  if (!cpu) return [];
   const lines = [
     `origin: \`${cpu.origin}\`, interval: ${cpu.samplingIntervalUs}µs, samples: ${cpuSampleCount(cpu)}`,
     "",
@@ -430,20 +432,20 @@ function cpuDetail(run: Measurement): string[] {
       ]),
     ),
     "",
-  ]
+  ];
   if (run.jit) {
-    const tiers = run.jit.tiers
+    const tiers = run.jit.tiers;
     lines.push(
       `JIT tiers: LLInt ${tiers.llint} · Baseline ${tiers.baseline} · DFG ${tiers.dfg} · FTL ${tiers.ftl}`,
       "",
-    )
+    );
   }
-  return lines
+  return lines;
 }
 
 function heapDetail(run: Measurement): string[] {
-  const { heap } = run
-  if (!heap) return []
+  const { heap } = run;
+  if (!heap) return [];
   return [
     formatHeapSummary(heap),
     "",
@@ -454,29 +456,29 @@ function heapDetail(run: Measurement): string[] {
         .map((tc) => [String(tc.count), cell(tc.type)]),
     ),
     "",
-  ]
+  ];
 }
 
 function comparisonSection(doc: ProfileDocument): string[] {
-  const rows = comparedRows(doc)
-  if (rows.length === 0) return []
-  const lines = ["## Comparisons", ""]
-  const note = thresholdNote(doc)
-  if (note) lines.push(`${note}.`, "")
-  const notCompared: string[] = []
+  const rows = comparedRows(doc);
+  if (rows.length === 0) return [];
+  const lines = ["## Comparisons", ""];
+  const note = thresholdNote(doc);
+  if (note) lines.push(`${note}.`, "");
+  const notCompared: string[] = [];
   for (const { row, cmp } of rows) {
     if (row.verdict === "missing-base" || row.verdict === "missing-cand") {
-      notCompared.push(`- \`${cell(row.task)}\`: ${oneSidedNote(row.verdict)}`)
-      continue
+      notCompared.push(`- \`${cell(row.task)}\`: ${oneSidedNote(row.verdict)}`);
+      continue;
     }
-    lines.push(`### ${row.pass === false ? "✗" : "✓"} ${row.task}`, "")
+    lines.push(`### ${row.pass === false ? "✗" : "✓"} ${row.task}`, "");
     if (row.renamedFrom) {
-      lines.push(`- renamed from \`${cell(row.renamedFrom.task)}\``)
+      lines.push(`- renamed from \`${cell(row.renamedFrom.task)}\``);
     }
     if (row.timing) {
       const { baseMedian, candMedian, medianDeltaPct, ci95, pValue } =
-        row.timing
-      const alpha = cmp?.thresholds.alpha
+        row.timing;
+      const alpha = cmp?.thresholds.alpha;
       // "~": the delta rounds to non-zero but isn't significant (p past alpha).
       const tilde =
         row.verdict === "unchanged" &&
@@ -484,40 +486,40 @@ function comparisonSection(doc: ProfileDocument): string[] {
         alpha !== undefined &&
         pValue >= alpha
           ? "~"
-          : ""
-      const unit = pickDurationUnit(Math.max(baseMedian, candMedian))
-      const detail = [`n=${row.timing.candSamples}`]
+          : "";
+      const unit = pickDurationUnit(Math.max(baseMedian, candMedian));
+      const detail = [`n=${row.timing.candSamples}`];
       if (ci95)
         detail.push(
           `95% CI [${formatSignedPct(ci95[0])}, ${formatSignedPct(ci95[1])}]`,
-        )
-      if (pValue !== undefined) detail.push(`p=${pValue.toFixed(4)}`)
-      detail.push(`threshold ${row.timing.thresholdPct.toFixed(1)}%`)
+        );
+      if (pValue !== undefined) detail.push(`p=${pValue.toFixed(4)}`);
+      detail.push(`threshold ${row.timing.thresholdPct.toFixed(1)}%`);
       lines.push(
         `- timing: ${formatDuration(baseMedian, unit)} → ${formatDuration(candMedian, unit)}, ${tilde}${formatSignedPct(medianDeltaPct)} median, ${detail.join(", ")} (**${row.verdict}**)`,
-      )
+      );
     }
-    const memory = shownMemoryDeltas(row)
-    if (memory.length > 0) lines.push(`- memory: ${memory.join(", ")}`)
+    const memory = shownMemoryDeltas(row);
+    if (memory.length > 0) lines.push(`- memory: ${memory.join(", ")}`);
     if (cmp) {
       for (const f of shownFrameDeltas(cmp, TOP_FRAMES)) {
         lines.push(
           `- frame \`${cell(f.name)}\`: ${formatSignedPct(f.deltaPct)} self-time (${formatUsAsMs(f.baseSelfUs)}ms → ${formatUsAsMs(f.candSelfUs)}ms)`,
-        )
+        );
       }
       for (const h of shownHeapDeltas(cmp, TOP_TYPES)) {
         lines.push(
           `- heap \`${cell(h.type)}\`: ${formatSignedPct(h.deltaPct)} count (${h.baseCount} → ${h.candCount})`,
-        )
+        );
       }
       for (const w of rowComparisonWarnings(cmp)) {
-        lines.push(`- ! ${warningNote(w)}`)
+        lines.push(`- ! ${warningNote(w)}`);
       }
     }
-    lines.push("")
+    lines.push("");
   }
   if (notCompared.length > 0) {
-    lines.push("### Not compared", "", ...notCompared, "")
+    lines.push("### Not compared", "", ...notCompared, "");
   }
-  return lines
+  return lines;
 }

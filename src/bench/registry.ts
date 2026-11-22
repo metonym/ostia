@@ -1,138 +1,162 @@
-/** Appended to "registered no tasks": the usual cause besides a missing
- * `task()` call is a suite importing a different copy of ostia than the CLI
- * running it, so its calls register on that copy. */
+/**
+ * Appended to "registered no tasks": the usual cause besides a missing
+ * `task()` call is a suite importing a different copy of ostia than the
+ * CLI running it, so its calls register on that copy. */
 export const NO_TASKS_HINT =
-  " If the suite does call task(), it imports a different copy of ostia than the CLI running it (a global install, or another version): run the one from the project's node_modules."
+  " If the suite does call task(), it imports a different copy of ostia than the CLI running it (a global install, or another version): run the one from the project's node_modules.";
 
-type Hook = () => unknown | Promise<unknown>
+type Hook = () => unknown | Promise<unknown>;
 
 export interface TaskOptions {
-  /** Marks this task as the Relative reference for its group in the table
+  /**
+   * Marks this task as the Relative reference for its group in the table
    * renderer, mirroring mitata's `baseline()`. At most one per group. */
-  baseline?: boolean
+  baseline?: boolean;
   /** Per-task time budget; overrides the suite-wide `--budget` / `budgetMs`. */
-  budgetMs?: number
-  /** Per-task exact trial count; overrides the suite-wide `--samples` /
+  budgetMs?: number;
+  /**
+   * Per-task exact trial count; overrides the suite-wide `--samples` /
    * `samples`. When set, the budget is ignored for this task. */
-  samples?: number
-  /** Per-task hard floor on trials; overrides the suite-wide `--min-samples` /
-   * `minSamples`. */
-  minSamples?: number
-  /** Former names of this task in the same group, so `compare` and `ab`
+  samples?: number;
+  /**
+   * Per-task hard floor on trials; overrides the suite-wide `--min-samples`
+   * / `minSamples`. */
+  minSamples?: number;
+  /**
+   * Former names of this task in the same group, so `compare` and `ab`
    * match a base measured before a rename instead of reporting the old name
    * as removed and the new one as new. */
-  aliases?: string[]
-  /** What this task measures and why. Flows into `Workload.description` so the
-   * intent travels with the numbers instead of living only in a source comment. */
-  description?: string
-  /** Give this task its own subprocess instead of sharing its suite file's,
+  aliases?: string[];
+  /**
+   * What this task measures and why. Flows into `Workload.description` so
+   * the intent travels with the numbers instead of living only in a source
+   * comment. */
+  description?: string;
+  /**
+   * Give this task its own subprocess instead of sharing its suite file's,
    * isolating its JIT tier state and heap shape from every other task in the
    * run. Overrides the group's and the suite-wide `bench({ isolate })` /
    * `--isolate` default for this task only. */
-  isolate?: boolean
-  /** Overrides the suite-wide `bench({ gc })` / `--gc` (and any
+  isolate?: boolean;
+  /**
+   * Overrides the suite-wide `bench({ gc })` / `--gc` (and any
    * `GroupOptions.gc`) for this task only. */
-  gc?: boolean
-  /** Overrides the suite-wide `bench({ cpu })` / `--cpu` (and any
+  gc?: boolean;
+  /**
+   * Overrides the suite-wide `bench({ cpu })` / `--cpu` (and any
    * `GroupOptions.cpu`) for this task only: after the timing measurement,
    * capture one extra `phase: "cpu"` measurement (JIT tiers included) on
    * the same workload, never mixed into the timing numbers. */
-  cpu?: boolean
-  /** Overrides the suite-wide `bench({ alloc })` / `--alloc` (and any
+  cpu?: boolean;
+  /**
+   * Overrides the suite-wide `bench({ alloc })` / `--alloc` (and any
    * `GroupOptions.alloc`) for this task only: after the timing measurement,
    * capture one extra `phase: "memstats"` measurement of the heap each call
    * retains (what survives a full GC, not what it allocates). */
-  alloc?: boolean
-  /** Overrides the suite-wide `bench({ peakMem })` / `--peak-mem` (and any
+  alloc?: boolean;
+  /**
+   * Overrides the suite-wide `bench({ peakMem })` / `--peak-mem` (and any
    * `GroupOptions.peakMem`) for this task only: capture one extra
    * `phase: "memstats"` measurement of how far one call raises the
    * process's peak RSS, in fresh processes. */
-  peakMem?: boolean
-  /** Structured parameters this task represents (e.g. `{ size: 800, impl:
+  peakMem?: boolean;
+  /**
+   * Structured parameters this task represents (e.g. `{ size: 800, impl:
    * "fast" }`), written to `Workload.params` and folded into the workload id
    * so points with the same task name don't collide. Inside `sweep()`, the
    * current point is inherited automatically; an explicit `params` here
    * merges over it (explicit keys win). */
-  params?: Record<string, string | number | boolean>
-  /** Runs once, unmeasured, immediately before this task's warmup - in the
+  params?: Record<string, string | number | boolean>;
+  /**
+   * Runs once, unmeasured, immediately before this task's warmup - in the
    * task's own process, so it works with `isolate`. No per-trial hook: that
    * would defeat batching. Use `gc` (Bun.gc between trials) or `isolate`
    * (a fresh process per task) for per-trial concerns instead. */
-  before?: Hook
-  /** Runs once, unmeasured, immediately after this task's last trial. Same
+  before?: Hook;
+  /**
+   * Runs once, unmeasured, immediately after this task's last trial. Same
    * process/no-per-trial caveats as `before`. */
-  after?: Hook
+  after?: Hook;
 }
 
 export interface GroupOptions {
-  /** What this group measures and why. Flows into `Workload.groupDescription`
+  /**
+   * What this group measures and why. Flows into `Workload.groupDescription`
    * on every task in the group. */
-  description?: string
-  /** Default `isolate` for every task in this group, unless a task overrides
+  description?: string;
+  /**
+   * Default `isolate` for every task in this group, unless a task overrides
    * it with its own `TaskOptions.isolate`. */
-  isolate?: boolean
-  /** Default `gc` for every task in this group, unless a task overrides it
+  isolate?: boolean;
+  /**
+   * Default `gc` for every task in this group, unless a task overrides it
    * with its own `TaskOptions.gc`. */
-  gc?: boolean
-  /** Default `cpu` for every task in this group, unless a task overrides it
+  gc?: boolean;
+  /**
+   * Default `cpu` for every task in this group, unless a task overrides it
    * with its own `TaskOptions.cpu`. */
-  cpu?: boolean
-  /** Default `alloc` for every task in this group, unless a task overrides
+  cpu?: boolean;
+  /**
+   * Default `alloc` for every task in this group, unless a task overrides
    * it with its own `TaskOptions.alloc`. */
-  alloc?: boolean
-  /** Default `peakMem` for every task in this group, unless a task
+  alloc?: boolean;
+  /**
+   * Default `peakMem` for every task in this group, unless a task
    * overrides it with its own `TaskOptions.peakMem`. */
-  peakMem?: boolean
-  /** Runs once, unmeasured, before the group's first task's warmup (not
+  peakMem?: boolean;
+  /**
+   * Runs once, unmeasured, before the group's first task's warmup (not
    * before every task) - in whichever process runs that task, so it works
    * with `isolate`. */
-  before?: Hook
+  before?: Hook;
   /** Runs once, unmeasured, after the group's last task's last trial. */
-  after?: Hook
+  after?: Hook;
 }
 
 /** One enclosing group of a task, with the hooks it declared. */
 interface GroupFrame {
   /** Slash-joined names from the outermost group down to this one. */
-  path: string
-  before?: Hook
-  after?: Hook
+  path: string;
+  before?: Hook;
+  after?: Hook;
 }
 
 export interface RegisteredTask {
   /** The enclosing groups' names joined with "/", outermost first. */
-  groupName?: string
+  groupName?: string;
   /** Enclosing groups, outermost first. */
-  groupChain?: readonly GroupFrame[]
-  groupDescription?: string
-  groupIsolate?: boolean
-  groupGc?: boolean
-  groupCpu?: boolean
-  groupAlloc?: boolean
-  groupPeakMem?: boolean
-  name: string
-  fn: () => unknown | Promise<unknown>
-  baseline?: boolean
-  params?: Record<string, string | number | boolean>
-  /** From `task.skip()` or a `group.skip()` this task is inside. The runner
+  groupChain?: readonly GroupFrame[];
+  groupDescription?: string;
+  groupIsolate?: boolean;
+  groupGc?: boolean;
+  groupCpu?: boolean;
+  groupAlloc?: boolean;
+  groupPeakMem?: boolean;
+  name: string;
+  fn: () => unknown | Promise<unknown>;
+  baseline?: boolean;
+  params?: Record<string, string | number | boolean>;
+  /**
+   * From `task.skip()` or a `group.skip()` this task is inside. The runner
    * never measures it; the document still carries its workload (marked
    * `Workload.skipped`) so a renderer or `compare` can say so explicitly. */
-  skipped?: boolean
-  /** From `task.only()` or a `group.only()` this task is inside. When any
+  skipped?: boolean;
+  /**
+   * From `task.only()` or a `group.only()` this task is inside. When any
    * registered task has this set, the runner restricts the whole suite file
    * to only those tasks (before `--filter` narrows further). */
-  only?: boolean
-  opts?: TaskOptions
+  only?: boolean;
+  opts?: TaskOptions;
 }
 
-type Flags = { skip?: boolean; only?: boolean }
+type Flags = { skip?: boolean; only?: boolean };
 
-const tasks: RegisteredTask[] = []
+const tasks: RegisteredTask[] = [];
 let currentGroup:
   | (Omit<GroupOptions, "before" | "after"> &
       Flags & { path: string; chain: readonly GroupFrame[] })
-  | undefined
-let currentParams: Record<string, string | number | boolean> | undefined
+  | undefined;
+let currentParams: Record<string, string | number | boolean> | undefined;
 
 function registerGroup(
   name: string,
@@ -140,9 +164,9 @@ function registerGroup(
   opts: GroupOptions | undefined,
   flags: Flags,
 ): void {
-  const previous = currentGroup
+  const previous = currentGroup;
   // An inner group inherits what it doesn't set, and skip/only from outside.
-  const path = previous ? `${previous.path}/${name}` : name
+  const path = previous ? `${previous.path}/${name}` : name;
   currentGroup = {
     path,
     chain: [
@@ -157,11 +181,11 @@ function registerGroup(
     peakMem: opts?.peakMem ?? previous?.peakMem,
     skip: flags.skip || previous?.skip,
     only: flags.only || previous?.only,
-  }
+  };
   try {
-    fn()
+    fn();
   } finally {
-    currentGroup = previous
+    currentGroup = previous;
   }
 }
 
@@ -169,17 +193,19 @@ type GroupRegistrar = (
   name: string,
   fn: () => void,
   opts?: GroupOptions,
-) => void
+) => void;
 
 interface GroupFn extends GroupRegistrar {
-  /** Registers every task inside as skipped: the runner never measures
+  /**
+   * Registers every task inside as skipped: the runner never measures
    * them, but the document still carries their workloads (marked
    * `Workload.skipped`). */
-  skip: GroupRegistrar
-  /** When any task or group in the suite uses `.only`, the runner restricts
+  skip: GroupRegistrar;
+  /**
+   * When any task or group in the suite uses `.only`, the runner restricts
    * the whole suite file to only those tasks (before `--filter` narrows
    * further) and prints a one-line notice to stderr. */
-  only: GroupRegistrar
+  only: GroupRegistrar;
 }
 
 export const group: GroupFn = Object.assign(
@@ -190,7 +216,7 @@ export const group: GroupFn = Object.assign(
     only: ((name, fn, opts) =>
       registerGroup(name, fn, opts, { only: true })) as GroupRegistrar,
   },
-)
+);
 
 function registerTask(
   name: string,
@@ -201,7 +227,7 @@ function registerTask(
   const params =
     currentParams !== undefined || opts?.params !== undefined
       ? { ...currentParams, ...opts?.params }
-      : undefined
+      : undefined;
   tasks.push({
     groupName: currentGroup?.path,
     groupChain: currentGroup?.chain,
@@ -218,25 +244,27 @@ function registerTask(
     skipped: flags.skip || currentGroup?.skip,
     only: flags.only || currentGroup?.only,
     opts,
-  })
+  });
 }
 
 type TaskRegistrar = (
   name: string,
   fn: () => unknown | Promise<unknown>,
   opts?: TaskOptions,
-) => void
+) => void;
 
 interface TaskFn extends TaskRegistrar {
-  /** Registers the task as skipped: the runner never measures it, but the
+  /**
+   * Registers the task as skipped: the runner never measures it, but the
    * document still carries its workload (marked `Workload.skipped`) so a
    * renderer or `compare` can say so explicitly instead of the task simply
    * being absent. */
-  skip: TaskRegistrar
-  /** When any task or group in the suite uses `.only`, the runner restricts
+  skip: TaskRegistrar;
+  /**
+   * When any task or group in the suite uses `.only`, the runner restricts
    * the whole suite file to only those tasks (before `--filter` narrows
    * further) and prints a one-line notice to stderr. */
-  only: TaskRegistrar
+  only: TaskRegistrar;
 }
 
 export const task: TaskFn = Object.assign(
@@ -247,92 +275,97 @@ export const task: TaskFn = Object.assign(
     only: ((name, fn, opts) =>
       registerTask(name, fn, opts, { only: true })) as TaskRegistrar,
   },
-)
+);
 
 export function getRegisteredTasks(): readonly RegisteredTask[] {
-  return tasks
+  return tasks;
 }
 
 export function resetRegistry(): void {
-  tasks.length = 0
-  currentGroup = undefined
-  currentParams = undefined
+  tasks.length = 0;
+  currentGroup = undefined;
+  currentParams = undefined;
 }
 
-/** Runs `fn` with `params` as the current sweep point: `task()` calls inside
- * inherit it as their params (explicit `TaskOptions.params` keys win). */
+/**
+ * Runs `fn` with `params` as the current sweep point: `task()` calls
+ * inside inherit it as their params (explicit `TaskOptions.params` keys
+ * win). */
 export function withCurrentParams<T>(
   params: Record<string, string | number | boolean>,
   fn: () => T,
 ): T {
-  const previous = currentParams
-  currentParams = params
+  const previous = currentParams;
+  currentParams = params;
   try {
-    return fn()
+    return fn();
   } finally {
-    currentParams = previous
+    currentParams = previous;
   }
 }
 
 export function taskId(t: RegisteredTask): string {
-  return t.groupName ? `${t.groupName}/${t.name}` : t.name
+  return t.groupName ? `${t.groupName}/${t.name}` : t.name;
 }
 
 /** `taskId` under each of the task's `aliases`. */
 export function formerTaskIds(t: RegisteredTask): string[] {
   return (t.opts?.aliases ?? []).map((alias) =>
     t.groupName ? `${t.groupName}/${alias}` : alias,
-  )
+  );
 }
 
-// Effective per-task flags: the task's own value, then its group's, then the
-// suite-wide default.
+// Effective per-task flags: the task's own value, then its group's, then
+// the suite-wide default.
 export function taskIsolate(t: RegisteredTask, suiteIsolate: boolean): boolean {
-  return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate
+  return t.opts?.isolate ?? t.groupIsolate ?? suiteIsolate;
 }
 
 export function taskGc(t: RegisteredTask, suiteGc: boolean): boolean {
-  return t.opts?.gc ?? t.groupGc ?? suiteGc
+  return t.opts?.gc ?? t.groupGc ?? suiteGc;
 }
 
 export function taskCpu(t: RegisteredTask, suiteCpu: boolean): boolean {
-  return t.opts?.cpu ?? t.groupCpu ?? suiteCpu
+  return t.opts?.cpu ?? t.groupCpu ?? suiteCpu;
 }
 
 export function taskAlloc(t: RegisteredTask, suiteAlloc: boolean): boolean {
-  return t.opts?.alloc ?? t.groupAlloc ?? suiteAlloc
+  return t.opts?.alloc ?? t.groupAlloc ?? suiteAlloc;
 }
 
 export function taskPeakMem(t: RegisteredTask, suitePeakMem: boolean): boolean {
-  return t.opts?.peakMem ?? t.groupPeakMem ?? suitePeakMem
+  return t.opts?.peakMem ?? t.groupPeakMem ?? suitePeakMem;
 }
 
-/** For the task at an index, the paths of the groups it opens (it's the first
- * measured task inside them: outermost first) and closes (the last: innermost
- * first), so group hooks wrap measured tasks only (a group's tasks needn't be
- * contiguous) and an outer group's hooks run once around its nested groups. */
+/**
+ * For the task at an index, the paths of the groups it opens (it's the
+ * first measured task inside them: outermost first) and closes (the last:
+ * innermost first), so group hooks wrap measured tasks only (a group's
+ * tasks needn't be contiguous) and an outer group's hooks run once around
+ * its nested groups. */
 export function groupEdges(
   tasks: readonly RegisteredTask[],
 ): (index: number) => { enter: string[]; leave: string[] } {
-  const first = new Map<string, number>()
-  const last = new Map<string, number>()
+  const first = new Map<string, number>();
+  const last = new Map<string, number>();
   tasks.forEach((t, i) => {
-    if (t.skipped) return
+    if (t.skipped) return;
     for (const { path } of t.groupChain ?? []) {
-      if (!first.has(path)) first.set(path, i)
-      last.set(path, i)
+      if (!first.has(path)) first.set(path, i);
+      last.set(path, i);
     }
-  })
+  });
   return (i) => {
-    const paths = (tasks[i]!.groupChain ?? []).map((f) => f.path)
+    const paths = (tasks[i]!.groupChain ?? []).map((f) => f.path);
     return {
       enter: paths.filter((p) => first.get(p) === i),
       leave: paths.filter((p) => last.get(p) === i).reverse(),
-    }
-  }
+    };
+  };
 }
 
-/** Runs the task's `before`/`after` hooks for the groups at `paths` (in the
+/**
+ * Runs the task's `before`/`after` hooks for the groups at `paths` (in the
  * order given; default: all its groups, outermost first for `before`,
  * innermost first for `after`). A path the task isn't in is skipped. */
 export async function runGroupHooks(
@@ -340,27 +373,29 @@ export async function runGroupHooks(
   kind: "before" | "after",
   paths?: readonly string[],
 ): Promise<void> {
-  const chain = t.groupChain ?? []
+  const chain = t.groupChain ?? [];
   const order =
     paths ??
-    (kind === "before" ? chain : [...chain].reverse()).map((f) => f.path)
+    (kind === "before" ? chain : [...chain].reverse()).map((f) => f.path);
   for (const path of order) {
-    await chain.find((f) => f.path === path)?.[kind]?.()
+    await chain.find((f) => f.path === path)?.[kind]?.();
   }
 }
 
-/** mitata-compatible: filter value is a JS regex source, substring-matched (no
- * anchoring), case-sensitive, against the "group/name" task id. */
+/**
+ * mitata-compatible: filter value is a JS regex source, substring-matched
+ * (no anchoring), case-sensitive, against the "group/name" task id. */
 export function filterTasks(
   tasks: readonly RegisteredTask[],
   filter?: string,
 ): RegisteredTask[] {
-  if (!filter) return [...tasks]
-  const re = new RegExp(filter)
-  return tasks.filter((t) => re.test(taskId(t)))
+  if (!filter) return [...tasks];
+  const re = new RegExp(filter);
+  return tasks.filter((t) => re.test(taskId(t)));
 }
 
-/** The tasks a run measures: `.only` tasks when any exist (with a stderr
+/**
+ * The tasks a run measures: `.only` tasks when any exist (with a stderr
  * notice, since a forgotten `.only` silently shrinks a suite), else every
  * registered task - then narrowed by `filter`. Throws when that leaves
  * nothing, naming how many tasks the filter was matched against. */
@@ -372,18 +407,18 @@ export function selectTasks(
   // readings, ab repeats), so the notice prints once per suite file.
   announce = true,
 ): RegisteredTask[] {
-  const onlyTasks = registered.filter((t) => t.only)
-  const candidates = onlyTasks.length > 0 ? onlyTasks : registered
+  const onlyTasks = registered.filter((t) => t.only);
+  const candidates = onlyTasks.length > 0 ? onlyTasks : registered;
   if (announce && onlyTasks.length > 0) {
     process.stderr.write(
       `bench: ${onlyTasks.length} task(s) selected by .only\n`,
-    )
+    );
   }
-  const tasks = filterTasks(candidates, filter)
+  const tasks = filterTasks(candidates, filter);
   if (tasks.length === 0) {
     throw new Error(
       `filter ${JSON.stringify(filter)} matched zero of ${candidates.length} registered task(s) in ${where}.`,
-    )
+    );
   }
-  return tasks
+  return tasks;
 }

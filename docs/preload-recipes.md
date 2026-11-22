@@ -1,24 +1,33 @@
 # preload recipes
 
-`--preload PATH` (see [cli.md](cli.md#--preload-and---bun-flags)) is a hook, not a feature - ostia
-runs your script before each suite file loads and otherwise has no opinion on what's in
-it. In practice, almost every adopter benchmarking DOM or framework-component code ends
-up writing one of two scripts: something that installs DOM globals, or something that
-registers a `Bun.plugin()` loader for a non-`.ts`/`.js` file type. These are worked,
-copy-paste-adapt examples of both, plus a lighter-weight DOM variant. None of the
-packages below (`jsdom`, `happy-dom`, `svelte`) are ostia dependencies - install
-whichever one your suite actually needs.
+`--preload PATH` (see [cli.md](cli.md#--preload-and---bun-flags)) is a
+hook, not a feature - ostia runs your script before each suite file
+loads and otherwise has no opinion on what's in it.
+In practice, almost every adopter benchmarking DOM
+or framework-component code ends up writing one of two scripts:
+something that installs DOM globals,
+or something that registers a `Bun.plugin()` loader for a
+non-`.ts`/`.js` file type.
+These are worked, copy-paste-adapt examples of both,
+plus a lighter-weight DOM variant.
+None of the packages below (`jsdom`, `happy-dom`, `svelte`) are ostia
+dependencies - install whichever one your suite needs.
 
 ## jsdom
 
-The naive version of this script does `Object.assign(globalThis, { document, window })`
-- see the tiny example in [cli.md](cli.md#--preload-and---bun-flags). That's enough for
-suites that only ever touch `document`, but it breaks the moment a suite does an `instanceof` check
-(`node instanceof HTMLElement`, `event instanceof Event`, ...): `HTMLElement` and `Event`
-still resolve to `undefined` on `globalThis`, or worse, to some other realm's version of
-the same class if another preload script or dependency defined one. DOM constructors all
-need to come from the *same* jsdom realm as `document`/`window` for `instanceof` to hold,
-which means copying jsdom's entire window surface, not cherry-picking two properties.
+The naive version of this script does
+`Object.assign(globalThis, { document, window })`
+- see the tiny example in [cli.md](cli.md#--preload-and---bun-flags).
+  That's enough for suites that only ever touch `document`,
+  but it breaks the moment a suite does an `instanceof` check
+  (such as `node instanceof HTMLElement` or `event instanceof Event`):
+  `HTMLElement` and `Event` still resolve to `undefined` on
+  `globalThis`, or worse, to some other realm's version of the same
+  class if another preload script or dependency defined one.
+  DOM constructors all need to come from the *same* jsdom realm as
+  `document`/`window` for `instanceof` to hold,
+  which means copying jsdom's entire window surface,
+  not cherry-picking two properties.
 
 ```ts
 // bench/dom-preload.ts
@@ -56,12 +65,15 @@ ostia bench --preload ./bench/dom-preload.ts bench/*.dom.bench.ts
 
 ## happy-dom
 
-Same global-copy pattern, different source object - `happy-dom`'s `Window` class instead
-of `JSDOM`'s `.window`. happy-dom trades some spec coverage (fewer of the more obscure
-DOM APIs are implemented) for a noticeably faster startup, which matters when `--preload`
-runs once per suite-file subprocess. Reach for this first if your suite's DOM surface is
-simple (rendering components, reading text content) and only fall back to jsdom if
-something you need isn't implemented.
+Same global-copy pattern, different source object - `happy-dom`'s
+`Window` class instead of `JSDOM`'s `.window`.
+happy-dom trades some spec coverage
+(fewer of the more obscure DOM APIs are implemented) for a noticeably
+faster startup, which matters when `--preload` runs once per suite-file
+subprocess.
+Reach for this first if your suite's DOM surface is simple
+(rendering components, reading text content) and only fall back to jsdom
+if something you need isn't implemented.
 
 ```ts
 // bench/happy-dom-preload.ts
@@ -89,24 +101,30 @@ for (const key of Object.getOwnPropertyNames(window)) {
 
 ## Component-framework compile plugin (Svelte)
 
-Benchmarking `.svelte` (or `.vue`, `.astro`, ...) components means Bun needs to know how
-to turn that file into JS before it can import it - `Bun.plugin()`'s `onLoad` hook is the
-integration point, registered from a preload script so it's in place before the suite
-file's own `import "./MyComponent.svelte"` runs.
+Benchmarking `.svelte` (or `.vue`, `.astro` and other compiled formats)
+components means Bun needs to know how to turn that file into JS before
+it can import it - `Bun.plugin()`'s `onLoad` hook is the integration
+point, registered from a preload script so it's in place before the
+suite file's own `import "./MyComponent.svelte"` runs.
 
 Two wrinkles that aren't obvious from the plugin API alone:
 
-- Frameworks that support "module" files - plain `.js`/`.ts` files that still use
-  framework-specific syntax (Svelte 5 runes outside a component, e.g.
-  `@testing-library/svelte-core`'s own `*.svelte.js` internals) - compile through a
-  *different* entry point than components do (`compileModule` vs `compile`). One
-  `onLoad` filter matching only `\.svelte$` will miss these and Bun will try to load them
-  as plain JS, which fails on the rune syntax.
-- `<script lang="ts">` inside a `.svelte` file isn't touched by Bun's own TS transform,
-  because that pipeline only applies to files Bun loads directly - content an `onLoad`
-  hook fetches by hand (`Bun.file(path).text()`) and hands to the framework compiler
-  bypasses it entirely. `Bun.Transpiler` (a Bun-native API, unrelated to ostia) is the
-  tool for stripping that script block yourself before compiling.
+- Frameworks that support "module" files - plain `.js`/`.ts` files that
+  still use framework-specific syntax
+  (Svelte 5 runes outside a component, such as
+  `@testing-library/svelte-core`'s own `*.svelte.js` internals) -
+  compile through a *different* entry point than components do
+  (`compileModule` vs `compile`).
+  One `onLoad` filter matching only `\.svelte$` will miss these
+  and Bun will try to load them as plain JS,
+  which fails on the rune syntax.
+- `<script lang="ts">` inside a `.svelte` file isn't touched by Bun's
+  own TS transform, because that pipeline only applies to files Bun
+  loads directly - content an `onLoad` hook fetches by hand
+  (`Bun.file(path).text()`) and hands to the framework compiler bypasses
+  it entirely.
+  `Bun.Transpiler` (a Bun-native API, unrelated to ostia) is the tool
+  for stripping that script block yourself before compiling.
 
 ```ts
 // bench/svelte-preload.ts
@@ -146,6 +164,6 @@ Bun.plugin({
 ostia bench --preload ./bench/svelte-preload.ts bench/*.component.bench.ts
 ```
 
-Adapting this to another framework means swapping in that framework's own
-compile/transform call in place of `compile`/`compileModule` - the `Bun.plugin()` +
-`onLoad` + filter-by-extension shape stays the same.
+Adapting this to another framework means swapping in that framework's
+own compile/transform call in place of `compile`/`compileModule` - the
+`Bun.plugin()` + `onLoad` + filter-by-extension shape stays the same.

@@ -1,4 +1,4 @@
-import { heapSize } from "bun:jsc"
+import { heapSize } from "bun:jsc";
 
 import {
   configFingerprint,
@@ -6,18 +6,18 @@ import {
   makeEntryWorkload,
   makeInstrumentedMeasurement,
   makeTimingMeasurement,
-} from "../ir/document.ts"
-import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts"
-import { measureAllocPerOp } from "../measure/alloc.ts"
+} from "../ir/document.ts";
+import type { Measurement, ProfileDocument, Workload } from "../ir/types.ts";
+import { measureAllocPerOp } from "../measure/alloc.ts";
 import {
   captureTaskCpuProfile,
   DEFAULT_TASK_CPU_INTERVAL_US,
-} from "../measure/cpu.ts"
-import { stampDrift } from "../measure/environment.ts"
+} from "../measure/cpu.ts";
+import { stampDrift } from "../measure/environment.ts";
 import {
   type InprocessTimingOptions,
   measureTask,
-} from "../measure/inprocess.ts"
+} from "../measure/inprocess.ts";
 import {
   formerTaskIds,
   groupEdges,
@@ -27,35 +27,41 @@ import {
   taskCpu,
   taskGc,
   taskId as taskIdOf,
-} from "./registry.ts"
-import { captureRunEnvironment } from "./support.ts"
+} from "./registry.ts";
+import { captureRunEnvironment } from "./support.ts";
 
 export interface MeasureTasksOpts extends InprocessTimingOptions {
-  /** Suite-wide default for capturing an extra `phase: "cpu"` measurement per
+  /**
+   * Suite-wide default for capturing an extra `phase: "cpu"` measurement per
    * task (task/group `cpu` still wins). */
-  cpu?: boolean
+  cpu?: boolean;
   /** `cpu`'s sampling interval, µs (default: 100). */
-  cpuIntervalUs?: number
-  /** Suite-wide default for capturing an extra `phase: "memstats"`
+  cpuIntervalUs?: number;
+  /**
+   * Suite-wide default for capturing an extra `phase: "memstats"`
    * measurement per task (task/group `alloc` still wins). */
-  alloc?: boolean
+  alloc?: boolean;
   /** Stamped onto every workload: it ran in a subprocess dedicated to it. */
-  markIsolated?: boolean
-  /** Measure this machine's noise floor before the first task (default:
+  markIsolated?: boolean;
+  /**
+   * Measure this machine's noise floor before the first task (default:
    * true) and stamp it on the document as `environment`. */
-  noiseCheck?: boolean
+  noiseCheck?: boolean;
 }
 
-/** Shared by every runner so a task has the same id under `bench()` and `ab()`. */
+/**
+ * Shared by every runner so a task has the same id under `bench()` and
+ * `ab()`.
+ */
 export function taskWorkload(
   suiteFile: string,
   t: RegisteredTask,
   isolated?: boolean,
 ): Workload {
-  const id = taskIdOf(t)
+  const id = taskIdOf(t);
   const formerIds = formerTaskIds(t).map(
     (former) => makeEntryWorkload(suiteFile, former, { params: t.params }).id,
-  )
+  );
   return makeEntryWorkload(suiteFile, id, {
     label: id,
     formerIds: formerIds.length > 0 ? formerIds : undefined,
@@ -66,34 +72,35 @@ export function taskWorkload(
     isolated,
     params: t.params,
     skipped: t.skipped,
-  })
+  });
 }
 
-/** Measures exactly `tasks` (already selected by the caller) in this
+/**
+ * Measures exactly `tasks` (already selected by the caller) in this
  * process; isolation is the caller's concern. */
 export async function measureTasks(
   suiteFile: string,
   tasks: readonly RegisteredTask[],
   opts: MeasureTasksOpts,
 ): Promise<ProfileDocument> {
-  const willMeasure = tasks.some((t) => !t.skipped)
+  const willMeasure = tasks.some((t) => !t.skipped);
   const { environment, noiseWarning } = captureRunEnvironment(
     willMeasure ? opts.noiseCheck : false,
-  )
-  const edges = groupEdges(tasks)
+  );
+  const edges = groupEdges(tasks);
 
-  const workloads: Workload[] = []
-  const measurements: Measurement[] = []
+  const workloads: Workload[] = [];
+  const measurements: Measurement[] = [];
   for (let idx = 0; idx < tasks.length; idx++) {
-    const t = tasks[idx]!
-    const workload = taskWorkload(suiteFile, t, opts.markIsolated)
-    workloads.push(workload)
+    const t = tasks[idx]!;
+    const workload = taskWorkload(suiteFile, t, opts.markIsolated);
+    workloads.push(workload);
 
-    if (t.skipped) continue
+    if (t.skipped) continue;
 
-    const { enter, leave } = edges(idx)
-    await runGroupHooks(t, "before", enter)
-    if (t.opts?.before) await t.opts.before()
+    const { enter, leave } = edges(idx);
+    await runGroupHooks(t, "before", enter);
+    if (t.opts?.before) await t.opts.before();
 
     // Per-task options win; the fingerprint is per task so two runs only
     // compare like-for-like when measured under the same effective settings.
@@ -103,12 +110,12 @@ export async function measureTasks(
       minSamples: t.opts?.minSamples ?? opts.minSamples,
       warmup: opts.warmup,
       gc: taskGc(t, opts.gc ?? false),
-    }
+    };
     // The heap as of its last GC, never forcing one: a forced GC would
     // change the timing it brackets.
-    const heapBefore = heapSize()
-    const result = await measureTask(t.fn, taskOpts)
-    const heapAfter = heapSize()
+    const heapBefore = heapSize();
+    const result = await measureTask(t.fn, taskOpts);
+    const heapAfter = heapSize();
     measurements.push(
       makeTimingMeasurement({
         workload,
@@ -127,11 +134,11 @@ export async function measureTasks(
             ? [...result.warnings, noiseWarning]
             : result.warnings,
       }),
-    )
+    );
 
     if (taskCpu(t, opts.cpu ?? false)) {
-      const intervalUs = opts.cpuIntervalUs ?? DEFAULT_TASK_CPU_INTERVAL_US
-      const cpuResult = await captureTaskCpuProfile(t.fn, { intervalUs })
+      const intervalUs = opts.cpuIntervalUs ?? DEFAULT_TASK_CPU_INTERVAL_US;
+      const cpuResult = await captureTaskCpuProfile(t.fn, { intervalUs });
       measurements.push(
         makeInstrumentedMeasurement({
           workload,
@@ -143,10 +150,10 @@ export async function measureTasks(
           warnings: cpuResult.warnings,
           artifacts: [],
         }),
-      )
+      );
     }
     if (taskAlloc(t, opts.alloc ?? false)) {
-      const allocResult = await measureAllocPerOp(t.fn)
+      const allocResult = await measureAllocPerOp(t.fn);
       measurements.push(
         makeInstrumentedMeasurement({
           workload,
@@ -157,13 +164,13 @@ export async function measureTasks(
           warnings: [],
           artifacts: [],
         }),
-      )
+      );
     }
 
-    if (t.opts?.after) await t.opts.after()
-    await runGroupHooks(t, "after", leave)
+    if (t.opts?.after) await t.opts.after();
+    await runGroupHooks(t, "after", leave);
   }
 
-  stampDrift(environment)
-  return createDocument(workloads, measurements, environment)
+  stampDrift(environment);
+  return createDocument(workloads, measurements, environment);
 }

@@ -1,11 +1,11 @@
-import { formatDuration, pickDurationUnit } from "../../format.ts"
-import { cpuSampleCount } from "../../ir/cpu.ts"
+import { formatDuration, pickDurationUnit } from "../../format.ts";
+import { cpuSampleCount } from "../../ir/cpu.ts";
 import type {
   AbSummary,
   ProfileDocument,
   Warning,
   Workload,
-} from "../../ir/types.ts"
+} from "../../ir/types.ts";
 import {
   cpuTimes,
   formatCpuTimes,
@@ -20,7 +20,7 @@ import {
   labelOrId,
   topSelfFrames,
   workloadLabel,
-} from "../format.ts"
+} from "../format.ts";
 import {
   abNotes,
   abRows,
@@ -32,13 +32,13 @@ import {
   memoryCells,
   memoryRows,
   pairedCells,
-} from "../paired.ts"
+} from "../paired.ts";
 import {
   groupOf,
   labelInGroup,
   relativeRatios,
   type TimingRow,
-} from "../relative.ts"
+} from "../relative.ts";
 import {
   comparedRows,
   environmentMismatch,
@@ -55,69 +55,69 @@ import {
   thresholdNote,
   timingRuns,
   workloadsById,
-} from "../select.ts"
-import type { Renderer, RenderResult } from "../types.ts"
+} from "../select.ts";
+import type { Renderer, RenderResult } from "../types.ts";
 
-const TOP_FRAMES = 5
-const TOP_TYPES = 5
-const MIN_MEMORY_WIDTH = 10
+const TOP_FRAMES = 5;
+const TOP_TYPES = 5;
+const MIN_MEMORY_WIDTH = 10;
 
 interface Column<R> {
-  header: string
-  width: number
-  cell: (data: R) => string
+  header: string;
+  width: number;
+  cell: (data: R) => string;
 }
 
 interface TableRow<R> {
-  label: string
-  group?: string
+  label: string;
+  group?: string;
   /** Absent when there is nothing to tabulate; `status` says why. */
-  data?: R
+  data?: R;
   /** The row's text when `data` is absent: `skipped` or `no samples`. */
-  status?: string
-  warnings: Warning[]
+  status?: string;
+  warnings: Warning[];
 }
 
 function textTable<R>(columns: Column<R>[], rows: TableRow<R>[]): string[] {
-  const indentOf = (row: TableRow<R>) => (row.group !== undefined ? "  " : "")
+  const indentOf = (row: TableRow<R>) => (row.group !== undefined ? "  " : "");
   // Under its group's header, a row shows the task name alone.
-  const shown = (row: TableRow<R>) => labelInGroup(row.label, row.group)
-  let labelWidth = 4
+  const shown = (row: TableRow<R>) => labelInGroup(row.label, row.group);
+  let labelWidth = 4;
   for (const r of rows) {
-    labelWidth = Math.max(labelWidth, indentOf(r).length + shown(r).length)
+    labelWidth = Math.max(labelWidth, indentOf(r).length + shown(r).length);
   }
-  const header = `${"Task".padEnd(labelWidth)}   ${columns.map((c) => c.header.padEnd(c.width)).join(" ")}`
-  const lines = [header, "-".repeat(header.length)]
-  let lastGroup: string | undefined
+  const header = `${"Task".padEnd(labelWidth)}   ${columns.map((c) => c.header.padEnd(c.width)).join(" ")}`;
+  const lines = [header, "-".repeat(header.length)];
+  let lastGroup: string | undefined;
   for (const row of rows) {
     if (row.group !== undefined && row.group !== lastGroup) {
-      lines.push(`${row.group}:`)
+      lines.push(`${row.group}:`);
     }
-    lastGroup = row.group
-    const indent = indentOf(row)
-    const label = (indent + shown(row)).padEnd(labelWidth)
-    const data = row.data
+    lastGroup = row.group;
+    const indent = indentOf(row);
+    const label = (indent + shown(row)).padEnd(labelWidth);
+    const data = row.data;
     lines.push(
       data === undefined
         ? `${label}   - ${row.status}`
         : `${label}   ${columns.map((c) => c.cell(data).padEnd(c.width)).join(" ")}`,
-    )
+    );
     if (row.warnings.length > 0) {
-      lines.push(`${indent}  ! ${row.warnings.map((w) => w.code).join(", ")}`)
+      lines.push(`${indent}  ! ${row.warnings.map((w) => w.code).join(", ")}`);
     }
   }
-  return lines
+  return lines;
 }
 
 function warningFootnotes(rows: TableRow<unknown>[]): string[] {
   const lines = rows.flatMap((row) =>
     row.warnings.map((w) => `  ${row.label}: ${w.message}`),
-  )
-  return lines.length > 0 ? ["", "Warnings:", ...lines] : []
+  );
+  return lines.length > 0 ? ["", "Warnings:", ...lines] : [];
 }
 
 function finish(lines: string[]): RenderResult {
-  return { text: `${lines.map((l) => l.trimEnd()).join("\n")}\n` }
+  return { text: `${lines.map((l) => l.trimEnd()).join("\n")}\n` };
 }
 
 export const terminalRenderer: Renderer = {
@@ -125,14 +125,14 @@ export const terminalRenderer: Renderer = {
   async render(doc: ProfileDocument): Promise<RenderResult> {
     const env = doc.environment
       ? [formatEnvironmentLine(doc.environment), ""]
-      : []
+      : [];
 
     // Only `ab()` writes paired measurements, and it always stamps `ab`.
-    if (doc.ab) return finish(renderPaired(doc, doc.ab, env))
+    if (doc.ab) return finish(renderPaired(doc, doc.ab, env));
 
-    const runs = timingRuns(doc)
-    const empty = noSampleRuns(doc)
-    const comparisons = renderComparisons(doc)
+    const runs = timingRuns(doc);
+    const empty = noSampleRuns(doc);
+    const comparisons = renderComparisons(doc);
     if (
       runs.length === 0 &&
       empty.length === 0 &&
@@ -140,51 +140,53 @@ export const terminalRenderer: Renderer = {
     ) {
       return comparisons.length > 0
         ? finish([...env, ...comparisons])
-        : { text: "(no timing runs)\n" }
+        : { text: "(no timing runs)\n" };
     }
 
-    const lines = [...env, ...renderTiming(doc, runs, empty)]
-    const instrumented = renderInstrumentedRuns(doc)
-    if (instrumented.length > 0) lines.push("", ...instrumented)
-    if (comparisons.length > 0) lines.push("", ...comparisons)
-    return finish(lines)
+    const lines = [...env, ...renderTiming(doc, runs, empty)];
+    const instrumented = renderInstrumentedRuns(doc);
+    if (instrumented.length > 0) lines.push("", ...instrumented);
+    if (comparisons.length > 0) lines.push("", ...comparisons);
+    return finish(lines);
   },
-}
+};
 
 function renderTiming(
   doc: ProfileDocument,
   runs: ReturnType<typeof timingRuns>,
   noSamples: ReturnType<typeof noSampleRuns>,
 ): string[] {
-  const memory = memoryReadings(doc)
-  const runByWorkloadId = new Map(runs.map((r) => [r.workloadId, r]))
-  const noSampleByWorkloadId = new Map(noSamples.map((r) => [r.workloadId, r]))
+  const memory = memoryReadings(doc);
+  const runByWorkloadId = new Map(runs.map((r) => [r.workloadId, r]));
+  const noSampleByWorkloadId = new Map(noSamples.map((r) => [r.workloadId, r]));
 
   // doc.workloads order, so a skipped task prints in its group's place.
-  const rows: TableRow<TimingRow>[] = []
-  const measured: TimingRow[] = []
+  const rows: TableRow<TimingRow>[] = [];
+  const measured: TimingRow[] = [];
   for (const workload of doc.workloads) {
-    const run = runByWorkloadId.get(workload.id)
-    const label = workloadLabel(workload)
-    const group = groupOf(workload)
+    const run = runByWorkloadId.get(workload.id);
+    const label = workloadLabel(workload);
+    const group = groupOf(workload);
     if (run) {
-      const data = { run, workload }
-      measured.push(data)
-      rows.push({ label, group, data, warnings: runWarnings(run, memory) })
+      const data = { run, workload };
+      measured.push(data);
+      rows.push({ label, group, data, warnings: runWarnings(run, memory) });
     } else if (noSampleByWorkloadId.has(workload.id)) {
       const warnings = runWarnings(
         noSampleByWorkloadId.get(workload.id)!,
         memory,
-      )
-      rows.push({ label, group, status: "no samples", warnings })
+      );
+      rows.push({ label, group, status: "no samples", warnings });
     } else if (workload.skipped) {
-      rows.push({ label, group, status: "skipped", warnings: [] })
+      rows.push({ label, group, status: "skipped", warnings: [] });
     }
   }
 
-  const unitOf = ({ run }: TimingRow) => pickDurationUnit(run.timing.median)
-  const cpuTimesByRow = new Map(measured.map((row) => [row, cpuTimes(row.run)]))
-  const ratios = relativeRatios(measured)
+  const unitOf = ({ run }: TimingRow) => pickDurationUnit(run.timing.median);
+  const cpuTimesByRow = new Map(
+    measured.map((row) => [row, cpuTimes(row.run)]),
+  );
+  const ratios = relativeRatios(measured);
 
   const columns: Column<TimingRow>[] = [
     {
@@ -204,16 +206,16 @@ function renderTiming(
       cell: (row) =>
         formatSpan(row.run.timing.min, row.run.timing.max, unitOf(row)),
     },
-  ]
+  ];
   if ([...cpuTimesByRow.values()].some(Boolean)) {
     columns.push({
       header: "User/Sys",
       width: 18,
       cell: (row) => {
-        const times = cpuTimesByRow.get(row)
-        return times ? formatCpuTimes(times) : ""
+        const times = cpuTimesByRow.get(row);
+        return times ? formatCpuTimes(times) : "";
       },
-    })
+    });
   }
   if (measured.some((row) => row.run.instructions)) {
     columns.push({
@@ -223,24 +225,24 @@ function renderTiming(
         row.run.instructions
           ? formatInstructions(row.run.instructions.median)
           : "",
-    })
+    });
   }
   for (const col of memoryColumns(memory)) {
     columns.push({
       header: col.header,
       width: Math.max(col.header.length, MIN_MEMORY_WIDTH),
       cell: (row) => col.cell(row.run.workloadId) ?? "",
-    })
+    });
   }
   if (ratios) {
     columns.push({
       header: "Relative",
       width: 8,
       cell: (row) => formatRelative(ratios.get(row)!, !!row.workload?.baseline),
-    })
+    });
   }
 
-  return [...textTable(columns, rows), ...warningFootnotes(rows)]
+  return [...textTable(columns, rows), ...warningFootnotes(rows)];
 }
 
 function renderPaired(
@@ -248,18 +250,18 @@ function renderPaired(
   ab: AbSummary,
   env: string[],
 ): string[] {
-  const byWorkload = workloadsById(doc)
-  const lines = [...env, `A/B: ${formatAbHeader(ab)}`, ""]
+  const byWorkload = workloadsById(doc);
+  const lines = [...env, `A/B: ${formatAbHeader(ab)}`, ""];
 
-  const threw: { label: string; verdict: string; message: string }[] = []
+  const threw: { label: string; verdict: string; message: string }[] = [];
   const rows: TableRow<ReturnType<typeof pairedCells>>[] = abRows(doc).map(
     ({ kind, run }) => {
-      const workload = byWorkload.get(run.workloadId)
-      const label = labelOrId(workload, run.workloadId)
-      let data: ReturnType<typeof pairedCells>
+      const workload = byWorkload.get(run.workloadId);
+      const label = labelOrId(workload, run.workloadId);
+      let data: ReturnType<typeof pairedCells>;
       if (kind === "threw") {
-        const verdict = formatThrew(run.threw)
-        threw.push({ label, verdict, message: run.threw.message })
+        const verdict = formatThrew(run.threw);
+        threw.push({ label, verdict, message: run.threw.message });
         data = {
           base: "-",
           candidate: "-",
@@ -267,15 +269,15 @@ function renderPaired(
           spread: "",
           also: "",
           verdict,
-        }
+        };
       } else {
-        data = pairedCells(run, ab.metric)
+        data = pairedCells(run, ab.metric);
       }
-      return { label, group: groupOf(workload), data, warnings: run.warnings }
+      return { label, group: groupOf(workload), data, warnings: run.warnings };
     },
-  )
+  );
   if (rows.length > 0) {
-    const also = alsoHeader(doc, ab.metric)
+    const also = alsoHeader(doc, ab.metric);
     lines.push(
       ...textTable<ReturnType<typeof pairedCells>>(
         [
@@ -296,10 +298,10 @@ function renderPaired(
         ],
         rows,
       ),
-    )
+    );
   }
 
-  const memory = memoryRows(doc)
+  const memory = memoryRows(doc);
   if (memory.length > 0) {
     lines.push(
       "",
@@ -313,25 +315,25 @@ function renderPaired(
           { header: "Verdict", width: 7, cell: (c) => c.verdict },
         ],
         memory.map((row) => {
-          const workload = byWorkload.get(row.run.workloadId)
+          const workload = byWorkload.get(row.run.workloadId);
           return {
             label: labelOrId(workload, row.run.workloadId),
             group: groupOf(workload),
             data: memoryCells(row),
             warnings: [],
-          }
+          };
         }),
       ),
-    )
+    );
   }
 
-  const notes = abNotes(doc)
+  const notes = abNotes(doc);
   if (threw.length > 0) {
-    lines.push("", `Threw (${threw.length}):`)
+    lines.push("", `Threw (${threw.length}):`);
     for (const row of threw) {
-      const [first, ...rest] = row.message.split("\n")
-      lines.push(`  ${row.label}: ${row.verdict}: ${first}`)
-      for (const more of rest) lines.push(`    ${more}`)
+      const [first, ...rest] = row.message.split("\n");
+      lines.push(`  ${row.label}: ${row.verdict}: ${first}`);
+      for (const more of rest) lines.push(`    ${more}`);
     }
   }
   if (notes.outputDiffers.length > 0) {
@@ -339,125 +341,126 @@ function renderPaired(
       "",
       `Output differs from the base (${notes.outputDiffers.length}):`,
       ...notes.outputDiffers.map((label) => `  ${label}`),
-    )
+    );
   }
-  const newSuites = formatNewSuites(ab)
-  if (newSuites) lines.push("", newSuites)
+  const newSuites = formatNewSuites(ab);
+  if (newSuites) lines.push("", newSuites);
   if (notes.baseOnly.length > 0 || notes.candOnly.length > 0) {
-    lines.push("", "Unmatched:")
+    lines.push("", "Unmatched:");
     if (notes.baseOnly.length > 0)
-      lines.push(`  base only: ${notes.baseOnly.join(", ")}`)
+      lines.push(`  base only: ${notes.baseOnly.join(", ")}`);
     if (notes.candOnly.length > 0)
-      lines.push(`  candidate only: ${notes.candOnly.join(", ")}`)
+      lines.push(`  candidate only: ${notes.candOnly.join(", ")}`);
   }
 
-  lines.push(...warningFootnotes(rows), "", formatAbSummary(ab))
-  return lines
+  lines.push(...warningFootnotes(rows), "", formatAbSummary(ab));
+  return lines;
 }
 
 function renderComparisons(doc: ProfileDocument): string[] {
-  const rows = comparedRows(doc)
-  if (rows.length === 0) return []
-  const lines: string[] = []
+  const rows = comparedRows(doc);
+  if (rows.length === 0) return [];
+  const lines: string[] = [];
 
-  const mismatch = environmentMismatch(doc)
-  if (mismatch) lines.push(`⚠ ${mismatch.message}`, "")
-  const note = thresholdNote(doc)
-  if (note) lines.push(note, "")
+  const mismatch = environmentMismatch(doc);
+  if (mismatch) lines.push(`⚠ ${mismatch.message}`, "");
+  const note = thresholdNote(doc);
+  if (note) lines.push(note, "");
 
-  const footnotes: string[] = []
-  const notCompared: string[] = []
+  const footnotes: string[] = [];
+  const notCompared: string[] = [];
 
   for (const { row, cmp } of rows) {
     if (row.verdict === "missing-base" || row.verdict === "missing-cand") {
-      notCompared.push(`  ${row.task}: ${oneSidedNote(row.verdict)}`)
-      continue
+      notCompared.push(`  ${row.task}: ${oneSidedNote(row.verdict)}`);
+      continue;
     }
-    lines.push(`${row.pass === false ? "✗" : "✓"} ${row.task}`)
-    if (row.renamedFrom) lines.push(`  renamed from ${row.renamedFrom.task}`)
+    lines.push(`${row.pass === false ? "✗" : "✓"} ${row.task}`);
+    if (row.renamedFrom) lines.push(`  renamed from ${row.renamedFrom.task}`);
 
     if (row.timing) {
       const { baseMedian, candMedian, medianDeltaPct, ci95, pValue } =
-        row.timing
-      const unit = pickDurationUnit(Math.max(baseMedian, candMedian))
-      const medians = `${formatDuration(baseMedian, unit)} -> ${formatDuration(candMedian, unit)}`
+        row.timing;
+      const unit = pickDurationUnit(Math.max(baseMedian, candMedian));
+      const medians = `${formatDuration(baseMedian, unit)} -> ${formatDuration(candMedian, unit)}`;
       if (ci95 && pValue !== undefined) {
-        const p = pValue < 0.001 ? "p<0.001" : `p=${pValue.toFixed(3)}`
+        const p = pValue < 0.001 ? "p<0.001" : `p=${pValue.toFixed(3)}`;
         lines.push(
           `  timing: ${medians}, ${formatSignedPct(medianDeltaPct)} median, 95% CI [${formatSignedPct(ci95[0])}, ${formatSignedPct(ci95[1])}], ${p} (${row.verdict})`,
-        )
+        );
       } else {
         lines.push(
           `  timing: ${medians}, ${formatSignedPct(medianDeltaPct)} median (${row.verdict})`,
-        )
+        );
       }
     }
-    const memory = shownMemoryDeltas(row, "->")
-    if (memory.length > 0) lines.push(`  memory: ${memory.join(", ")}`)
-    if (!cmp) continue
+    const memory = shownMemoryDeltas(row, "->");
+    if (memory.length > 0) lines.push(`  memory: ${memory.join(", ")}`);
+    if (!cmp) continue;
     for (const f of shownFrameDeltas(cmp, TOP_FRAMES)) {
       lines.push(
         `  frame ${f.name}: ${formatSignedPct(f.deltaPct)} self-time (${formatUsAsMs(f.baseSelfUs)}ms -> ${formatUsAsMs(f.candSelfUs)}ms)`,
-      )
+      );
     }
     for (const h of shownHeapDeltas(cmp, TOP_TYPES)) {
       lines.push(
         `  heap ${h.type}: ${formatSignedPct(h.deltaPct)} count (${h.baseCount} -> ${h.candCount})`,
-      )
+      );
     }
 
-    const warnings = rowComparisonWarnings(cmp)
+    const warnings = rowComparisonWarnings(cmp);
     if (warnings.length > 0) {
-      lines.push(`  ! ${warnings.map((w) => w.code).join(", ")}`)
-      for (const w of warnings) footnotes.push(`  ${row.task}: ${w.message}`)
+      lines.push(`  ! ${warnings.map((w) => w.code).join(", ")}`);
+      for (const w of warnings) footnotes.push(`  ${row.task}: ${w.message}`);
     }
   }
 
-  if (notCompared.length > 0) lines.push("", "Not compared:", ...notCompared)
-  if (footnotes.length > 0) lines.push("", "Comparison warnings:", ...footnotes)
-  return lines
+  if (notCompared.length > 0) lines.push("", "Not compared:", ...notCompared);
+  if (footnotes.length > 0)
+    lines.push("", "Comparison warnings:", ...footnotes);
+  return lines;
 }
 
 function renderInstrumentedRuns(doc: ProfileDocument): string[] {
-  const byWorkload: Map<string, Workload> = workloadsById(doc)
-  const lines: string[] = []
+  const byWorkload: Map<string, Workload> = workloadsById(doc);
+  const lines: string[] = [];
 
   for (const run of doc.measurements) {
-    if (run.phase !== "cpu" && run.phase !== "heap") continue
-    const workload = byWorkload.get(run.workloadId)
-    const label = labelOrId(workload, run.workloadId)
+    if (run.phase !== "cpu" && run.phase !== "heap") continue;
+    const workload = byWorkload.get(run.workloadId);
+    const label = labelOrId(workload, run.workloadId);
 
     if (run.phase === "cpu") {
       if (run.cpu) {
         lines.push(
           `CPU capture - ${label} (instrumented, ${run.cpu.samplingIntervalUs}µs interval, ${cpuSampleCount(run.cpu)} samples, diagnostic wall ${formatNsAsMs(run.diagnosticWallNs ?? 0)}ms)`,
-        )
+        );
         for (const f of topSelfFrames(run.cpu, TOP_FRAMES)) {
           lines.push(
             `  ${f.pct.padStart(5)}%  ${formatUsAsMs(f.selfUs).padStart(8)}ms self  ${f.frame?.name ?? "?"}`,
-          )
+          );
         }
       } else {
         lines.push(
           `CPU capture - ${label} (instrumented, no evidence captured)`,
-        )
+        );
       }
     } else if (run.heap) {
       lines.push(
         `Heap snapshot - ${label} (instrumented, ${formatHeapSummary(run.heap)})`,
-      )
+      );
       for (const tc of run.heap.typeCounts.slice(0, TOP_TYPES)) {
-        lines.push(`  ${String(tc.count).padStart(6)}  ${tc.type}`)
+        lines.push(`  ${String(tc.count).padStart(6)}  ${tc.type}`);
       }
     } else {
       lines.push(
         `Heap snapshot - ${label} (instrumented, no evidence captured)`,
-      )
+      );
     }
 
-    for (const a of run.artifacts) lines.push(`  artifact: ${a.path}`)
-    for (const w of run.warnings) lines.push(`  ! ${w.message}`)
+    for (const a of run.artifacts) lines.push(`  artifact: ${a.path}`);
+    for (const w of run.warnings) lines.push(`  ! ${w.message}`);
   }
 
-  return lines
+  return lines;
 }

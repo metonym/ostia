@@ -10,24 +10,32 @@ ostia ci                       run configured workloads against a baseline, gate
 ostia baseline save|list|show  manage baseline documents
 ```
 
-Every command takes `--help`. A flag's value can follow it (`--format minimal`) or be
-attached (`--format=minimal`); `--ignore-failure[=CODES]` only takes the attached form. A flag
-that needs a value and is given none is a usage error (exit 2). Exit codes and the machine-readable error
-line are described in [agent-protocol.md](agent-protocol.md).
+Every command takes `--help`.
+A flag's value can follow it (`--format minimal`)
+or be attached (`--format=minimal`);
+`--ignore-failure[=CODES]` only takes the attached form.
+A flag that needs a value and is given none is a usage error (exit 2).
+Exit codes and the machine-readable error line are described in
+[agent-protocol.md](agent-protocol.md).
 
-`bench`, `ab`, `compare`, `ci` and `baseline` read the config file ([config.md](config.md)):
-`ostia.config.ts`, else `ostia.config.json`, in the current directory. `--config PATH` loads
-that file instead (a missing file is `config-missing`); relative paths inside it still
-resolve against the current directory.
+`bench`, `ab`, `compare`, `ci` and `baseline` read the config file
+([config.md](config.md)): `ostia.config.ts`, else `ostia.config.json`,
+in the current directory.
+`--config PATH` loads that file instead
+(a missing file is `config-missing`);
+relative paths inside it still resolve against the current directory.
 
-Surplus input is an error, never ignored: an extra positional (a third `compare` path,
-an argument to `baseline list`) or a flag with nothing to act on (`time --time-unit`
-without `--time-source`, `--cpu-interval` without `--cpu`, `report --measurement` or
-`--out-dir` with a non-visualization format) exits 2 with `invalid-flag`.
+Surplus input is an error, never ignored:
+an extra positional
+(a third `compare` path, an argument to `baseline list`)
+or a flag with nothing to act on
+(`time --time-unit` without `--time-source`, `--cpu-interval` without
+`--cpu`, `report --measurement` or `--out-dir` with a non-visualization
+format) exits 2 with `invalid-flag`.
 
-Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`: `table` (default), `json`,
-`jsonl`, `markdown`, `minimal`. `report` additionally accepts the CPU visualization
-formats.
+Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`:
+`table` (default), `json`, `jsonl`, `markdown`, `minimal`.
+`report` additionally accepts the CPU visualization formats.
 
 ## `ostia time`
 
@@ -59,9 +67,11 @@ ostia time [flags] -- <argv...>
 
 ### Commands
 
-Each `<command>` string is whitespace-split into argv, with no shell: no quoting,
-globbing, pipes or redirection. Everything after `--` becomes one more command, given as
-argv verbatim (never split or flag-parsed), so an argument can contain a space:
+Each `<command>` string is whitespace-split into argv, with no shell:
+no quoting, globbing, pipes or redirection.
+Everything after `--` becomes one more command,
+given as argv verbatim (never split or flag-parsed),
+so an argument can contain a space:
 
 ```sh
 ostia time "bun a.ts" -- bun -e "console.log('a b')"
@@ -69,81 +79,106 @@ ostia time "bun a.ts" -- bun -e "console.log('a b')"
 
 ### Sampling
 
-Default: 3 warmup trials, then timed trials until the budget (3s of wall time) has
-elapsed and at least `--min-samples` (10) trials have run. `--samples N` runs exactly N
-per command. With several commands, each gets its own N or its own budget.
+Default: 3 warmup trials, then timed trials
+until the budget (3s of wall time) has elapsed
+and at least `--min-samples` (10) trials have run.
+`--samples N` runs exactly N per command.
+With several commands, each gets its own N or its own budget.
 
-With 2+ commands, trials run round-robin (one trial of each command, repeated) so drift
-over the run (thermal throttling, a busy neighbor process) affects every command
-equally. Each such measurement carries `interleaved: true`. `--no-interleave` runs the
-commands one after another.
+With 2+ commands, trials run round-robin
+(one trial of each command, repeated) so drift over the run
+(thermal throttling, a busy neighbor process) affects every command
+equally.
+Each such measurement carries `interleaved: true`.
+`--no-interleave` runs the commands one after another.
 
 ### Failures
 
-A command's trial loop stops at its first non-zero exit that isn't ignored. That
-trial's sample is kept, the measurement carries a `nonzero-exit` warning, and `ostia
-time` exits 2. The same rule applies in `ostia ci`: any non-ignored non-zero exit, or no
-samples at all, is a harness failure (exit 2), not a regression.
+A command's trial loop stops at its first non-zero exit that isn't
+ignored.
+That trial's sample is kept, the measurement carries a `nonzero-exit`
+warning, and `ostia time` exits 2.
+The same rule applies in `ostia ci`: any non-ignored non-zero exit,
+or no samples at all, is a harness failure (exit 2), not a regression.
 
 ```sh
 ostia time --ignore-failure=1 "./may-exit-1.sh"   # exit code 1 counts as success
 ostia time --ignore-failure "./flaky-exit.sh"      # every exit code counts as success
 ```
 
-`--timeout MS` kills a trial with SIGKILL. A timed-out trial contributes no sample and
-the measurement carries a `timeout` warning. If every trial of a command times out, the
-command has no timing stats, prints like a skipped workload, and the run exits 2 with
-error code `timeout`. `--timeout` also applies to `--prepare` hooks; a hook that times
-out aborts the run. A timed-out trial has no exit code, so it is not a failing exit: a
-command with some timed-out trials and some samples still passes (with the warning).
+`--timeout MS` kills a trial with SIGKILL.
+A timed-out trial contributes no sample and the measurement carries a
+`timeout` warning.
+If every trial of a command times out, the command has no timing stats,
+prints like a skipped workload, and the run exits 2 with error code
+`timeout`.
+`--timeout` also applies to `--prepare` hooks;
+a hook that times out aborts the run.
+A timed-out trial has no exit code, so it is not a failing exit:
+a command with some timed-out trials and some samples still passes
+(with the warning).
 
-Ctrl-C cancels cleanly: in-flight children are killed, the document holds whatever
-finished (with an `aborted` warning), `--export-json` still writes it, and the exit code
-is 130.
+Ctrl-C cancels cleanly: in-flight children are killed,
+the document holds whatever finished (with an `aborted` warning),
+`--export-json` still writes it, and the exit code is 130.
 
 ### `--prepare`
 
-`--prepare CMD` runs before every trial (warmup, timing, and the `--cpu`/`--heap` trials),
-unmeasured, in the same cwd, hyperfine-style. It is whitespace-split like the commands
-and must exit 0; a non-zero exit aborts the run. Given once, it applies to every command;
-given once per command, the hooks pair up in order, so the same command can be timed warm
+`--prepare CMD` runs before every trial
+(warmup, timing, and the `--cpu`/`--heap` trials), unmeasured,
+in the same cwd, hyperfine-style.
+It is whitespace-split like the commands and must exit 0;
+a non-zero exit aborts the run.
+Given once, it applies to every command; given once per command,
+the hooks pair up in order, so the same command can be timed warm
 and cold side by side:
 
 ```sh
 ostia time --prepare "true" --prepare "rm -rf dist" "bun build.ts" "bun build.ts"
 ```
 
-Any other count is a usage error. The hook is part of the workload id, so a command with
-and without a hook are two workloads. Its stdout is discarded; its stderr is captured
-(bounded to 1 MiB) and included in the error when the hook fails. An argument containing
-a space needs the array form in `ostia.config.ts` or the library.
+Any other count is a usage error.
+The hook is part of the workload id,
+so a command with and without a hook are two workloads.
+Its stdout is discarded; its stderr is captured (bounded to 1 MiB)
+and included in the error when the hook fails.
+An argument containing a space needs the array form in `ostia.config.ts`
+or the library.
 
 ### `--time-source`
 
-`--time-source REGEX` takes each trial's time from the command's own output instead of
-its wall clock: the first match in stdout, then stderr, capture group 1, in `--time-unit`
-units. Use it for tools that print a more precise figure than wall time, such as a build
-tool whose `built in 342ms` excludes runtime startup:
+`--time-source REGEX` takes each trial's time from the command's own
+output instead of its wall clock: the first match in stdout,
+then stderr, capture group 1, in `--time-unit` units.
+Use it for tools that print a more precise figure than wall time,
+such as a build tool whose `built in 342ms` excludes runtime startup:
 
 ```sh
 ostia time --time-source "built in (\d+)ms" "bun build.ts"
 ```
 
-The parsed values become the timing samples; each trial also keeps `wallNs`. A trial
-whose output doesn't match contributes no sample (never a fallback to wall time) and the
-measurement carries a `time-source-no-match` warning with the pattern and up to 2 KiB of
-output. If every trial misses, the command has no stats and the run exits 2 with error
-code `time-source-no-match`. A match with no group 1, or a non-numeric capture, is an
-error. The budget always counts wall time.
+The parsed values become the timing samples;
+each trial also keeps `wallNs`.
+A trial whose output doesn't match contributes no sample
+(never a fallback to wall time) and the measurement carries a
+`time-source-no-match` warning with the pattern
+and up to 2 KiB of output.
+If every trial misses, the command has no stats and the run exits 2 with
+error code `time-source-no-match`.
+A match with no group 1, or a non-numeric capture, is an error.
+The budget always counts wall time.
 
-The time source is part of the workload id, so timing the same command both ways gives
-two workloads with two verdicts.
+The time source is part of the workload id,
+so timing the same command both ways gives two workloads with two
+verdicts.
 
 ### `--cpu` / `--heap`
 
-Each adds one instrumented trial per command after the timing trials, labeled as a
-separate measurement (`phase: "cpu"` / `"heap"`) and never mixed into timing. The raw
-`.cpuprofile` / `.heapsnapshot` is written under `<out-dir>/artifacts/`.
+Each adds one instrumented trial per command after the timing trials,
+labeled as a separate measurement (`phase: "cpu"` / `"heap"`)
+and never mixed into timing.
+The raw `.cpuprofile` / `.heapsnapshot` is written under
+`<out-dir>/artifacts/`.
 
 ```
 CPU capture - bun fixtures/work.ts (instrumented, 1000µs interval, diagnostic wall 300.558ms)
@@ -163,8 +198,8 @@ Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 117.19KiB)
   artifact: /tmp/ostia-heap/artifacts/run_608f71a09a849cca-heap.heapsnapshot
 ```
 
-Use `ostia report --format collapsed|mermaid|speedscope|cpuprofile` on the exported
-document to turn CPU evidence into files for other tools.
+Use `ostia report --format collapsed|mermaid|speedscope|cpuprofile` on
+the exported document to turn CPU evidence into files for other tools.
 
 ## `ostia bench`
 
@@ -195,28 +230,36 @@ ostia bench [flags] <suite.ts...>
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
 
-With no suite files, `ostia bench` uses the config's `bench` section (`suites` globs and
-the rest). Each flag overrides its config field; `--preload`, `--bun-flags` and suite
-files given on the command line replace the config's lists rather than appending. The
-`--no-*` forms exist to override a config `true` for one run.
+With no suite files, `ostia bench` uses the config's `bench` section
+(`suites` globs and the rest).
+Each flag overrides its config field;
+`--preload`, `--bun-flags` and suite files given on the command line
+replace the config's lists rather than appending.
+The `--no-*` forms exist to override a config `true` for one run.
 
-Per-task and per-group options (`budgetMs`, `samples`, `minSamples`, `gc`, `isolate`,
-`cpu`, `alloc`, `peakMem`) override the suite-wide values; see [library.md](library.md).
+Per-task and per-group options
+(`budgetMs`, `samples`, `minSamples`, `gc`, `isolate`, `cpu`, `alloc`,
+`peakMem`) override the suite-wide values; see [library.md](library.md).
 
-Exit codes: `0` ok, `2` a suite file doesn't exist (`invalid-flag`), a suite failed to
-import or run, a task threw, a subprocess timed out, or a bad flag; `130` Ctrl-C. A failing suite stops the run: queued suites are
-skipped and in-flight ones killed.
+Exit codes: `0` ok, `2` a suite file doesn't exist (`invalid-flag`),
+a suite failed to import or run, a task threw, a subprocess timed out,
+or a bad flag; `130` Ctrl-C.
+A failing suite stops the run: queued suites are skipped
+and in-flight ones killed.
 
 ### Sampling
 
-Each task gets a warmup (10% of its budget, at least one call), then samples until the
-budget is spent and the floor is met. Fast calls are batched so one trial spans at least
-1µs and a full budget yields about 10,000 trials; the budget-driven loop stops at 20,000
-trials. An explicit `--samples`/`--min-samples` can go past that.
+Each task gets a warmup (10% of its budget, at least one call),
+then samples until the budget is spent and the floor is met.
+Fast calls are batched so one trial spans at least 1µs
+and a full budget yields about 10,000 trials;
+the budget-driven loop stops at 20,000 trials.
+An explicit `--samples`/`--min-samples` can go past that.
 
-Without `--min-samples`, the floor depends on the task's cost: as many trials as fit in
-the budget (capped at 20), but never fewer than the task's cost earns it (3 at ≤1ms, two
-more per decade of cost, 10 from about 3s up).
+Without `--min-samples`, the floor depends on the task's cost:
+as many trials as fit in the budget (capped at 20),
+but never fewer than the task's cost earns it
+(3 at ≤1ms, two more per decade of cost, 10 from about 3s up).
 
 | Per-trial cost | Fits in 500ms | Default floor |
 |---|---|---|
@@ -225,85 +268,115 @@ more per decade of cost, 10 from about 3s up).
 | 140ms | 3 | 7 |
 | 2.4s | 0 | 10 |
 
-A run below its cost class's floor (only possible with an explicit `minSamples`) carries
-a `low-sample-count` warning with `{ samples, target, trialCostNs }`.
+A run below its cost class's floor
+(only possible with an explicit `minSamples`) carries a
+`low-sample-count` warning with `{ samples, target, trialCostNs }`.
 
-Each task is timed through its own compiled loop, so a task's result doesn't depend on
-which tasks ran before it in the same file.
+Each task is timed through its own compiled loop,
+so a task's result doesn't depend on which tasks ran before it in the
+same file.
 
 ### Isolation and parallelism
 
-Every suite file runs in its own child process. `--isolate` goes further and gives each
-task its own process, isolating JIT tier state, inline caches, builtin call-site feedback
-(e.g. what `Array.prototype.map` has seen) and the GC heap from every other task. Use it
-for the most comparable numbers; it costs one process spawn per task.
-`task(name, fn, { isolate })` / `group(name, fn, { isolate })` set it per task or group.
+Every suite file runs in its own child process.
+`--isolate` goes further and gives each task its own process,
+isolating JIT tier state, inline caches,
+builtin call-site feedback (such as what `Array.prototype.map` has seen)
+and the GC heap from every other task.
+Use it for the most comparable numbers;
+it costs one process spawn per task.
+`task(name, fn, { isolate })` / `group(name, fn, { isolate })` set it
+per task or group.
 
-`--jobs N|auto` runs that many processes at once (suite files, and isolated tasks when
-`--isolate` is on). Concurrent CPU-bound processes contend for cores, caches and turbo
-headroom, so numbers taken at `--jobs > 1` are noisier and not comparable with a baseline
-measured at 1.
+`--jobs N|auto` runs that many processes at once
+(suite files, and isolated tasks when `--isolate` is on).
+Concurrent CPU-bound processes contend for cores,
+caches and turbo headroom, so numbers taken at `--jobs > 1` are noisier
+and not comparable with a baseline measured at 1.
 
-The noise-floor check runs once per `bench()` call, in the parent process.
+The noise-floor check runs once per `bench()` call,
+in the parent process.
 
 ### `--gc`, `--cpu`, `--alloc`, `--peak-mem`
 
-`--gc` calls `Bun.gc(true)` between trials, outside the timed region. Off by default, in
-which case collection cost lands on whichever trials the GC happens to run in.
+`--gc` calls `Bun.gc(true)` between trials, outside the timed region.
+Off by default, in which case collection cost lands on whichever trials
+the GC happens to run in.
 
-`--cpu` adds a `phase: "cpu"` measurement per task: the task looped under the JSC
-sampling profiler, JIT tiers included. It samples every 100µs (`--cpu-interval` changes
-this) and loops the task long enough to collect about 2,000 samples: 400ms at the default
-interval, longer at a coarser one (up to 10s), and never less than one whole call. The
-header of each CPU section shows the sample count; below 1,000 the measurement carries a
-`low-sample-count` warning (`{ samples, target, intervalUs }`), since frame shares that
-thin move by several points between runs. When more than 20% of its samples are in the
-llint/baseline tiers, it carries a `jit-cold` warning (`{ llintPct, baselinePct, dfgPct,
-ftlPct }`). With CPU evidence on both sides, `compare` reports per-frame deltas.
+`--cpu` adds a `phase: "cpu"` measurement per task:
+the task looped under the JSC sampling profiler, JIT tiers included.
+It samples every 100µs (`--cpu-interval` changes this)
+and loops the task long enough to collect about 2,000 samples:
+400ms at the default interval, longer at a coarser one (up to 10s),
+and never less than one whole call.
+The header of each CPU section shows the sample count;
+below 1,000 the measurement carries a `low-sample-count` warning
+(`{ samples, target, intervalUs }`),
+since frame shares that thin move by several points between runs.
+When more than 20% of its samples are in the llint/baseline tiers,
+it carries a `jit-cold` warning
+(`{ llintPct, baselinePct, dfgPct, ftlPct }`).
+With CPU evidence on both sides, `compare` reports per-frame deltas.
 
-Self time is attributed to the frame the JIT compiled, so a small helper that got
-inlined into its caller shows up as the caller's self time, not its own, and can appear
-or vanish from the table between runs as inlining decisions change. When a helper you
-expect to see is missing, look at its callers.
+Self time is attributed to the frame the JIT compiled,
+so a small helper that got inlined into its caller shows up as the
+caller's self time, not its own, and can appear or vanish from the table
+between runs as inlining decisions change.
+When a helper you expect to see is missing, look at its callers.
 
 ```sh
 ostia bench bench/parse.bench.ts --cpu --filter 'large input$' --export-json cpu.json
 ostia report cpu.json --format collapsed | sort -t' ' -k2 -nr | head
 ```
 
-`--alloc` adds a `phase: "memstats"` measurement (`memory.kind: "retained"`) of the heap
-each call keeps alive: `Bun.gc(true)`, a batch of 100 calls, `Bun.gc(true)` again, and the
-heap size delta divided by 100. The second full GC collects everything the calls
-allocated and dropped, so this is a leak check, not an allocation counter: a function that
-builds and discards a large tree reads near zero. The table shows it as `Retained/op`.
+`--alloc` adds a `phase: "memstats"` measurement
+(`memory.kind: "retained"`) of the heap each call keeps alive:
+`Bun.gc(true)`, a batch of 100 calls, `Bun.gc(true)` again,
+and the heap size delta divided by 100.
+The second full GC collects everything the calls allocated and dropped,
+so this is a leak check, not an allocation counter:
+a function that builds and discards a large tree reads near zero.
+The table shows it as `Retained/op`.
 
-`--peak-mem` adds a `phase: "memstats"` measurement (`memory.kind: "peak"`) of how far
-the task's first call raises the process's RSS, which does count garbage. Each task runs
-alone in a fresh process, three times, with `OSTIA_PEAK_MEM=1` in its environment: import
-the suite, run the group's and the task's `before` hooks, `Bun.gc(true)`, and call the task
-once while a worker thread samples RSS (about once a microsecond). The peak is the higher of
-the sampled maximum and the peak-RSS high-water mark (`process.resourceUsage().maxRSS`),
-measured from the RSS the call started at; the median of the three processes is
-`memory.peakBytes`, shown as `Peak mem`. The same suite gives the same reading to within a
-few percent.
+`--peak-mem` adds a `phase: "memstats"` measurement
+(`memory.kind: "peak"`) of how far the task's first call raises the
+process's RSS, which does count garbage.
+Each task runs alone in a fresh process, three times,
+with `OSTIA_PEAK_MEM=1` in its environment: import the suite,
+run the group's and the task's `before` hooks, `Bun.gc(true)`,
+and call the task once while a worker thread samples RSS
+(about once a microsecond).
+The peak is the higher of the sampled maximum
+and the peak-RSS high-water mark (`process.resourceUsage().maxRSS`),
+measured from the RSS the call started at;
+the median of the three processes is `memory.peakBytes`,
+shown as `Peak mem`.
+The same suite gives the same reading to within a few percent.
 
-It measures a first call, in the lower JIT tiers, like a build tool calling a library once
-per file; lower tiers can allocate what optimized code doesn't. To measure a warmed-up
-call, warm the JIT in a `before` hook on a smaller input than the task's.
+It measures a first call, in the lower JIT tiers,
+like a build tool calling a library once per file;
+lower tiers can allocate what optimized code doesn't.
+To measure a warmed-up call, warm the JIT in a `before` hook on a
+smaller input than the task's.
 
-Memory that setup freed but the allocator still holds is memory the call can reuse without
-RSS rising. Linux hands freed memory back to the OS right away; macOS holds it for seconds.
-So on macOS, module-scope code that allocates as much as the task (validating each input by
-running it, say) can hide the task's peak. The reading is then low by up to that much, and
-the measurement carries a `peak-hidden` warning with the amount (`data.slackBytes`) when
-it's 16MiB or more. Skip such work in these processes:
+Memory that setup freed but the allocator still holds is memory the call
+can reuse without RSS rising.
+Linux hands freed memory back to the OS right away;
+macOS holds it for seconds.
+So on macOS, module-scope code that allocates as much as the task
+(validating each input by running it, say) can hide the task's peak.
+The reading is then low by up to that much,
+and the measurement carries a `peak-hidden` warning with the amount
+(`data.slackBytes`) when it's 16MiB or more.
+Skip such work in these processes:
 
 ```ts
 if (!process.env.OSTIA_PEAK_MEM) checkOutputs() // runs every input once
 ```
 
-Ordinary setup (reading fixtures, building inputs) leaves a few MiB of this slack, so read
-small differences with that in mind; `--peak-mem` is for calls that allocate megabytes.
+Ordinary setup (reading fixtures, building inputs) leaves a few MiB of
+this slack, so read small differences with that in mind;
+`--peak-mem` is for calls that allocate megabytes.
 
 ```
 Task                 Median     Spread             Range              Retained/op Peak mem   Relative
@@ -315,24 +388,34 @@ mem:
   noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
 ```
 
-The first task allocates and drops a 40MB array per call: `Retained/op` sees nothing,
-`Peak mem` sees all of it. The second keeps 8KB per call alive, which both see. Byte
-counts print 1024-based (`B`, `KiB`, `MiB`) everywhere, heap snapshot summaries included.
+The first task allocates and drops a 40MB array per call:
+`Retained/op` sees nothing, `Peak mem` sees all of it.
+The second keeps 8KB per call alive, which both see.
+Byte counts print 1024-based (`B`, `KiB`, `MiB`) everywhere,
+heap snapshot summaries included.
 
-Without any flag, every task's timing measurement records the JS heap's size just before
-its warmup and just after its last trial (`memory.heapUsedBeforeBytes` /
-`heapUsedAfterBytes`): the heap as of its last collection, read without forcing one, so it
-never changes the timing. A cache that grows the heap elsewhere in the process shows in
-`heapUsedBefore` of every task after it. `ostia compare` reports either reading when it
-moves 10% or more (`+9.4% median` next to `heap used before 12.00MiB → 16.80MiB (+40.0%)`).
-Bun exposes neither a JS allocation counter nor GC counts or pause times, so ostia can't
-report bytes allocated per call or GC activity.
+Without any flag, every task's timing measurement records the JS heap's
+size right before its warmup and right after its last trial
+(`memory.heapUsedBeforeBytes` / `heapUsedAfterBytes`):
+the heap as of its last collection, read without forcing one,
+so it never changes the timing.
+A cache that grows the heap elsewhere in the process shows in
+`heapUsedBefore` of every task after it.
+`ostia compare` reports either reading when it moves 10%
+or more
+(`+9.4% median` next to
+`heap used before 12.00MiB → 16.80MiB (+40.0%)`).
+Bun exposes neither a JS allocation counter nor GC counts
+or pause times, so ostia can't report bytes allocated per call
+or GC activity.
 
 ### `--preload` and `--bun-flags`
 
-`--preload PATH` imports a script before each suite file, in the same subprocess, like
-Bun's own `--preload`. Use it to install globals a suite needs at import time or to
-register a `Bun.plugin()` loader. Multiple preloads run in the order given.
+`--preload PATH` imports a script before each suite file,
+in the same subprocess, like Bun's own `--preload`.
+Use it to install globals a suite needs at import time
+or to register a `Bun.plugin()` loader.
+Multiple preloads run in the order given.
 
 ```ts
 // bench/jsdom-setup.ts
@@ -346,14 +429,16 @@ ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
 ```
 
 Complete jsdom, happy-dom and Svelte-plugin setups are in
-[preload-recipes.md](preload-recipes.md). To give only some suite files a preload (the
-DOM ones, say), set it per group with the config's
+[preload-recipes.md](preload-recipes.md).
+To give only some suite files a preload (the DOM ones, say),
+set it per group with the config's
 [`bench.projects`](config.md#projects).
 
-`--bun-flags FLAGS` passes flags to the `bun` process that runs each suite. The common
-case is a package whose `exports` map branches on a condition Bun doesn't set by default:
-Svelte 5 resolves to its server build without `--conditions=browser`, and mounting a
-component then fails.
+`--bun-flags FLAGS` passes flags to the `bun` process that runs each
+suite.
+The common case is a package whose `exports` map branches on a condition
+Bun doesn't set by default: Svelte 5 resolves to its server build
+without `--conditions=browser`, and mounting a component then fails.
 
 ```sh
 ostia bench --bun-flags="--conditions=browser" bench/*.dom.bench.ts
@@ -363,13 +448,16 @@ Space-separated flags within one value are split and all passed.
 
 ### Table layout
 
-Grouped tasks print under their group name; ungrouped tasks and subprocess commands
-print flat. `Relative` compares each task with its group's `{ baseline: true }` task, or
-else the group's fastest task. `Instr/call` is the median number of instructions each call
-retired, where the machine counts them (see `ostia ab`'s "Instructions"): unlike time,
-it barely moves on a loaded machine.
+Grouped tasks print under their group name;
+ungrouped tasks and subprocess commands print flat.
+`Relative` compares each task with its group's `{ baseline: true }`
+task, or else the group's fastest task.
+`Instr/call` is the median number of instructions each call retired,
+where the machine counts them (see `ostia ab`'s "Instructions"):
+unlike time, it barely moves on a loaded machine.
 
-There's no watch mode. Pair `ostia bench` with a file watcher and a small budget:
+There's no watch mode.
+Pair `ostia bench` with a file watcher and a small budget:
 
 ```sh
 watchexec -e ts -- ostia bench bench/parse.ts --budget 100
@@ -407,15 +495,19 @@ ostia ab [flags] <suite.ts...>
 | `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal and `--quiet` isn't given. |
 | `--quiet` | Don't print the report. |
 
-`ostia ab` answers "did my change make this slower?" on a machine too noisy for two runs
-minutes apart to agree. It runs each suite file's tasks twice over in one process: once
-from the base ref's committed tree and once from the working tree (uncommitted changes
-included), in alternating batches, and judges each task on the ratio of the two within
-each round. Anything that drifts over the run, such as another process's load or thermal
-throttling, hits both halves of a round alike and cancels in the ratio. `ostia compare`
-between two documents can't do that: on a shared machine, the same code measured minutes
-apart can differ by 10–25%, and the noise-floor widening that keeps `compare` from
-reporting that as a regression also hides real 5–10% changes.
+`ostia ab` answers "did my change make this slower?"
+on a machine too noisy for two runs minutes apart to agree.
+It runs each suite file's tasks twice over in one process:
+once from the base ref's committed tree and once from the working tree
+(uncommitted changes included), in alternating batches,
+and judges each task on the ratio of the two within each round.
+Anything that drifts over the run, such as another process's load
+or thermal throttling, hits both halves of a round alike
+and cancels in the ratio.
+`ostia compare` between two documents can't do that:
+on a shared machine, the same code measured minutes apart can differ by
+10–25%, and the noise-floor widening that keeps `compare` from reporting
+that as a regression also hides real 5–10% changes.
 
 ```sh
 ostia ab bench/parse.bench.ts                 # working tree vs HEAD
@@ -438,182 +530,274 @@ Output differs from the base (1):
 Geomean +41.0% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
 ```
 
-**The base tree.** The ref's commit is extracted with `git archive` into
-`.ostia/ab/<sha>/` at the project root (the first 12 characters of the sha) once and
-reused by later runs against the same commit. The suite file is imported from both trees,
-so its relative imports, and `tsconfig` `paths` such as a package importing itself by
-name, resolve within each tree; bare package imports (dependencies, and `ostia` itself)
-walk up to the project's own `node_modules` from both, by the same real paths. The tree
-isn't under `node_modules`, which code under test often skips or treats differently
-(bundler plugins, resolvers, globbers). `.ostia/ab/` holds a `.gitignore` that ignores
-everything in it, so git and tools that read `.gitignore` leave the trees alone; exclude
-`.ostia/ab` from test runners and linters that don't. The consequences: a change to a
-dependency's version isn't what's being compared, files that aren't committed (generated
-fixtures, gitignored inputs) don't exist in the base tree until `--base-setup` builds them,
-git submodules aren't extracted, and only the project root's `node_modules` (not a
-workspace package's own) is reachable from the base tree. The base tree's paths are about
-20 characters longer than the working tree's, so code that does string work on absolute
-paths (joining, relativizing, hashing them) does slightly more on the base side and can
-read as a few percent faster on the candidate; in one path-heavy task, each extra
-character cost 0.3–0.45% more instructions. A suite file that doesn't exist at the ref
-has nothing to pair with: it's listed as a new suite, its tasks are candidate-only and aren't timed,
-and the run goes on with the other suites. Use `ostia bench` to time it.
+**The base tree.**
+The ref's commit is extracted with `git archive` into `.ostia/ab/<sha>/`
+at the project root (the first 12 characters of the sha) once
+and reused by later runs against the same commit.
+The suite file is imported from both trees, so its relative imports,
+and `tsconfig` `paths` such as a package importing itself by name,
+resolve within each tree; bare package imports
+(dependencies, and `ostia` itself) walk up to the project's own
+`node_modules` from both, by the same real paths.
+The tree isn't under `node_modules`,
+which code under test often skips or treats differently
+(bundler plugins, resolvers, globbers).
+`.ostia/ab/` holds a `.gitignore` that ignores everything in it,
+so git and tools that read `.gitignore` leave the trees alone;
+exclude `.ostia/ab` from test runners and linters that don't.
+The consequences: a change to a dependency's version isn't what's being
+compared, files that aren't committed
+(generated fixtures, gitignored inputs) don't exist in the base tree
+until `--base-setup` builds them, git submodules aren't extracted,
+and only the project root's `node_modules`
+(not a workspace package's own) is reachable from the base tree.
+The base tree's paths are about 20 characters longer than the working
+tree's, so code that does string work on absolute paths
+(joining, relativizing, hashing them) does slightly more on the base
+side and can read as a few percent faster on the candidate;
+in one path-heavy task, each extra character cost 0.3–0.45% more
+instructions.
+A suite file that doesn't exist at the ref has nothing to pair with:
+it's listed as a new suite, its tasks are candidate-only
+and aren't timed, and the run goes on with the other suites.
+Use `ostia bench` to time it.
 
-**Setup.** `--base-setup CMD` (or the config's `ab.setup`) runs `CMD` with `sh -c` once in
-each freshly extracted tree, before the salt pass, so the files it writes are salted too.
+**Setup.**
+`--base-setup CMD` (or the config's `ab.setup`) runs `CMD` with `sh -c`
+once in each freshly extracted tree, before the salt pass,
+so the files it writes are salted too.
 Use it when the suites import generated or gitignored files:
 
 ```sh
 ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
 ```
 
-Each command runs in the tree's counterpart of the current directory, with:
+Each command runs in the tree's counterpart of the current directory,
+with:
 
-- the project's `node_modules` linked into the tree, so build scripts that read
-  `./node_modules/...` by relative path work. The link is removed when setup ends, so
-  don't install packages in setup: they would land in the project's `node_modules`.
-- `OSTIA_AB_SHA`, the base commit, and `OSTIA_AB_CANDIDATE_DIR`, the current directory in
-  the working tree. When the generated files don't depend on the base's code, copying them
-  is cheaper than building them: `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
+- the project's `node_modules` linked into the tree,
+  so build scripts that read `./node_modules/...`
+  by relative path work.
+  The link is removed when setup ends,
+  so don't install packages in setup:
+  they would land in the project's `node_modules`.
+- `OSTIA_AB_SHA`, the base commit, and `OSTIA_AB_CANDIDATE_DIR`,
+  the current directory in the working tree.
+  When the generated files don't depend on the base's code,
+  copying them is cheaper than building them:
+  `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
 
-The tree is cached under `.ostia/ab/<sha>-<hash>/`, where the hash covers the commands,
-so changing them builds a new tree. Setup runs in a temporary directory that is renamed
-into place only when every command succeeds, so a failed or interrupted setup never
-leaves a half-built tree for a later run to reuse. Each command runs in its own process
-group, and the whole group is killed when the command ends, times out or is cancelled, so
-nothing it started in the background keeps running. A command that exits non-zero (or runs
-past `--timeout`) stops the run with exit 2 (`command-failed`) and the last 20 lines of its
-stderr.
+The tree is cached under `.ostia/ab/<sha>-<hash>/`,
+where the hash covers the commands, so changing them builds a new tree.
+Setup runs in a temporary directory that is renamed into place only
+when every command succeeds, so a failed or interrupted setup never
+leaves a half-built tree for a later run to reuse.
+Each command runs in its own process group,
+and the whole group is killed when the command ends,
+times out or is cancelled, so nothing it started in the background keeps
+running.
+A command that exits non-zero (or runs past `--timeout`) stops the run
+with exit 2 (`command-failed`) and the last 20 lines of its stderr.
 
-Trees pile up as `HEAD` moves, so after each run `ostia ab` keeps only the
-`--keep-trees` (default 5) most recently used, this run's included, and removes the rest.
-A tree used in the last hour is never removed, since another run may still be using it,
-and neither is a temporary directory whose process is still alive. `ostia ab --clean`
-removes them all.
+Trees pile up as `HEAD` moves, so after each run `ostia ab` keeps only
+the `--keep-trees` (default 5) most recently used, this run's included,
+and removes the rest.
+A tree used in the last hour is never removed,
+since another run may still be using it,
+and neither is a temporary directory whose process is still alive.
+`ostia ab --clean` removes them all.
 
 Every script in the extracted tree gets one inert line appended,
-`;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to its working-tree
-copy. JSC reuses compiled code between identical sources, and identical copies didn't
-measure independently: with no change at all, whichever copy was imported (and warmed up)
-first ran 5–15% faster, reproducibly across processes. The salt removes part of that gap.
+`;globalThis.__ostia_ab_base__;`, so that no file is byte-identical to
+its working-tree copy.
+JSC reuses compiled code between identical sources,
+and identical copies didn't measure independently:
+with no change at all, whichever copy was imported (and warmed up) first
+ran 5–15% faster, reproducibly across processes.
+The salt removes part of that gap.
 The rest comes from order, not identical sources; see "Order".
 
-**Pairing.** Tasks pair across the two trees by their `group/name` id and `params`, the
-same identity the workload id hashes, so a paired task has the same workload id as in
-`ostia bench`. A task on only one side is listed as unmatched. `task.skip()` skips both
-sides; group and task `before`/`after` hooks run for both sides.
+**Pairing.**
+Tasks pair across the two trees by their `group/name` id and `params`,
+the same identity the workload id hashes,
+so a paired task has the same workload id as in `ostia bench`.
+A task on only one side is listed as unmatched.
+`task.skip()` skips both sides; group and task `before`/`after` hooks
+run for both sides.
 
-**Measuring.** For each task: one call of each side, a warmup that doubles both sides'
-batch until each spans 1ms, a batch size planned so the slower side's batch takes about
-10ms, three untimed warm rounds, then `--rounds` rounds of one batch per side, alternating
-which side goes first. Each side runs through its own compiled timing loop. The
-candidate's per-call times become the measurement's `timing`; the base side's and the
-per-round ratios go in `paired`.
+**Measuring.**
+For each task: one call of each side,
+a warmup that doubles both sides' batch until each spans 1ms,
+a batch size planned so the slower side's batch takes about 10ms,
+three untimed warm rounds, then `--rounds` rounds of one batch per side,
+alternating which side goes first.
+Each side runs through its own compiled timing loop.
+The candidate's per-call times become the measurement's `timing`;
+the base side's and the per-round ratios go in `paired`.
 
-**Order.** In one process, the side that's imported, called, warmed and timed first can
-run faster, the same way in every process. On svelte-highlight's render suite, with no
-change at all, one task read +4–6% in every run with the base first, and −2–5% with the
-candidate first. Alternating rounds can't cancel this, and fresh-process repeats in the
-same order reproduce it, so it read as a confirmed regression. So each suite runs twice:
-once with the base first and once with the candidate first, splitting `--rounds` between
-them (8 and 7 by default). The two runs' rounds are pooled and judged together, and the
-bias pulls them both ways and cancels. Each confirmation repeat does the same. This costs
-one more process per suite and a second warmup per task, about 25% more time.
+**Order.**
+In one process, the side that's imported, called,
+warmed and timed first can run faster, the same way in every process.
+On svelte-highlight's render suite, with no change at all,
+one task read +4–6% in every run with the base first,
+and −2–5% with the candidate first.
+Alternating rounds can't cancel this,
+and fresh-process repeats in the same order reproduce it,
+so it read as a confirmed regression.
+So each suite runs twice: once with the base first
+and once with the candidate first, splitting `--rounds` between them
+(8 and 7 by default).
+The two runs' rounds are pooled and judged together,
+and the bias pulls them both ways and cancels.
+Each confirmation repeat does the same.
+This costs one more process per suite and a second warmup per task,
+about 25% more time.
 
-**Verdict.** A task is flagged `regressed` when its median ratio is above
-`1 + threshold` and the 25th percentile is above 1, so the candidate was slower in at
-least three quarters of rounds; `improved` is the mirror image. Pairing can't cancel one
-thing: how the JIT happened to compile each side's copy of the code in that process,
-which can skew a small task by 20% in either direction with tight quartiles. So each
-flagged task is measured again in `--confirm` fresh processes, and only counts when every
-repeat flags it the same way; otherwise it reads `unconfirmed` and counts as unchanged.
+**Verdict.**
+A task is flagged `regressed` when its median ratio is above
+`1 + threshold` and the 25th percentile is above 1,
+so the candidate was slower in at least three quarters of rounds;
+`improved` is the mirror image.
+Pairing can't cancel one thing: how the JIT happened to compile each
+side's copy of the code in that process,
+which can skew a small task by 20% in either direction with tight
+quartiles.
+So each flagged task is measured again in `--confirm` fresh processes,
+and only counts when every repeat flags it the same way;
+otherwise it reads `unconfirmed` and counts as unchanged.
 
-A slowdown spread thinly across many tasks, too small to flag any one of them, shows up
-in the geometric mean of the tasks' median ratios, where per-task noise averages out. For
-a flagged task, the median over its first run and its repeats goes into the geomean. With
-many tasks, an A/A run (no change) typically lands within ±0.3%; with few, the geomean is
-only as steady as those few tasks, so raise `--geomean-threshold` accordingly.
+A slowdown spread thinly across many tasks,
+too small to flag any one of them, shows up in the geometric mean of the
+tasks' median ratios, where per-task noise averages out.
+For a flagged task, the median over its first run
+and its repeats goes into the geomean.
+With many tasks, an A/A run (no change) lands within ±0.3% most of the
+time; with few, the geomean is only as steady as those few tasks,
+so raise `--geomean-threshold` accordingly.
 
-**Output.** Each task's first call on each side is compared with `Bun.deepEquals`
-(prototypes ignored), and tasks whose results differ are listed. This is informational,
-expected for a change in behavior, and never fails the run. Return the result from the
-task (`task("x", () => parse(input))`) for it to mean anything.
+**Output.**
+Each task's first call on each side is compared with `Bun.deepEquals`
+(prototypes ignored), and tasks whose results differ are listed.
+This is informational, expected for a change in behavior,
+and never fails the run.
+Return the result from the task (`task("x", () => parse(input))`) for it
+to mean anything.
 
-**Errors.** A task that throws, on either side, doesn't stop the suite. It isn't timed,
-reads `base threw`, `candidate threw` or `both threw` in the table, and the error's first
-line is listed under "Threw". A throw from a task's `before` or `after` hook counts for
-that hook's side. Each hook runs once: a side whose `before` threw isn't timed or torn
-down, and every side that was set up is torn down once, even when a hook throws. When only
-one side has thrown, the other side's task is called once more, before teardown, to tell
-whether it throws too. A task that throws on the candidate side only fails the run, the
-same as a regression; one that throws on the base side only (a fix) or both sides doesn't.
-A throw in a confirmation repeat counts the same way, reads `(repeat N)`, and the task
-keeps the first process's numbers in the document but isn't judged on them. A suite file
-that fails to load on either side stops the run with exit 2, naming the side and the error.
+**Errors.**
+A task that throws, on either side, doesn't stop the suite.
+It isn't timed, reads `base threw`, `candidate threw`
+or `both threw` in the table, and the error's first line is listed under
+"Threw".
+A throw from a task's `before` or `after` hook counts for that hook's
+side.
+Each hook runs once: a side whose `before` threw isn't timed
+or torn down, and every side that was set up is torn down once,
+even when a hook throws.
+When only one side has thrown, the other side's task is called once
+more, before teardown, to tell whether it throws too.
+A task that throws on the candidate side only fails the run,
+the same as a regression; one that throws on the base side only (a fix)
+or both sides doesn't.
+A throw in a confirmation repeat counts the same way,
+reads `(repeat N)`, and the task keeps the first process's numbers in
+the document but isn't judged on them.
+A suite file that fails to load on either side stops the run with exit
+2, naming the side and the error.
 
-**Changed suites.** The base side runs the base tree's copy of each suite file. When the
-suite itself changed, the two sides may time different things: a fixed fixture, a new
-input size. So when a suite file's text differs from the base's copy, its tasks carry a
-`suite-changed` warning. A task whose output differs as well is marked `not comparable`:
-its verdict is `unchanged`, it isn't re-measured, and it's left out of the geomean. Only
-the suite file itself is checked, not the files it imports.
+**Changed suites.**
+The base side runs the base tree's copy of each suite file.
+When the suite itself changed, the two sides may time different things:
+a fixed fixture, a new input size.
+So when a suite file's text differs from the base's copy,
+its tasks carry a `suite-changed` warning.
+A task whose output differs as well is marked `not comparable`:
+its verdict is `unchanged`, it isn't re-measured,
+and it's left out of the geomean.
+Only the suite file itself is checked, not the files it imports.
 
-The noise floor is measured and reported as usual but doesn't widen the threshold:
-pairing already cancels the drift it measures.
+The noise floor is measured and reported as usual but doesn't widen the
+threshold: pairing already cancels the drift it measures.
 
-**Instructions.** Pairing cancels drift that hits both halves of a round alike, but on a
-loaded machine the load changes faster than that: with a load average of 4–6 on 8 cores,
-rounds of identical code spread −40%…+44%, and a real 5% change can't be told apart. The
-number of instructions a call retires barely moves with load, since another process
-taking the CPU doesn't change what this thread executes. So where the machine can count
-them, `ostia ab` reads the hardware counter of the thread running the task around each
-batch, and shows the change in instructions per call next to time (the `Instr` column).
-Counts are per thread and user mode only: the kernel's work for a system call, and the
-work of other threads (the JIT compiler, GC helpers, Bun's I/O pool), don't count.
+**Instructions.**
+Pairing cancels drift that hits both halves of a round alike,
+but on a loaded machine the load changes faster than that:
+with a load average of 4–6 on 8 cores,
+rounds of identical code spread −40%…+44%,
+and a real 5% change can't be told apart.
+The number of instructions a call retires barely moves with load,
+since another process taking the CPU doesn't change what this thread
+executes.
+So where the machine can count them,
+`ostia ab` reads the hardware counter of the thread running the task
+around each batch, and shows the change in instructions per call next to
+time (the `Instr` column).
+Counts are per thread and user mode only:
+the kernel's work for a system call,
+and the work of other threads
+(the JIT compiler, GC helpers, Bun's I/O pool), don't count.
 
-`--metric instructions` judges by them instead. Everything else stays the same: the
-per-round ratio, the quartile rule, both import orders, fresh-process confirmation and the
-geomean all use instruction ratios, and the table leads with instructions per call and
-shows the time change in a `Time` column. On the same loaded machine, identical code's
-quartiles stayed within ±0.8%, and a 5% change read +4.9% to +5.0% and was confirmed in
-each of three runs, where time flagged nothing. So a lower `--threshold`, such as 3, holds. What it can't see is a change that costs time without
-costing instructions: cache misses, branch mispredictions, lock contention, I/O, work
-moved to another thread. And it still depends on the JIT: a round that runs before the
-code reaches its top tier retires more instructions, which is what the median and the
-quartile rule are for.
+`--metric instructions` judges by them instead.
+Everything else stays the same: the per-round ratio, the quartile rule,
+both import orders, fresh-process confirmation and the geomean all use
+instruction ratios, and the table leads with instructions per call
+and shows the time change in a `Time` column.
+On the same loaded machine, identical code's quartiles stayed within
+±0.8%, and a 5% change read +4.9% to +5.0% and was confirmed in each of
+three runs, where time flagged nothing.
+So a lower `--threshold`, such as 3, holds.
+What it can't see is a change that costs time without costing
+instructions: cache misses, branch mispredictions, lock contention, I/O,
+work moved to another thread.
+And it still depends on the JIT: a round that runs before the code
+reaches its top tier retires more instructions,
+which is what the median and the quartile rule are for.
 
-Instructions are counted on macOS (through `thread_selfcounts`) and on Linux (through
-`perf_event_open`, which needs `/proc/sys/kernel/perf_event_paranoid` at 2 or lower and a
-machine that exposes a hardware counter, which many VMs and containers don't). Elsewhere
-the column is left out, and `--metric instructions` stops with exit 2 and the reason.
+Instructions are counted on macOS (through `thread_selfcounts`)
+and on Linux
+(through `perf_event_open`, which needs
+`/proc/sys/kernel/perf_event_paranoid` at 2 or lower and a machine that
+exposes a hardware counter, which many VMs and containers don't).
+Elsewhere the column is left out, and `--metric instructions` stops with
+exit 2 and the reason.
 
-**Memory.** `--alloc` and `--peak-mem` measure the same things as under `ostia bench`, on
-both sides. After timing, each task that timed without throwing runs in fresh processes
-that load only one side's suite, three per side, alternating sides; the median of each
-side counts. In each process:
+**Memory.**
+`--alloc` and `--peak-mem` measure the same things as under
+`ostia bench`, on both sides.
+After timing, each task that timed without throwing runs in fresh
+processes that load only one side's suite, three per side,
+alternating sides; the median of each side counts.
+In each process:
 
-- `--peak-mem`: how far the first call raises RSS, garbage included. `OSTIA_PEAK_MEM` is
-  set, as under `bench`.
-- `--alloc`: after one warmup batch, a batch of calls between full GCs. The heap growth
-  per call is what the calls keep alive, not what they allocate, so it catches leaks and
-  caches that grow.
+- `--peak-mem`: how far the first call raises RSS, garbage included.
+  `OSTIA_PEAK_MEM` is set, as under `bench`.
+- `--alloc`: after one warmup batch, a batch of calls between full GCs.
+  The heap growth per call is what the calls keep alive,
+  not what they allocate, so it catches leaks and caches that grow.
 
-Memory isn't measured in the timing process. There, the two sides share every package in
-`node_modules` and run in a fixed order, and in A/A runs (no change) the retained heap
-differed between sides by up to 12 KiB per call, the same way every run. In separate
-processes, the two sides agree within a few bytes.
+Memory isn't measured in the timing process.
+There, the two sides share every package in `node_modules`
+and run in a fixed order, and in A/A runs (no change) the retained heap
+differed between sides by up to 12 KiB per call, the same way every run.
+In separate processes, the two sides agree within a few bytes.
 
-Pairing matters less here than for time: memory doesn't drift with load. A reading is
-`regressed` when the candidate's is larger than the base's by more than `--mem-threshold`
-(default 10%) of the base's and by more than a noise floor; `improved` is the mirror. The
-floor is 16 KiB over the batch for `--alloc`, divided by the calls in the batch (the heap
-grows in blocks, so a batch that keeps nothing can still read a block or two). For
-`--peak-mem` it's 1 MiB (fresh processes differ by a few hundred KiB on small readings),
-or, when a `peak-hidden` warning says memory freed before the call could hide part of its
-peak, the size of that memory. A memory regression fails the run like a time regression.
-Task and group `alloc`/`peakMem` options apply under `ab` as under `bench`. A task that's
-not comparable gets no memory verdict. The Change column leaves out the percent when the
-base reading is under the floor: a percent of almost nothing means little.
+Pairing matters less here than for time: memory doesn't drift with load.
+A reading is `regressed` when the candidate's is larger than the base's
+by more than `--mem-threshold` (default 10%) of the base's
+and by more than a noise floor; `improved` is the mirror.
+The floor is 16 KiB over the batch for `--alloc`,
+divided by the calls in the batch
+(the heap grows in blocks, so a batch that keeps nothing can still read
+a block or two).
+For `--peak-mem` it's 1 MiB
+(fresh processes differ by a few hundred KiB on small readings), or,
+when a `peak-hidden` warning says memory freed before the call could
+hide part of its peak, the size of that memory.
+A memory regression fails the run like a time regression.
+Task and group `alloc`/`peakMem` options apply under `ab` as under
+`bench`.
+A task that's not comparable gets no memory verdict.
+The Change column leaves out the percent when the base reading is under
+the floor: a percent of almost nothing means little.
 
 ```
 Memory:
@@ -625,10 +809,12 @@ dom:
   remember   retained/op 21B        7.88KiB    +7.86KiB           regressed
 ```
 
-**Progress.** A run over many suites, with confirmations, can take many minutes. On a
-terminal, `ostia ab` shows one progress line on stderr, replaced as it goes and cleared
-before the report. `--progress` turns it on anywhere else too, as one line per step, which
-is how a script or agent can tell a long run from a stuck one:
+**Progress.**
+A run over many suites, with confirmations, can take many minutes.
+On a terminal, `ostia ab` shows one progress line on stderr,
+replaced as it goes and cleared before the report.
+`--progress` turns it on anywhere else too, as one line per step,
+which is how a script or agent can tell a long run from a stuck one:
 
 ```
 [ab] base setup: bun scripts/generate.ts
@@ -639,17 +825,24 @@ is how a script or agent can tell a long run from a stuck one:
 
 Progress never goes to stdout, so `--format minimal` output stays clean.
 
-Exit codes: `0` pass, `1` a confirmed regression, a task that threw on the candidate side
-only, or the geomean over its threshold, `2` nothing paired (`no-matches`), not in a git
-repository, an unknown ref, or a suite file that doesn't exist or lies outside the
-repository (`invalid-flag`), `--metric instructions` where instructions can't be counted, a setup command failed (`command-failed`), a suite failed on
-one side outside any task (`suite-failed`, with `data.side`), or a suite crashed or timed
-out (`spawn-failed`); `130` Ctrl-C.
+Exit codes: `0` pass, `1` a confirmed regression,
+a task that threw on the candidate side only,
+or the geomean over its threshold, `2` nothing paired (`no-matches`),
+not in a git repository, an unknown ref,
+or a suite file that doesn't exist or lies outside the repository
+(`invalid-flag`), `--metric instructions` where instructions can't be
+counted, a setup command failed (`command-failed`),
+a suite failed on one side outside any task
+(`suite-failed`, with `data.side`), or a suite crashed
+or timed out (`spawn-failed`); `130` Ctrl-C.
 
-With no suite files, `ostia ab` uses the config's `bench.suites`, and its `filter`,
-`preload`, `bunFlags`, `outDir` and `timeoutMs`, and its setup commands from `ab.setup`
-(and `ab.metric`, `ab.alloc`, ...; see [config.md](config.md)).
-The sampling settings (`budgetMs`, `samples`, `isolate`, ...) don't apply.
+With no suite files, `ostia ab` uses the config's `bench.suites`,
+and its `filter`, `preload`, `bunFlags`, `outDir` and `timeoutMs`,
+and its setup commands from `ab.setup`
+(and `ab.metric`, `ab.alloc` and the other `ab` keys; see
+[config.md](config.md)).
+The sampling settings (`budgetMs`, `samples`, `isolate` and the rest)
+don't apply.
 
 ## `ostia compare`
 
@@ -666,20 +859,26 @@ ostia compare <candidate.json> --baseline <base.json>
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
 
-Exactly two document paths are taken (one with `--baseline`); a third is a usage error.
+Exactly two document paths are taken (one with `--baseline`);
+a third is a usage error.
 
-Thresholds come from `--config PATH`, else `ostia.config.ts`/`ostia.config.json` in the current directory when
-one exists (the same `thresholds` `ostia ci` uses), otherwise from `DEFAULT_THRESHOLDS`.
-There are no threshold flags. A config that fails to load is an error (`config-invalid`),
-even for `compare`. The table and markdown formats print the source first:
+Thresholds come from `--config PATH`,
+else `ostia.config.ts`/`ostia.config.json` in the current directory
+when one exists (the same `thresholds` `ostia ci` uses),
+otherwise from `DEFAULT_THRESHOLDS`.
+There are no threshold flags.
+A config that fails to load is an error (`config-invalid`),
+even for `compare`.
+The table and markdown formats print the source first:
 
 ```
 thresholds: ostia.config.json
 base a1b2c3d (main) → cand d4e5f6a (my-opt, dirty)
 ```
 
-The `base → cand` line appears when both documents carry git metadata. When machine
-noise or drift widened the timing threshold (see [statistics.md](statistics.md#threshold-widening)),
+The `base → cand` line appears when both documents carry git metadata.
+When machine noise or drift widened the timing threshold
+(see [statistics.md](statistics.md#threshold-widening)),
 the comparisons start with a line saying by how much.
 
 Each task shows the base and candidate medians, then the change:
@@ -690,9 +889,11 @@ Each task shows the base and candidate medians, then the change:
   memory: heap used before 12.00MiB -> 16.80MiB (+40.0%)
 ```
 
-The `memory` line lists each memory reading both documents have (`bench` records the heap
-used before and after every task; `--alloc`, `--peak-mem` and subprocess max RSS add
-theirs) that moved by 10% or more. Memory is never gated.
+The `memory` line lists each memory reading both documents have
+(`bench` records the heap used before and after every task; `--alloc`,
+`--peak-mem` and subprocess max RSS add theirs) that moved by 10%
+or more.
+Memory is never gated.
 
 A task present in only one document is listed instead of dropped:
 
@@ -702,12 +903,14 @@ Not compared:
   css/extractCssIndexAdditions: base only (removed, or renamed without `aliases`)
 ```
 
-A renamed suite task compares against its old name when the task lists it in
-`aliases` (`task("extractCssOrphans", fn, { aliases: ["extractCssIndexAdditions"] })`);
+A renamed suite task compares against its old name
+when the task lists it in `aliases`
+(`task("extractCssOrphans", fn, { aliases: ["extractCssIndexAdditions"] })`);
 the comparison then says `renamed from css/extractCssIndexAdditions`.
 
-`--format json` prints the candidate document with its comparisons. Its `compared` array
-holds one entry per task on either side, the same rows the table and markdown print:
+`--format json` prints the candidate document with its comparisons.
+Its `compared` array holds one entry per task on either side,
+the same rows the table and markdown print:
 
 ```json
 {
@@ -729,21 +932,26 @@ holds one entry per task on either side, the same rows the table and markdown pr
 }
 ```
 
-`verdict` is `improved`, `unchanged`, `regressed`, `missing-base` (candidate only) or
-`missing-cand` (base only). `pass` is whether the comparison passed the gate, frames and
-heap types included; one-sided tasks have neither `pass` nor `timing`. Frame and heap-type
-deltas and warnings stay on the `Comparison` named by `comparisonId`.
+`verdict` is `improved`, `unchanged`, `regressed`,
+`missing-base` (candidate only) or `missing-cand` (base only).
+`pass` is whether the comparison passed the gate,
+frames and heap types included; one-sided tasks have neither `pass` nor
+`timing`.
+Frame and heap-type deltas and warnings stay on the `Comparison` named
+by `comparisonId`.
 
-When the documents differ in OS, architecture, Bun version, CPU model or core count,
-every comparison carries an `environment-mismatch` warning; table and markdown print it
-once in the header.
+When the documents differ in OS, architecture, Bun version,
+CPU model or core count, every comparison carries an
+`environment-mismatch` warning; table and markdown print it once in the
+header.
 
 Workloads are compared, and listed, in the candidate document's order.
 
-Exit codes: `0` pass, `1` at least one workload failed (timing regression, or a CPU
-frame / heap type over its threshold), `2` zero workloads matched (`no-matches`) or a
-document failed to load (`document-load-failed`). How verdicts are decided:
-[statistics.md](statistics.md).
+Exit codes: `0` pass, `1` at least one workload failed
+(timing regression, or a CPU frame / heap type over its threshold),
+`2` zero workloads matched (`no-matches`) or a document failed to load
+(`document-load-failed`).
+How verdicts are decided: [statistics.md](statistics.md).
 
 ## `ostia report`
 
@@ -757,7 +965,8 @@ ostia report <document.json> [flags]
 | `--measurement ID` | Visualization formats only: render only this measurement (default: every CPU measurement). |
 | `--out-dir PATH` | Visualization formats only: write files here instead of stdout. |
 
-Giving `--measurement` or `--out-dir` with any other format is a usage error (exit 2).
+Giving `--measurement` or `--out-dir` with any other format is a usage
+error (exit 2).
 
 | Format | Output |
 |---|---|
@@ -771,7 +980,8 @@ Giving `--measurement` or `--out-dir` with any other format is a usage error (ex
 | `speedscope` | Sampled-profile JSON for speedscope.app |
 | `cpuprofile` | The original `.cpuprofile` artifact, verbatim (`cpu-prof`/`inspector` origins only) |
 
-A visualization format on a document with no CPU evidence exits 2 with `no-cpu-evidence`.
+A visualization format on a document with no CPU evidence exits 2 with
+`no-cpu-evidence`.
 
 ```
 $ ostia report doc.json --format collapsed
@@ -818,8 +1028,9 @@ ostia ci [flags]
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
 
-`ostia ci` loads the config ([config.md](config.md)), measures every workload, compares
-against `<baselineDir>/<name>.json`, and gates on the result.
+`ostia ci` loads the config ([config.md](config.md)),
+measures every workload, compares against `<baselineDir>/<name>.json`,
+and gates on the result.
 
 ```
 1 workloads
@@ -832,56 +1043,76 @@ Profile CI: ✓
 
 ### Workloads
 
-A `command` workload is timed like `ostia time`, using the config's top-level `samples`,
-`budgetMs`, `minSamples` and `warmup`. Its `prepare`, `timeSource`, `timeoutMs` and
-`ignoreExitCodes` mean the same as the `ostia time` flags. Every command workload gets a
-10-minute timeout unless it sets `timeoutMs`.
+A `command` workload is timed like `ostia time`,
+using the config's top-level `samples`, `budgetMs`,
+`minSamples` and `warmup`.
+Its `prepare`, `timeSource`, `timeoutMs` and `ignoreExitCodes` mean the
+same as the `ostia time` flags.
+Every command workload gets a 10-minute timeout
+unless it sets `timeoutMs`.
 
-A `suites` workload runs its suite files through `bench()` with the config's `bench`
-section applied exactly as `ostia bench` applies it (`budgetMs`, `jobs` including
-`"auto"`, `isolate`, `preload`, `bunFlags`, `timeoutMs`, ...), except that the workload's
-own `suites` list is used. Every task is compared individually. Suite processes get a
-10-minute timeout unless the workload sets `timeoutMs` or `bench.timeoutMs` is set (the
-workload's own wins).
+A `suites` workload runs its suite files through `bench()` with the
+config's `bench` section applied exactly as `ostia bench` applies it
+(`budgetMs`, `jobs` including `"auto"`, `isolate`, `preload`,
+`bunFlags`, `timeoutMs` and the rest),
+except that the workload's own `suites` list is used.
+Every task is compared individually.
+Suite processes get a 10-minute timeout unless the workload sets
+`timeoutMs` or `bench.timeoutMs` is set (the workload's own wins).
 
 ### Caching
 
-Command workloads are cached under `outDir`, keyed on the workload id, the sampling
-settings, the Bun and ostia versions, and the contents of the files matched by `inputs`:
+Command workloads are cached under `outDir`, keyed on the workload id,
+the sampling settings, the Bun and ostia versions,
+and the contents of the files matched by `inputs`:
 
 - no `inputs` field: never cached, always reruns;
-- `inputs: []`: depends on nothing, cached until the command or settings change;
-- `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`: reused while the matched files'
-  contents are unchanged. Absolute paths work. Globs match dotfiles, but wildcards skip
-  `node_modules`, `.git` and `.ostia/ab` (`ostia ab`'s base trees) unless the pattern
-  names them.
+- `inputs: []`: depends on nothing, cached until the command
+  or settings change;
+- `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`:
+  reused while the matched files' contents are unchanged.
+  Absolute paths work.
+  Globs match dotfiles, but wildcards skip `node_modules`,
+  `.git` and `.ostia/ab` (`ostia ab`'s base trees)
+  unless the pattern names them.
 
-A function-form `prepare` hook makes a workload uncacheable. `suites` workloads always
-run. `--full` ignores the cache.
+A function-form `prepare` hook makes a workload uncacheable.
+`suites` workloads always run.
+`--full` ignores the cache.
 
 ### Failures and missing baselines
 
-Exit codes: `0` pass, `1` a workload regressed, `2` a harness error: no config or no
-workloads (`config-missing`), an unloadable config (`config-invalid`), no baseline file or
-a baseline mismatch (`baseline-missing`), an unreadable baseline file
-(`document-load-failed`), a suite failure (`spawn-failed`), a `suites` glob that matches no files or any other bad input
-(`invalid-flag`, as in `bench`), or a command
-workload with a non-ignored non-zero exit or no samples (`command-failed`, listed as
-`N failed` in the report). A harness failure wins over a regression. `130` is Ctrl-C.
+Exit codes: `0` pass, `1` a workload regressed, `2` a harness error:
+no config or no workloads (`config-missing`),
+an unloadable config (`config-invalid`),
+no baseline file or a baseline mismatch (`baseline-missing`),
+an unreadable baseline file (`document-load-failed`),
+a suite failure (`spawn-failed`), a `suites` glob that matches no files
+or any other bad input (`invalid-flag`, as in `bench`),
+or a command workload with a non-ignored non-zero exit
+or no samples (`command-failed`, listed as `N failed` in the report).
+A harness failure wins over a regression.
+`130` is Ctrl-C.
 
-Ctrl-C stops the run the way it stops `bench`: in-flight trials and suite processes are
-killed, no further workload starts, and the workloads that finished are exported
-(`--export-json`, and the report unless `--quiet`) with an `aborted` warning on the last one.
-Nothing is compared, no baseline is saved, and the interrupted run is never cached.
+Ctrl-C stops the run the way it stops `bench`:
+in-flight trials and suite processes are killed,
+no further workload starts, and the workloads that finished are exported
+(`--export-json`, and the report unless `--quiet`) with an `aborted`
+warning on the last one.
+Nothing is compared, no baseline is saved,
+and the interrupted run is never cached.
 
-A configured workload with no row in the baseline is handled by `onMissingBaseline`:
-unset, the run fails only when *every* configured workload is missing (a stale or wrong
-baseline) and otherwise lists the missing ones as skipped; `"fail"` always fails on a
-mismatch; `"warn"` never does.
+A configured workload with no row in the baseline is handled by
+`onMissingBaseline`: unset, the run fails only when *every* configured
+workload is missing (a stale or wrong baseline) and otherwise lists the
+missing ones as skipped; `"fail"` always fails on a mismatch;
+`"warn"` never does.
 
-`ci` measures the noise floor once per invocation and stamps it on the candidate
-document, so the threshold widening in [statistics.md](statistics.md) applies to `ci`
-too. `noiseCheck: false` in the config or `--no-noise-check` skips it.
+`ci` measures the noise floor once per invocation
+and stamps it on the candidate document,
+so the threshold widening in [statistics.md](statistics.md) applies to
+`ci` too.
+`noiseCheck: false` in the config or `--no-noise-check` skips it.
 
 ## `ostia baseline`
 
@@ -891,15 +1122,20 @@ ostia baseline list
 ostia baseline show <name> [report flags]
 ```
 
-Every subcommand takes `--config PATH`. `save` measures every configured workload through the same code path as `ci` (no
-comparison), always fresh (it never reuses a cached `ci` run), and writes `<baselineDir>/<name>.json` (default name: the config's `baseline`
-field, or `main`). `list` takes no arguments and prints each saved baseline's name, workload count, creation
-date, ostia version and git state. `show` renders one like `ostia report` and takes the
-same `--format`/`--measurement`/`--out-dir` flags (with the same restriction to the
-visualization formats); a name with no file is `baseline-missing`, as in `ci`.
+Every subcommand takes `--config PATH`.
+`save` measures every configured workload through the same code path as
+`ci` (no comparison), always fresh (it never reuses a cached `ci` run),
+and writes `<baselineDir>/<name>.json`
+(default name: the config's `baseline` field, or `main`).
+`list` takes no arguments and prints each saved baseline's name,
+workload count, creation date, ostia version and git state.
+`show` renders one like `ostia report`
+and takes the same `--format`/`--measurement`/`--out-dir` flags
+(with the same restriction to the visualization formats);
+a name with no file is `baseline-missing`, as in `ci`.
 
-A name must match `/^[A-Za-z0-9._-]+$/` and can't start with `-`, so a mistyped flag is an
-error rather than a filename.
+A name must match `/^[A-Za-z0-9._-]+$/` and can't start with `-`,
+so a mistyped flag is an error rather than a filename.
 
 ### Workflow
 
@@ -912,14 +1148,17 @@ git checkout -b my-opt
 ostia ci
 ```
 
-Baselines live outside `node_modules` so they survive reinstalls and branch switches;
-they don't need to be committed. Re-save only when you accept a new floor. Saving on the
-branch you're testing compares that branch with itself.
+Baselines live outside `node_modules` so they survive reinstalls
+and branch switches; they don't need to be committed.
+Re-save only when you accept a new floor.
+Saving on the branch you're testing compares that branch with itself.
 
-`ostia ci --save-baseline` folds the re-save into the gate: after a pass, the run just
-measured becomes the baseline. This suits a CI job that gates every merge to a trunk
-branch. A baseline is always fresh measurements, so `--save-baseline` implies `--full`:
-every workload is measured again, whatever is cached.
+`ostia ci --save-baseline` folds the re-save into the gate:
+after a pass, the run it measured becomes the baseline.
+This suits a CI job that gates every merge to a trunk branch.
+A baseline is always fresh measurements,
+so `--save-baseline` implies `--full`: every workload is measured again,
+whatever is cached.
 
 Any document works as a baseline, including one from `ostia time`:
 
@@ -928,15 +1167,18 @@ ostia time --export-json .ostia/baselines/main.json "bun bench.ts"
 ostia ci
 ```
 
-Workload ids don't include the working directory, so a baseline saved in one checkout
-matches runs from another; see [document-schema.md](document-schema.md#workload-ids).
+Workload ids don't include the working directory,
+so a baseline saved in one checkout matches runs from another;
+see [document-schema.md](document-schema.md#workload-ids).
 
 ## Names and defaults across commands
 
-An option that means the same thing has the same name everywhere: the CLI flag is its
-kebab-case form (`timeoutMs` is `--timeout`, `outDir` is `--out-dir`, `cpuIntervalUs` is
-`--cpu-interval`), and the config key and library option are identical. The defaults differ
-on purpose where the commands measure different things:
+An option that means the same thing has the same name everywhere:
+the CLI flag is its kebab-case form
+(`timeoutMs` is `--timeout`, `outDir` is `--out-dir`, `cpuIntervalUs` is
+`--cpu-interval`), and the config key and library option are identical.
+The defaults differ on purpose where the commands measure different
+things:
 
 | Setting | `time` | `bench` / `ci` suites | `ab` |
 |---|---|---|---|
@@ -947,6 +1189,7 @@ on purpose where the commands measure different things:
 | Regression threshold | `ci`/`compare`: `thresholds.timingPct` 5%, plus a CI and p-value | same | `--threshold` 10% on the median ratio, plus `--confirm` repeats |
 | Noise floor | widens `compare`/`ci` thresholds | same | measured, doesn't widen (pairing cancels drift) |
 
-`ab`'s `--threshold` (`thresholdPct`) and the config's `thresholds.timingPct` are different
-gates, not two spellings of one: the first flags a per-task median ratio within one paired
-process, the second tests two separately measured documents.
+`ab`'s `--threshold` (`thresholdPct`)
+and the config's `thresholds.timingPct` are different gates,
+not two spellings of one: the first flags a per-task median ratio within
+one paired process, the second tests two separately measured documents.

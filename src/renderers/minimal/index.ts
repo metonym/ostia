@@ -7,11 +7,11 @@ import type {
   ProfileDocument,
   Warning,
   Workload,
-} from "../../ir/types.ts"
-import { metricRatios } from "../../measure/paired.ts"
-import { cpuTimes, labelOrId } from "../format.ts"
-import { pairedRuns, threwRuns } from "../paired.ts"
-import { relativeRatios } from "../relative.ts"
+} from "../../ir/types.ts";
+import { metricRatios } from "../../measure/paired.ts";
+import { cpuTimes, labelOrId } from "../format.ts";
+import { pairedRuns, threwRuns } from "../paired.ts";
+import { relativeRatios } from "../relative.ts";
 import {
   comparedRows,
   memoryReadings,
@@ -19,220 +19,247 @@ import {
   skippedWorkloads,
   timingRuns,
   workloadsById,
-} from "../select.ts"
-import type { Renderer, RenderResult } from "../types.ts"
+} from "../select.ts";
+import type { Renderer, RenderResult } from "../types.ts";
 
-/** Bumped only on a breaking change to the event shapes (a key renamed or
+/**
+ * Bumped only on a breaking change to the event shapes (a key renamed or
  * removed); new keys are additive. Every line carries it. */
-export const MINIMAL_PROTOCOL_VERSION = 2 as const
+export const MINIMAL_PROTOCOL_VERSION = 2 as const;
 
 interface MinimalWarning {
-  code: string
-  data?: Record<string, unknown>
+  code: string;
+  data?: Record<string, unknown>;
 }
 
 interface MinimalDelta {
   /** The base's median, ns: the row's own `median` is the candidate's. */
-  baseMedian?: number
-  medianPct: number
-  meanPct: number
-  verdict: "improved" | "regressed" | "unchanged"
-  pass: boolean
-  /** 95% bootstrap CI on the difference of medians; absent (with `pValue`)
+  baseMedian?: number;
+  medianPct: number;
+  meanPct: number;
+  verdict: "improved" | "regressed" | "unchanged";
+  pass: boolean;
+  /**
+   * 95% bootstrap CI on the difference of medians; absent (with `pValue`)
    * on a thin (<5 samples/side) comparison. */
-  ci95?: [number, number]
-  pValue?: number
+  ci95?: [number, number];
+  pValue?: number;
   /** The threshold actually tested against, after machine noise widened it. */
-  effectiveTimingPct: number
-  matched: true
+  effectiveTimingPct: number;
+  matched: true;
   /** The base task's name, when it was matched through an alias. */
-  renamedFrom?: string
+  renamedFrom?: string;
 }
 
-/** `ab` only: the base side and per-round candidate/base ratios behind a
- * `run` line whose stats are the candidate's. Ratios above 1 mean slower. */
+/**
+ * `ab` only: the base side and per-round candidate/base ratios behind a
+ * `run` line whose stats are the candidate's. Ratios above 1 mean slower.
+ * */
 interface MinimalPaired {
   /** Base side's median per-call time, ns. */
-  baseMedian: number
-  medianRatio: number
-  ratioP25: number
-  ratioP75: number
-  rounds: number
+  baseMedian: number;
+  medianRatio: number;
+  ratioP25: number;
+  ratioP75: number;
+  rounds: number;
   /** `flagged` when fresh processes confirmed it, else `"unchanged"`. */
-  verdict: "regressed" | "improved" | "unchanged"
+  verdict: "regressed" | "improved" | "unchanged";
   /** What the first process saw, before confirmation. */
-  flagged?: "regressed" | "improved"
-  confirmed?: boolean
+  flagged?: "regressed" | "improved";
+  confirmed?: boolean;
   /** Median ratio of each fresh-process repeat, by the summary's `metric`. */
-  repeats?: number[]
-  /** Where the machine counts them: the base's median instructions per call
+  repeats?: number[];
+  /**
+   * Where the machine counts them: the base's median instructions per call
    * and the candidate/base instruction ratios. */
   instructions?: {
-    baseMedian: number
-    medianRatio: number
-    ratioP25: number
-    ratioP75: number
-  }
-  sameOutput: boolean
+    baseMedian: number;
+    medianRatio: number;
+    ratioP25: number;
+    ratioP75: number;
+  };
+  sameOutput: boolean;
   /** The suite file differs from the base's copy. */
-  suiteChanged?: true
+  suiteChanged?: true;
   /** `--alloc`: retained heap per call on each side. */
-  retained?: MinimalMemoryChange
+  retained?: MinimalMemoryChange;
   /** `--peak-mem`: first-call RSS rise on each side. */
-  peak?: MinimalMemoryChange
+  peak?: MinimalMemoryChange;
 }
 
 /** `ab` only: one memory reading on both sides, bytes. */
 interface MinimalMemoryChange {
-  base: number
-  cand: number
-  verdict: "regressed" | "improved" | "unchanged"
-  floor: number
+  base: number;
+  cand: number;
+  verdict: "regressed" | "improved" | "unchanged";
+  floor: number;
 }
 
-/** One per timing run, for piping into an agent's context in place of the full
- * `ProfileDocument`. Numbers stay in the IR's units (ns). */
+/**
+ * One per timing run, for piping into an agent's context in place of the
+ * full `ProfileDocument`. Numbers stay in the IR's units (ns). */
 interface MinimalRunLine {
-  event: "run"
-  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
-  schemaVersion: ProfileDocument["schemaVersion"]
-  /** Join key to `Workload.id` / `Comparison.candidateMeasurementId`; unlike
+  event: "run";
+  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
+  schemaVersion: ProfileDocument["schemaVersion"];
+  /**
+   * Join key to `Workload.id` / `Comparison.candidateMeasurementId`; unlike
    * `task`, stable across invocations. */
-  workloadId: string
-  task: string
-  group?: string
-  description?: string
-  groupDescription?: string
-  params?: Record<string, string | number | boolean>
-  /** `task.skip()` / `group.skip()`: no measurement, so every stats field is absent. */
-  skipped?: true
-  unit?: "ns"
-  /** 0, with every stats field absent, when no trial produced a sample (all
+  workloadId: string;
+  task: string;
+  group?: string;
+  description?: string;
+  groupDescription?: string;
+  params?: Record<string, string | number | boolean>;
+  /**
+   * `task.skip()` / `group.skip()`: no measurement, so every stats field is
+   * absent.
+   */
+  skipped?: true;
+  unit?: "ns";
+  /**
+   * 0, with every stats field absent, when no trial produced a sample (all
    * timed out or missed the `timeSource` pattern); see `warnings`. */
-  samples?: number
+  samples?: number;
   /** In-process trials batched into one timed block; 1 when never batched. */
-  batch: number
-  mean?: number
-  median?: number
-  stddev?: number
-  stddevPct?: number
-  min?: number
-  max?: number
+  batch: number;
+  mean?: number;
+  median?: number;
+  stddev?: number;
+  stddevPct?: number;
+  min?: number;
+  max?: number;
   /** 75th/99th percentile and median absolute deviation, ns. */
-  p75?: number
-  p99?: number
-  mad?: number
+  p75?: number;
+  p99?: number;
+  mad?: number;
   /** Median user / system CPU time per trial, ns: subprocess commands only. */
-  userNs?: number
-  systemNs?: number
+  userNs?: number;
+  systemNs?: number;
   /** `--alloc`: heap each call keeps alive after a full GC, bytes. */
-  retainedBytesPerOp?: number
+  retainedBytesPerOp?: number;
   /** `--peak-mem`: how far the task's first call raised RSS, bytes. */
-  peakBytes?: number
-  /** In-process tasks, where the machine counts them: median instructions
+  peakBytes?: number;
+  /**
+   * In-process tasks, where the machine counts them: median instructions
    * retired per call (`ab`: the candidate's). */
-  instructions?: number
-  /** Median over the group's reference median (its baseline task, else its
+  instructions?: number;
+  /**
+   * Median over the group's reference median (its baseline task, else its
    * fastest); only when the document has more than one timing run. */
-  relative?: number
-  baseline?: true
-  /** The machine's noise floor from `document.environment`; absent when the
+  relative?: number;
+  baseline?: true;
+  /**
+   * The machine's noise floor from `document.environment`; absent when the
    * noise check was skipped. */
-  noiseFloorPct?: number
-  warnings: MinimalWarning[]
+  noiseFloorPct?: number;
+  warnings: MinimalWarning[];
   /** The change against the baseline document (`compare` / `ci`). */
-  delta?: MinimalDelta
-  paired?: MinimalPaired
-  /** `ab` only, instead of stats and `paired`: the task threw on one side
+  delta?: MinimalDelta;
+  paired?: MinimalPaired;
+  /**
+   * `ab` only, instead of stats and `paired`: the task threw on one side
    * (`"base"`/`"cand"`) or both, so it isn't judged on time. `message` is
    * the error's first lines; `repeat` (from 1) is set when it threw in a
    * confirmation repeat. */
-  threw?: { side: "base" | "cand" | "both"; message: string; repeat?: number }
+  threw?: { side: "base" | "cand" | "both"; message: string; repeat?: number };
 }
 
 /** A workload present on only one side of a `compare`/`ci` run. */
 interface MinimalUnmatchedLine {
-  event: "unmatched"
-  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
-  workloadId: string
-  task: string
-  side: "base" | "cand"
+  event: "unmatched";
+  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
+  workloadId: string;
+  task: string;
+  side: "base" | "cand";
 }
 
-/** The last line of a `compare`/`ci`/`ab` run; never emitted for a bare
+/**
+ * The last line of a `compare`/`ci`/`ab` run; never emitted for a bare
  * `time`/`bench` document. */
 interface MinimalSummaryLine {
-  event: "summary"
-  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION
-  command: "compare" | "ci" | "ab"
-  matched: number
-  regressed: number
-  improved: number
-  unchanged: number
-  unmatched: number
+  event: "summary";
+  protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
+  command: "compare" | "ci" | "ab";
+  matched: number;
+  regressed: number;
+  improved: number;
+  unchanged: number;
+  unmatched: number;
   /** `ci` only. */
-  cached?: number
-  executed?: number
-  failed?: number
-  missingBaseline?: number
-  geomeanPct: number | null
-  effectiveTimingPct: number
+  cached?: number;
+  executed?: number;
+  failed?: number;
+  missingBaseline?: number;
+  geomeanPct: number | null;
+  effectiveTimingPct: number;
   /** `compare`/`ci`: the machine's drift, added to the timing threshold. */
-  driftPct?: number
-  noiseFloorPct?: number
+  driftPct?: number;
+  noiseFloorPct?: number;
   /** `ci` only. */
-  baseline?: { name: string; path: string }
+  baseline?: { name: string; path: string };
   /** `ab` only: the git ref the working tree was paired against. */
-  base?: { ref: string; sha: string }
-  /** `ab` only: what the verdicts and `geomeanPct` judge, each round's time
+  base?: { ref: string; sha: string };
+  /**
+   * `ab` only: what the verdicts and `geomeanPct` judge, each round's time
    * or instruction ratio. */
-  metric?: "time" | "instructions"
+  metric?: "time" | "instructions";
   /** `ab` only: the gate on `geomeanPct`. */
-  geomeanThresholdPct?: number
-  /** `ab` only: flagged in the first process but not reproduced; counted in `unchanged`. */
-  unconfirmed?: number
-  /** `ab` only: workloads whose first call returned different values on the two sides. */
-  outputDiffers?: number
-  notComparable?: number
-  threw?: number
-  newSuites?: string[]
-  /** `ab` only, with `--alloc` or `--peak-mem`: tasks whose memory
+  geomeanThresholdPct?: number;
+  /**
+   * `ab` only: flagged in the first process but not reproduced; counted in
+   * `unchanged`.
+   */
+  unconfirmed?: number;
+  /**
+   * `ab` only: workloads whose first call returned different values on the
+   * two sides.
+   */
+  outputDiffers?: number;
+  notComparable?: number;
+  threw?: number;
+  newSuites?: string[];
+  /**
+   * `ab` only, with `--alloc` or `--peak-mem`: tasks whose memory
    * regressed or improved, and the threshold, percent. */
-  memory?: { thresholdPct: number; regressed: number; improved: number }
-  git?: { base?: GitMetadata; cand?: GitMetadata }
-  exportedTo?: string
-  /** `pass` (exit 0), `fail` (exit 1: a regression), else `error` (exit 2, or
+  memory?: { thresholdPct: number; regressed: number; improved: number };
+  git?: { base?: GitMetadata; cand?: GitMetadata };
+  exportedTo?: string;
+  /**
+   * `pass` (exit 0), `fail` (exit 1: a regression), else `error` (exit 2, or
    * 130 when cancelled): no verdict was reached. */
-  verdict: "pass" | "fail" | "error"
-  exitCode: number
+  verdict: "pass" | "fail" | "error";
+  exitCode: number;
 }
 
 export type MinimalEvent =
-  MinimalRunLine | MinimalUnmatchedLine | MinimalSummaryLine
+  MinimalRunLine | MinimalUnmatchedLine | MinimalSummaryLine;
 
-/** What the `unmatched`/`summary` events need beyond one `ProfileDocument`.
- * The CLI builds it for `compare`/`ci`/`ab`; without it `minimal` emits only
- * `run` lines. `exitCode` is inline because the CLI decides it after rendering. */
+/**
+ * What the `unmatched`/`summary` events need beyond one `ProfileDocument`.
+ * The CLI builds it for `compare`/`ci`/`ab`; without it `minimal` emits
+ * only `run` lines. `exitCode` is inline because the CLI decides it after
+ * rendering. */
 export interface MinimalProtocolContext {
-  command: "compare" | "ci" | "ab"
-  exitCode: number
-  unmatched?: { baseOnly: Workload[]; candOnly: Workload[] }
-  baseGit?: GitMetadata
-  candGit?: GitMetadata
-  baseline?: { name: string; path: string }
-  cached?: number
-  executed?: number
-  failed?: number
-  missingBaseline?: number
-  exportedTo?: string
+  command: "compare" | "ci" | "ab";
+  exitCode: number;
+  unmatched?: { baseOnly: Workload[]; candOnly: Workload[] };
+  baseGit?: GitMetadata;
+  candGit?: GitMetadata;
+  baseline?: { name: string; path: string };
+  cached?: number;
+  executed?: number;
+  failed?: number;
+  missingBaseline?: number;
+  exportedTo?: string;
 }
 
 export interface MinimalRenderOptions {
-  protocol?: MinimalProtocolContext
+  protocol?: MinimalProtocolContext;
 }
 
 function sig(n: number): number {
-  return Number.isFinite(n) ? Number(n.toPrecision(6)) : n
+  return Number.isFinite(n) ? Number(n.toPrecision(6)) : n;
 }
 
 function minimalMemory(c: MemoryChange): MinimalMemoryChange {
@@ -241,31 +268,31 @@ function minimalMemory(c: MemoryChange): MinimalMemoryChange {
     cand: Math.round(c.candBytes),
     verdict: c.verdict,
     floor: Math.round(c.floorBytes),
-  }
+  };
 }
 
 function minimalWarnings(warnings: Warning[]): MinimalWarning[] {
   return warnings.map((w) =>
     w.data ? { code: w.code, data: w.data } : { code: w.code },
-  )
+  );
 }
 
 function addWorkloadFields(
   line: MinimalRunLine,
   w: Workload | undefined,
 ): void {
-  if (w?.entry?.group !== undefined) line.group = w.entry.group
-  if (w?.description !== undefined) line.description = w.description
+  if (w?.entry?.group !== undefined) line.group = w.entry.group;
+  if (w?.description !== undefined) line.description = w.description;
   if (w?.groupDescription !== undefined)
-    line.groupDescription = w.groupDescription
-  if (w?.params !== undefined) line.params = w.params
+    line.groupDescription = w.groupDescription;
+  if (w?.params !== undefined) line.params = w.params;
 }
 
 function deltaFrom(
   cmp: Comparison | undefined,
   row: ComparedTask | undefined,
 ): MinimalDelta | undefined {
-  if (!cmp?.timing) return undefined
+  if (!cmp?.timing) return undefined;
   const delta: MinimalDelta = {
     ...(row?.timing && { baseMedian: sig(row.timing.baseMedian) }),
     medianPct: sig(cmp.timing.medianDeltaPct),
@@ -274,17 +301,18 @@ function deltaFrom(
     pass: cmp.verdict === "pass",
     effectiveTimingPct: sig(cmp.thresholds.effectiveTimingPct),
     matched: true,
-  }
+  };
   if (cmp.timing.ci95) {
-    delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])]
+    delta.ci95 = [sig(cmp.timing.ci95[0]), sig(cmp.timing.ci95[1])];
   }
-  if (cmp.timing.pValue !== undefined) delta.pValue = sig(cmp.timing.pValue)
-  if (row?.renamedFrom) delta.renamedFrom = row.renamedFrom.task
-  return delta
+  if (cmp.timing.pValue !== undefined) delta.pValue = sig(cmp.timing.pValue);
+  if (row?.renamedFrom) delta.renamedFrom = row.renamedFrom.task;
+  return delta;
 }
 
-/** A `run` line with no stats: a `task.skip()`'d workload, or one whose trials
- * produced no samples (`samples: 0`). */
+/**
+ * A `run` line with no stats: a `task.skip()`'d workload, or one whose
+ * trials produced no samples (`samples: 0`). */
 function statlessLine(
   doc: ProfileDocument,
   workload: Workload,
@@ -303,45 +331,45 @@ function statlessLine(
     ...kind,
     batch: 1,
     warnings: minimalWarnings(warnings),
-  }
-  addWorkloadFields(line, workload)
-  if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
-  const delta = deltaFrom(cmp, row)
-  if (delta) line.delta = delta
-  return line
+  };
+  addWorkloadFields(line, workload);
+  if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct);
+  const delta = deltaFrom(cmp, row);
+  if (delta) line.delta = delta;
+  return line;
 }
 
 function runLines(doc: ProfileDocument): MinimalRunLine[] {
-  const byWorkload = workloadsById(doc)
-  const noiseFloorPct = doc.environment?.noise.floorPct
+  const byWorkload = workloadsById(doc);
+  const noiseFloorPct = doc.environment?.noise.floorPct;
   const withWorkload = <R extends { workloadId: string }>(run: R) => ({
     run,
     workload: byWorkload.get(run.workloadId),
-  })
-  const timingRows = timingRuns(doc).map(withWorkload)
-  const ratios = relativeRatios(timingRows)
-  const rows = [...timingRows, ...pairedRuns(doc).map(withWorkload)]
+  });
+  const timingRows = timingRuns(doc).map(withWorkload);
+  const ratios = relativeRatios(timingRows);
+  const rows = [...timingRows, ...pairedRuns(doc).map(withWorkload)];
   const comparisonByRun = new Map(
     (doc.comparisons ?? []).map((c) => [c.candidateMeasurementId, c]),
-  )
+  );
   const rowByComparison = new Map(
     comparedRows(doc).map(({ row }) => [row.comparisonId, row]),
-  )
+  );
   const rowOf = (cmp: Comparison | undefined) =>
-    cmp && rowByComparison.get(cmp.id)
-  const memory = memoryReadings(doc)
-  const cpuWarningsByWorkloadId = new Map<string, Warning[]>()
+    cmp && rowByComparison.get(cmp.id);
+  const memory = memoryReadings(doc);
+  const cpuWarningsByWorkloadId = new Map<string, Warning[]>();
   for (const m of doc.measurements) {
-    if (m.phase !== "cpu" || m.warnings.length === 0) continue
-    const existing = cpuWarningsByWorkloadId.get(m.workloadId) ?? []
-    cpuWarningsByWorkloadId.set(m.workloadId, [...existing, ...m.warnings])
+    if (m.phase !== "cpu" || m.warnings.length === 0) continue;
+    const existing = cpuWarningsByWorkloadId.get(m.workloadId) ?? [];
+    cpuWarningsByWorkloadId.set(m.workloadId, [...existing, ...m.warnings]);
   }
   const warningsOf = (run: Measurement, comparison: Comparison | undefined) => [
     ...run.warnings,
     ...(cpuWarningsByWorkloadId.get(run.workloadId) ?? []),
     ...(memory.get(run.workloadId)?.warnings ?? []),
     ...(comparison?.warnings ?? []),
-  ]
+  ];
   const skippedLines = skippedWorkloads(
     doc,
     rows.map((r) => r.run),
@@ -355,11 +383,11 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       rowOf(comparisonByRun.get(w.id)),
       noiseFloorPct,
     ),
-  )
+  );
   const noSampleLines = noSampleRuns(doc).flatMap((run) => {
-    const workload = byWorkload.get(run.workloadId)
-    if (!workload) return []
-    const comparison = comparisonByRun.get(run.id)
+    const workload = byWorkload.get(run.workloadId);
+    if (!workload) return [];
+    const comparison = comparisonByRun.get(run.id);
     return statlessLine(
       doc,
       workload,
@@ -368,13 +396,13 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       comparison,
       rowOf(comparison),
       noiseFloorPct,
-    )
-  })
+    );
+  });
 
   const measuredLines = rows.map((row) => {
-    const { run, workload } = row
-    const t = run.timing
-    const comparison = comparisonByRun.get(run.id)
+    const { run, workload } = row;
+    const t = run.timing;
+    const comparison = comparisonByRun.get(run.id);
     const line: MinimalRunLine = {
       event: "run",
       protocolVersion: MINIMAL_PROTOCOL_VERSION,
@@ -391,32 +419,33 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       min: sig(t.min),
       max: sig(t.max),
       warnings: minimalWarnings(warningsOf(run, comparison)),
-    }
-    line.p75 = sig(t.p75)
-    line.p99 = sig(t.p99)
-    line.mad = sig(t.mad)
-    const times = cpuTimes(run)
+    };
+    line.p75 = sig(t.p75);
+    line.p99 = sig(t.p99);
+    line.mad = sig(t.mad);
+    const times = cpuTimes(run);
     if (times) {
-      line.userNs = sig(times.userNs)
-      line.systemNs = sig(times.systemNs)
+      line.userNs = sig(times.userNs);
+      line.systemNs = sig(times.systemNs);
     }
     // An `ab` run's stats are the candidate's, memory included.
-    const readings = memory.get(run.workloadId)
-    const retained = readings?.retained ?? run.paired?.retained?.candBytes
-    if (retained !== undefined) line.retainedBytesPerOp = Math.round(retained)
-    const peak = readings?.peak ?? run.paired?.peak?.candBytes
-    if (peak !== undefined) line.peakBytes = Math.round(peak)
+    const readings = memory.get(run.workloadId);
+    const retained = readings?.retained ?? run.paired?.retained?.candBytes;
+    if (retained !== undefined) line.retainedBytesPerOp = Math.round(retained);
+    const peak = readings?.peak ?? run.paired?.peak?.candBytes;
+    if (peak !== undefined) line.peakBytes = Math.round(peak);
     const instructions =
-      run.instructions?.median ?? run.paired?.instructions?.candMedian
-    if (instructions !== undefined) line.instructions = Math.round(instructions)
-    addWorkloadFields(line, workload)
-    const ratio = ratios?.get(row)
-    if (ratio !== undefined) line.relative = sig(ratio)
-    if (workload?.baseline) line.baseline = true
-    if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
-    const delta = deltaFrom(comparison, rowOf(comparison))
-    if (delta) line.delta = delta
-    const p = run.paired
+      run.instructions?.median ?? run.paired?.instructions?.candMedian;
+    if (instructions !== undefined)
+      line.instructions = Math.round(instructions);
+    addWorkloadFields(line, workload);
+    const ratio = ratios?.get(row);
+    if (ratio !== undefined) line.relative = sig(ratio);
+    if (workload?.baseline) line.baseline = true;
+    if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct);
+    const delta = deltaFrom(comparison, rowOf(comparison));
+    if (delta) line.delta = delta;
+    const p = run.paired;
     if (p) {
       line.paired = {
         baseMedian: sig(p.baseMedianNs),
@@ -447,13 +476,13 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
         ...(p.suiteChanged && { suiteChanged: true as const }),
         ...(p.retained && { retained: minimalMemory(p.retained) }),
         ...(p.peak && { peak: minimalMemory(p.peak) }),
-      }
+      };
     }
-    return line
-  })
+    return line;
+  });
 
   const threwLines = threwRuns(doc).map((run): MinimalRunLine => {
-    const workload = byWorkload.get(run.workloadId)
+    const workload = byWorkload.get(run.workloadId);
     const line: MinimalRunLine = {
       event: "run",
       protocolVersion: MINIMAL_PROTOCOL_VERSION,
@@ -462,35 +491,35 @@ function runLines(doc: ProfileDocument): MinimalRunLine[] {
       task: labelOrId(workload, run.workloadId),
       batch: 1,
       warnings: minimalWarnings(run.warnings),
-    }
-    addWorkloadFields(line, workload)
-    if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct)
-    line.threw = run.threw
-    return line
-  })
+    };
+    addWorkloadFields(line, workload);
+    if (noiseFloorPct !== undefined) line.noiseFloorPct = sig(noiseFloorPct);
+    line.threw = run.threw;
+    return line;
+  });
 
-  return [...measuredLines, ...noSampleLines, ...threwLines, ...skippedLines]
+  return [...measuredLines, ...noSampleLines, ...threwLines, ...skippedLines];
 }
 
 function unmatchedLines(
   protocol: MinimalProtocolContext,
 ): MinimalUnmatchedLine[] {
-  if (!protocol.unmatched) return []
+  if (!protocol.unmatched) return [];
   const line = (w: Workload, side: "base" | "cand"): MinimalUnmatchedLine => ({
     event: "unmatched",
     protocolVersion: MINIMAL_PROTOCOL_VERSION,
     workloadId: w.id,
     task: labelOrId(w, w.id),
     side,
-  })
+  });
   return [
     ...protocol.unmatched.baseOnly.map((w) => line(w, "base")),
     ...protocol.unmatched.candOnly.map((w) => line(w, "cand")),
-  ]
+  ];
 }
 
 function verdictOf(exitCode: number): MinimalSummaryLine["verdict"] {
-  return exitCode === 0 ? "pass" : exitCode === 1 ? "fail" : "error"
+  return exitCode === 0 ? "pass" : exitCode === 1 ? "fail" : "error";
 }
 
 function summaryLine(
@@ -500,10 +529,10 @@ function summaryLine(
   const s =
     protocol.command === "ab" && doc.ab
       ? { ...doc.ab, effectiveTimingPct: doc.ab.thresholdPct }
-      : doc.comparisonSummary
+      : doc.comparisonSummary;
   const unmatchedCount =
     (protocol.unmatched?.baseOnly.length ?? 0) +
-    (protocol.unmatched?.candOnly.length ?? 0)
+    (protocol.unmatched?.candOnly.length ?? 0);
   const line: MinimalSummaryLine = {
     event: "summary",
     protocolVersion: MINIMAL_PROTOCOL_VERSION,
@@ -517,43 +546,43 @@ function summaryLine(
     effectiveTimingPct: sig(s?.effectiveTimingPct ?? 0),
     verdict: verdictOf(protocol.exitCode),
     exitCode: protocol.exitCode,
-  }
+  };
   if (protocol.command === "ci") {
-    line.cached = protocol.cached ?? 0
-    line.executed = protocol.executed ?? 0
-    line.failed = protocol.failed ?? 0
-    line.missingBaseline = protocol.missingBaseline ?? 0
-    if (protocol.baseline) line.baseline = protocol.baseline
+    line.cached = protocol.cached ?? 0;
+    line.executed = protocol.executed ?? 0;
+    line.failed = protocol.failed ?? 0;
+    line.missingBaseline = protocol.missingBaseline ?? 0;
+    if (protocol.baseline) line.baseline = protocol.baseline;
   }
   if (protocol.command === "ab" && doc.ab) {
-    line.base = doc.ab.base
-    line.metric = doc.ab.metric
-    line.geomeanThresholdPct = doc.ab.geomeanThresholdPct
-    line.unconfirmed = doc.ab.unconfirmed
-    line.outputDiffers = doc.ab.outputDiffers
+    line.base = doc.ab.base;
+    line.metric = doc.ab.metric;
+    line.geomeanThresholdPct = doc.ab.geomeanThresholdPct;
+    line.unconfirmed = doc.ab.unconfirmed;
+    line.outputDiffers = doc.ab.outputDiffers;
     // Absent from documents written before 0.3.
     if (doc.ab.notComparable !== undefined) {
-      line.notComparable = doc.ab.notComparable
+      line.notComparable = doc.ab.notComparable;
     }
-    if (doc.ab.threw !== undefined) line.threw = doc.ab.threw
-    if (doc.ab.newSuites?.length) line.newSuites = doc.ab.newSuites
-    if (doc.ab.memory) line.memory = doc.ab.memory
+    if (doc.ab.threw !== undefined) line.threw = doc.ab.threw;
+    if (doc.ab.newSuites?.length) line.newSuites = doc.ab.newSuites;
+    if (doc.ab.memory) line.memory = doc.ab.memory;
   }
   if (
     doc.comparisonSummary?.driftPct !== undefined &&
     protocol.command !== "ab"
   ) {
-    line.driftPct = sig(doc.comparisonSummary.driftPct)
+    line.driftPct = sig(doc.comparisonSummary.driftPct);
   }
-  if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct)
+  if (doc.environment) line.noiseFloorPct = sig(doc.environment.noise.floorPct);
   if (protocol.baseGit || protocol.candGit) {
     line.git = {
       ...(protocol.baseGit && { base: protocol.baseGit }),
       ...(protocol.candGit && { cand: protocol.candGit }),
-    }
+    };
   }
-  if (protocol.exportedTo) line.exportedTo = protocol.exportedTo
-  return line
+  if (protocol.exportedTo) line.exportedTo = protocol.exportedTo;
+  return line;
 }
 
 export const minimalRenderer: Renderer<MinimalRenderOptions> = {
@@ -562,12 +591,12 @@ export const minimalRenderer: Renderer<MinimalRenderOptions> = {
     doc: ProfileDocument,
     options: MinimalRenderOptions = {},
   ): Promise<RenderResult> {
-    const events: MinimalEvent[] = [...runLines(doc)]
+    const events: MinimalEvent[] = [...runLines(doc)];
     if (options.protocol) {
-      events.push(...unmatchedLines(options.protocol))
-      events.push(summaryLine(doc, options.protocol))
+      events.push(...unmatchedLines(options.protocol));
+      events.push(summaryLine(doc, options.protocol));
     }
-    const lines = events.map((l) => JSON.stringify(l))
-    return { text: lines.length > 0 ? `${lines.join("\n")}\n` : "" }
+    const lines = events.map((l) => JSON.stringify(l));
+    return { text: lines.length > 0 ? `${lines.join("\n")}\n` : "" };
   },
-}
+};

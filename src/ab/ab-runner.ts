@@ -13,108 +13,118 @@ import {
   taskAlloc,
   taskId,
   taskPeakMem,
-} from "../bench/registry.ts"
-import { taskWorkload } from "../bench/run-tasks.ts"
+} from "../bench/registry.ts";
+import { taskWorkload } from "../bench/run-tasks.ts";
 import {
   configFingerprint,
   createDocument,
   makePairedMeasurement,
   saveDocument,
-} from "../ir/document.ts"
-import { canonicalJSON } from "../ir/fp.ts"
-import type { AbSummary, Measurement, Workload } from "../ir/types.ts"
-import { measureAllocPerOp } from "../measure/alloc.ts"
-import { instructionCounter } from "../measure/instructions.ts"
+} from "../ir/document.ts";
+import { canonicalJSON } from "../ir/fp.ts";
+import type { AbSummary, Measurement, Workload } from "../ir/types.ts";
+import { measureAllocPerOp } from "../measure/alloc.ts";
+import { instructionCounter } from "../measure/instructions.ts";
 import {
   measurePaired,
   pairedEvidence,
   PairedSideError,
   type Side,
   sideLabel,
-} from "../measure/paired.ts"
+} from "../measure/paired.ts";
 import {
   measurePeakMem,
   memorySnapshot,
   type PeakMemResult,
   startRssSampler,
-} from "../measure/peak.ts"
-import { computeTimingStats } from "../stats/index.ts"
+} from "../measure/peak.ts";
+import { computeTimingStats } from "../stats/index.ts";
 
 export interface AbRunnerOpts {
   /** Regex matched against "group/name" task ids. */
-  filter?: string
+  filter?: string;
   /** Measure only these workloads (a fresh-process repeat of flagged ones). */
-  workloadIds?: string[]
-  rounds: number
-  thresholdPct: number
-  metric: AbSummary["metric"]
+  workloadIds?: string[];
+  rounds: number;
+  thresholdPct: number;
+  metric: AbSummary["metric"];
   /** Scripts imported, in order, before either suite. */
-  preload?: string[]
+  preload?: string[];
   /** Send an `AbRunnerProgress` message over IPC before each task. */
-  progress?: boolean
+  progress?: boolean;
   /** Import, set up and time the candidate first; see `poolOrders`. */
-  candFirst?: boolean
-  /** Suite-wide defaults for the memory readings in `planPath` (task/group
+  candFirst?: boolean;
+  /**
+   * Suite-wide defaults for the memory readings in `planPath` (task/group
    * options win). */
-  alloc?: boolean
-  peakMem?: boolean
+  alloc?: boolean;
+  peakMem?: boolean;
   /** Write an `AbRunnerPlan` here. */
-  planPath?: string
-  /** Instead of timing: take this task's memory readings on one side and
+  planPath?: string;
+  /**
+   * Instead of timing: take this task's memory readings on one side and
    * write an `AbMemoryResult` to the output path. */
-  memoryFor?: AbMemoryTask & { side: Side }
+  memoryFor?: AbMemoryTask & { side: Side };
 }
 
 /** A paired task and the memory readings it wants. */
 export interface AbMemoryTask {
-  workloadId: string
-  alloc: boolean
-  peakMem: boolean
+  workloadId: string;
+  alloc: boolean;
+  peakMem: boolean;
 }
 
 export interface AbRunnerPlan {
-  memory: AbMemoryTask[]
+  memory: AbMemoryTask[];
 }
 
 /** One side's memory readings from one fresh process. */
 export interface AbMemoryResult {
-  peak?: PeakMemResult
-  alloc?: { bytesPerOp: number; calls: number }
+  peak?: PeakMemResult;
+  alloc?: { bytesPerOp: number; calls: number };
 }
 
-/** Sent to the parent before each task is measured, when `progress` is
+/**
+ * Sent to the parent before each task is measured, when `progress` is
  * set. `task` counts from 1. */
 export interface AbRunnerProgress {
-  task: number
-  tasks: number
-  label: string
+  task: number;
+  tasks: number;
+  label: string;
 }
 
-/** Tasks pair across sides by "group/name" plus `params`, the workload id's identity. */
+/**
+ * Tasks pair across sides by "group/name" plus `params`, the workload id's
+ * identity.
+ */
 function pairKey(t: RegisteredTask, id: string = taskId(t)): string {
-  return `${id}\u0000${canonicalJSON(t.params ?? null)}`
+  return `${id}\u0000${canonicalJSON(t.params ?? null)}`;
 }
 
-/** The task's own key, then one per alias: a base task under any of them pairs. */
+/**
+ * The task's own key, then one per alias: a base task under any of them
+ * pairs.
+ */
 function pairKeys(t: RegisteredTask): string[] {
-  return [taskId(t), ...formerTaskIds(t)].map((id) => pairKey(t, id))
+  return [taskId(t), ...formerTaskIds(t)].map((id) => pairKey(t, id));
 }
 
 async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
-  resetRegistry()
-  await import(suiteFile)
-  return [...getRegisteredTasks()]
+  resetRegistry();
+  await import(suiteFile);
+  return [...getRegisteredTasks()];
 }
 
-const ERROR_LINES = 5
+const ERROR_LINES = 5;
 
 /** An error's message, cut to its first few lines. */
 function errorText(err: unknown): string {
-  const text = err instanceof Error ? err.message : String(err)
-  return text.split("\n").slice(0, ERROR_LINES).join("\n")
+  const text = err instanceof Error ? err.message : String(err);
+  return text.split("\n").slice(0, ERROR_LINES).join("\n");
 }
 
-/** Reports a failure that stops the whole suite: on stderr, and in
+/**
+ * Reports a failure that stops the whole suite: on stderr, and in
  * `<outputPath>.error` (and `.side`, when it's one side's) for `ab()` to
  * put in the error it throws. */
 async function fail(
@@ -122,17 +132,18 @@ async function fail(
   message: string,
   side?: Side,
 ): Promise<number> {
-  process.stderr.write(`ab runner: ${message}\n`)
-  await Bun.write(`${outputPath}.error`, message)
-  if (side) await Bun.write(`${outputPath}.side`, side)
-  return 2
+  process.stderr.write(`ab runner: ${message}\n`);
+  await Bun.write(`${outputPath}.error`, message);
+  if (side) await Bun.write(`${outputPath}.side`, side);
+  return 2;
 }
 
 type MeasureOutcome =
   | { result: Awaited<ReturnType<typeof measurePaired>> }
-  | { threw: NonNullable<Measurement["threw"]> }
+  | { threw: NonNullable<Measurement["threw"]> };
 
-/** One pair's `before` hooks, paired timing and `after` hooks. A throw from
+/**
+ * One pair's `before` hooks, paired timing and `after` hooks. A throw from
  * either side's task or hooks doesn't stop the suite; it's reported with
  * its side instead. Each `before` runs once, in `order`, and a side whose
  * `before` threw isn't timed or torn down. Every side that was set up is
@@ -146,77 +157,78 @@ async function measureTask(
   rounds: number,
   order: Side[],
 ): Promise<MeasureOutcome> {
-  const tasks = { base, cand }
+  const tasks = { base, cand };
   // The first error from each side.
-  const errors = new Map<Side, unknown>()
+  const errors = new Map<Side, unknown>();
   const record = (side: Side, err: unknown) => {
-    if (!errors.has(side)) errors.set(side, err)
-  }
-  const ready = new Set<Side>()
+    if (!errors.has(side)) errors.set(side, err);
+  };
+  const ready = new Set<Side>();
   for (const side of order) {
     try {
-      await tasks[side].opts?.before?.()
-      ready.add(side)
+      await tasks[side].opts?.before?.();
+      ready.add(side);
     } catch (err) {
-      record(side, err)
+      record(side, err);
     }
   }
 
-  let result: Awaited<ReturnType<typeof measurePaired>> | undefined
-  let internal: { err: unknown } | undefined
+  let result: Awaited<ReturnType<typeof measurePaired>> | undefined;
+  let internal: { err: unknown } | undefined;
   if (ready.size === 2) {
     try {
       result = await measurePaired(base.fn, cand.fn, {
         rounds,
         candFirst: order[0] === "cand",
-      })
+      });
     } catch (err) {
-      if (err instanceof PairedSideError) record(err.side, err.cause)
-      else internal = { err }
+      if (err instanceof PairedSideError) record(err.side, err.cause);
+      else internal = { err };
     }
   }
 
   if (errors.size === 1) {
-    const other: Side = errors.has("base") ? "cand" : "base"
+    const other: Side = errors.has("base") ? "cand" : "base";
     if (ready.has(other)) {
       try {
-        await tasks[other].fn()
+        await tasks[other].fn();
       } catch (err) {
-        record(other, err)
+        record(other, err);
       }
     }
   }
 
   for (const side of order.toReversed()) {
-    if (!ready.has(side)) continue
+    if (!ready.has(side)) continue;
     try {
-      await tasks[side].opts?.after?.()
+      await tasks[side].opts?.after?.();
     } catch (err) {
-      record(side, err)
+      record(side, err);
     }
   }
 
-  if (internal) throw internal.err
-  const baseErr = errors.get("base")
-  const candErr = errors.get("cand")
+  if (internal) throw internal.err;
+  const baseErr = errors.get("base");
+  const candErr = errors.get("cand");
   if (errors.size === 2) {
     return {
       threw: {
         side: "both",
         message: `base: ${errorText(baseErr)}\ncandidate: ${errorText(candErr)}`,
       },
-    }
+    };
   }
   if (errors.has("base")) {
-    return { threw: { side: "base", message: errorText(baseErr) } }
+    return { threw: { side: "base", message: errorText(baseErr) } };
   }
   if (errors.has("cand")) {
-    return { threw: { side: "cand", message: errorText(candErr) } }
+    return { threw: { side: "cand", message: errorText(candErr) } };
   }
-  return { result: result! }
+  return { result: result! };
 }
 
-/** A `memoryFor` process. Only one side's suite loads, so the other side's
+/**
+ * A `memoryFor` process. Only one side's suite loads, so the other side's
  * setup and the packages both sides share can't move the readings. Peak is
  * the first call; retained follows a warmup batch, as `bench --alloc`
  * follows timing. */
@@ -227,68 +239,70 @@ async function measureMemory(
   memoryFor: NonNullable<AbRunnerOpts["memoryFor"]>,
   preload: string[],
 ): Promise<number> {
-  const { workloadId, side } = memoryFor
+  const { workloadId, side } = memoryFor;
   // Baseline for `measurePeakMem`, taken once ostia (which the suite
   // imports) is loaded.
-  const sampler = memoryFor.peakMem ? await startRssSampler() : undefined
-  await import("../index.ts")
-  const launched = memorySnapshot()
-  let t: RegisteredTask | undefined
+  const sampler = memoryFor.peakMem ? await startRssSampler() : undefined;
+  await import("../index.ts");
+  const launched = memorySnapshot();
+  let t: RegisteredTask | undefined;
   try {
-    for (const preloadFile of preload) await import(preloadFile)
+    for (const preloadFile of preload) await import(preloadFile);
     t = (await importTasks(suite)).find(
       (t) => taskWorkload(candSuite, t).id === workloadId,
-    )
+    );
   } catch (err) {
     return fail(
       outputPath,
       `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
       side,
-    )
+    );
   }
   if (!t) {
     return fail(
       outputPath,
       `no task with workload id ${workloadId} in ${suite}.`,
-    )
+    );
   }
   try {
-    const result: AbMemoryResult = {}
-    await runGroupHooks(t, "before")
-    await t.opts?.before?.()
-    if (sampler) result.peak = await measurePeakMem(t.fn, launched, sampler)
+    const result: AbMemoryResult = {};
+    await runGroupHooks(t, "before");
+    await t.opts?.before?.();
+    if (sampler) result.peak = await measurePeakMem(t.fn, launched, sampler);
     if (memoryFor.alloc) {
-      await measureAllocPerOp(t.fn)
-      const { memory, calls } = await measureAllocPerOp(t.fn)
-      result.alloc = { bytesPerOp: memory.bytesPerOp!, calls }
+      await measureAllocPerOp(t.fn);
+      const { memory, calls } = await measureAllocPerOp(t.fn);
+      result.alloc = { bytesPerOp: memory.bytesPerOp!, calls };
     }
-    await t.opts?.after?.()
-    await runGroupHooks(t, "after")
-    await Bun.write(outputPath, JSON.stringify(result))
-    return 0
+    await t.opts?.after?.();
+    await runGroupHooks(t, "after");
+    await Bun.write(outputPath, JSON.stringify(result));
+    return 0;
   } catch (err) {
     return fail(
       outputPath,
       `${taskId(t)} threw on the ${sideLabel(side)} side while measuring memory: ${errorText(err)}`,
       side,
-    )
+    );
   }
 }
 
-/** Pairs one suite file's tasks against the same file at the base checkout,
+/**
+ * Pairs one suite file's tasks against the same file at the base checkout,
  * in this process. Each side is imported from its own path so its relative
- * imports resolve within its own tree, while bare imports (including `ostia`,
- * hence the shared registry) share `node_modules`. `baseSuite` is "" when
- * the file doesn't exist at the base ref: every task is candidate-only. */
+ * imports resolve within its own tree, while bare imports (including
+ * `ostia`, hence the shared registry) share `node_modules`. `baseSuite` is
+ * "" when the file doesn't exist at the base ref: every task is
+ * candidate-only. */
 async function main(): Promise<number> {
-  const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2)
+  const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2);
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {
     process.stderr.write(
       "ab runner: usage: ab-runner.ts <candSuite> <baseSuite|''> <outputPath> <optsJson>\n",
-    )
-    return 2
+    );
+    return 2;
   }
-  const opts: AbRunnerOpts = JSON.parse(optsJson)
+  const opts: AbRunnerOpts = JSON.parse(optsJson);
 
   if (opts.memoryFor) {
     return measureMemory(
@@ -297,35 +311,35 @@ async function main(): Promise<number> {
       outputPath,
       opts.memoryFor,
       opts.preload ?? [],
-    )
+    );
   }
 
   const uncounted =
-    opts.metric === "instructions" && instructionCounter().unavailable
+    opts.metric === "instructions" && instructionCounter().unavailable;
   if (uncounted) {
-    return fail(outputPath, `can't count instructions: ${uncounted}`)
+    return fail(outputPath, `can't count instructions: ${uncounted}`);
   }
 
   for (const preloadFile of opts.preload ?? []) {
-    await import(preloadFile)
+    await import(preloadFile);
   }
 
-  const order: Side[] = opts.candFirst ? ["cand", "base"] : ["base", "cand"]
-  let baseTasks: RegisteredTask[] = []
-  let candRegistered: RegisteredTask[] = []
+  const order: Side[] = opts.candFirst ? ["cand", "base"] : ["base", "cand"];
+  let baseTasks: RegisteredTask[] = [];
+  let candRegistered: RegisteredTask[] = [];
   for (const side of order) {
-    const suite = side === "base" ? baseSuite : candSuite
-    if (!suite) continue
+    const suite = side === "base" ? baseSuite : candSuite;
+    if (!suite) continue;
     try {
-      const tasks = await importTasks(suite)
-      if (side === "base") baseTasks = tasks
-      else candRegistered = tasks
+      const tasks = await importTasks(suite);
+      if (side === "base") baseTasks = tasks;
+      else candRegistered = tasks;
     } catch (err) {
       return fail(
         outputPath,
         `the ${sideLabel(side)} side failed to load ${suite}: ${errorText(err)}`,
         side,
-      )
+      );
     }
   }
   if (candRegistered.length === 0) {
@@ -333,58 +347,58 @@ async function main(): Promise<number> {
       outputPath,
       `${candSuite} registered no tasks (no task() calls found).${NO_TASKS_HINT}`,
       "cand",
-    )
+    );
   }
 
-  let candTasks: RegisteredTask[]
+  let candTasks: RegisteredTask[];
   try {
     candTasks = selectTasks(
       candRegistered,
       opts.filter,
       candSuite,
       !opts.workloadIds,
-    )
+    );
   } catch (err) {
-    return fail(outputPath, (err as Error).message)
+    return fail(outputPath, (err as Error).message);
   }
 
-  const wanted = opts.workloadIds && new Set(opts.workloadIds)
-  const baseByKey = new Map(baseTasks.map((t) => [pairKey(t), t]))
-  const candKeys = new Set(candRegistered.flatMap(pairKeys))
+  const wanted = opts.workloadIds && new Set(opts.workloadIds);
+  const baseByKey = new Map(baseTasks.map((t) => [pairKey(t), t]));
+  const candKeys = new Set(candRegistered.flatMap(pairKeys));
 
-  const workloads: Workload[] = []
+  const workloads: Workload[] = [];
   const pairs: {
-    workload: Workload
-    base: RegisteredTask
-    cand: RegisteredTask
-  }[] = []
-  const candOnly: string[] = []
+    workload: Workload;
+    base: RegisteredTask;
+    cand: RegisteredTask;
+  }[] = [];
+  const candOnly: string[] = [];
   for (const cand of candTasks) {
-    const workload = taskWorkload(candSuite, cand)
-    if (wanted && !wanted.has(workload.id)) continue
-    workloads.push(workload)
-    if (cand.skipped) continue
+    const workload = taskWorkload(candSuite, cand);
+    if (wanted && !wanted.has(workload.id)) continue;
+    workloads.push(workload);
+    if (cand.skipped) continue;
     const base = pairKeys(cand)
       .map((key) => baseByKey.get(key))
-      .find((t) => t !== undefined)
-    if (base && !base.skipped) pairs.push({ workload, base, cand })
-    else candOnly.push(workload.id)
+      .find((t) => t !== undefined);
+    if (base && !base.skipped) pairs.push({ workload, base, cand });
+    else candOnly.push(workload.id);
   }
 
-  // Keyed by the candidate suite's path so the id is the one it had before removal.
-  // A `.only` in the candidate narrows the run, as `--filter` does: tasks
-  // removed from the suite aren't part of it.
-  const baseOnly: string[] = []
+  // Keyed by the candidate suite's path so the id is the one it had before
+  // removal. A `.only` in the candidate narrows the run, as `--filter` does:
+  // tasks removed from the suite aren't part of it.
+  const baseOnly: string[] = [];
   if (!wanted && !candRegistered.some((t) => t.only)) {
     for (const base of filterTasks(baseTasks, opts.filter)) {
-      if (base.skipped || candKeys.has(pairKey(base))) continue
-      const workload = taskWorkload(candSuite, base)
-      workloads.push(workload)
-      baseOnly.push(workload.id)
+      if (base.skipped || candKeys.has(pairKey(base))) continue;
+      const workload = taskWorkload(candSuite, base);
+      workloads.push(workload);
+      baseOnly.push(workload.id);
     }
   }
 
-  const edges = groupEdges(pairs.map((p) => p.cand))
+  const edges = groupEdges(pairs.map((p) => p.cand));
 
   if (opts.planPath) {
     const plan: AbRunnerPlan = {
@@ -395,31 +409,31 @@ async function main(): Promise<number> {
           peakMem: taskPeakMem(p.cand, opts.peakMem ?? false),
         }))
         .filter((m) => m.alloc || m.peakMem),
-    }
-    await Bun.write(opts.planPath, JSON.stringify(plan))
+    };
+    await Bun.write(opts.planPath, JSON.stringify(plan));
   }
 
   const cfgFp = configFingerprint({
     rounds: opts.rounds,
     thresholdPct: opts.thresholdPct,
     metric: opts.metric,
-  })
-  const measurements: Measurement[] = []
+  });
+  const measurements: Measurement[] = [];
   for (let i = 0; i < pairs.length; i++) {
-    const { workload, base, cand } = pairs[i]!
-    const { enter, leave } = edges(i)
+    const { workload, base, cand } = pairs[i]!;
+    const { enter, leave } = edges(i);
     if (opts.progress) {
       process.send?.({
         task: i + 1,
         tasks: pairs.length,
         label: taskId(cand),
-      } satisfies AbRunnerProgress)
+      } satisfies AbRunnerProgress);
     }
-    const sides = { base, cand }
+    const sides = { base, cand };
     for (const side of order) {
-      await runGroupHooks(sides[side], "before", enter)
+      await runGroupHooks(sides[side], "before", enter);
     }
-    const measured = await measureTask(base, cand, opts.rounds, order)
+    const measured = await measureTask(base, cand, opts.rounds, order);
     if ("threw" in measured) {
       measurements.push(
         makePairedMeasurement({
@@ -429,11 +443,11 @@ async function main(): Promise<number> {
           diagnosticWallNs: 0,
           warnings: [],
         }),
-      )
+      );
     } else {
-      const { result } = measured
-      const timing = computeTimingStats(result.candSamples)
-      if (result.batch > 1) timing.batch = result.batch
+      const { result } = measured;
+      const timing = computeTimingStats(result.candSamples);
+      if (result.batch > 1) timing.batch = result.batch;
       measurements.push(
         makePairedMeasurement({
           workload,
@@ -443,18 +457,18 @@ async function main(): Promise<number> {
           warnings: [],
           paired: pairedEvidence(result, opts.thresholdPct, opts.metric),
         }),
-      )
+      );
     }
 
     for (const side of order.toReversed()) {
-      await runGroupHooks(sides[side], "after", leave)
+      await runGroupHooks(sides[side], "after", leave);
     }
   }
 
-  const doc = createDocument(workloads, measurements)
-  doc.unmatched = { baseOnly, candOnly }
-  await saveDocument(doc, outputPath)
-  return 0
+  const doc = createDocument(workloads, measurements);
+  doc.unmatched = { baseOnly, candOnly };
+  await saveDocument(doc, outputPath);
+  return 0;
 }
 
-main().then((code) => process.exit(code))
+main().then((code) => process.exit(code));

@@ -1,89 +1,105 @@
 export interface TrialResult {
-  wallNs: number
+  wallNs: number;
   /** `null` when the trial timed out: its exit code carries no information. */
-  exitCode: number | null
-  userNs?: number
-  systemNs?: number
-  maxRssBytes?: number
+  exitCode: number | null;
+  userNs?: number;
+  systemNs?: number;
+  maxRssBytes?: number;
   /** Parsed from the command's output via `timeSource`, in ns. */
-  reportedNs?: number
-  /** `timeoutMs` elapsed and the process was SIGKILLed; contributes no sample. */
-  timedOut?: true
-  /** `timeSource` was set but its pattern missed this trial's output;
+  reportedNs?: number;
+  /**
+   * `timeoutMs` elapsed and the process was SIGKILLed; contributes no
+   * sample.
+   */
+  timedOut?: true;
+  /**
+   * `timeSource` was set but its pattern missed this trial's output;
    * contributes no sample (no `wallNs` fallback). */
-  timeSourceNoMatch?: true
-  /** Up to 2 KiB of output, set with `timeSourceNoMatch`. Not persisted on
+  timeSourceNoMatch?: true;
+  /**
+   * Up to 2 KiB of output, set with `timeSourceNoMatch`. Not persisted on
    * `Trial`; the timing phase folds one into the aggregate warning. */
-  timeSourceMissOutput?: string
+  timeSourceMissOutput?: string;
 }
 
-/** `index` counts from 0 within each phase, so "first run" logic checks
- * `phase === "warmup" && index === 0` (or `phase === "timing"` when warmup is 0). */
+/**
+ * `index` counts from 0 within each phase, so "first run" logic checks
+ * `phase === "warmup" && index === 0` (or `phase === "timing"` when warmup
+ * is 0). */
 export interface PrepareRun {
-  phase: "warmup" | "timing" | "cpu" | "heap"
-  index: number
+  phase: "warmup" | "timing" | "cpu" | "heap";
+  index: number;
 }
 
 /** Return value ignored; a returned promise is awaited. */
-export type PrepareFn = (run: PrepareRun) => unknown
+export type PrepareFn = (run: PrepareRun) => unknown;
 
-/** Runs unmeasured before every trial of a command, in its `cwd`/`env`
- * (hyperfine's `--prepare`): a shell-less command (string, whitespace-split,
- * or argv array) that must exit 0 or the run aborts, or a function. */
-export type PrepareHook = string | string[] | PrepareFn
+/**
+ * Runs unmeasured before every trial of a command, in its `cwd`/`env`
+ * (hyperfine's `--prepare`): a shell-less command (string,
+ * whitespace-split, or argv array) that must exit 0 or the run aborts, or
+ * a function. */
+export type PrepareHook = string | string[] | PrepareFn;
 
-export type TimeUnit = "ns" | "us" | "ms" | "s"
+export type TimeUnit = "ns" | "us" | "ms" | "s";
 
-/** Take a command's timing from a number in its own stdout/stderr instead of
- * the wall clock (e.g. a build tool's `built in 342ms` line). `pattern` is
- * matched against stdout, then stderr; `group` (default 1) holds the number;
- * `unit` defaults to "ms". A trial that doesn't match contributes no sample
- * (`time-source-no-match` warning); if every trial misses, the workload has
- * no timing stats. A `RegExp` pattern must not carry the `g`, `y`, or `d`
- * flag: it is reused across trials, and `lastIndex` would make it alternate
- * match/no-match. */
+/**
+ * Take a command's timing from a number in its own stdout/stderr instead
+ * of the wall clock (e.g. a build tool's `built in 342ms` line). `pattern`
+ * is matched against stdout, then stderr; `group` (default 1) holds the
+ * number; `unit` defaults to "ms". A trial that doesn't match contributes
+ * no sample (`time-source-no-match` warning); if every trial misses, the
+ * workload has no timing stats. A `RegExp` pattern must not carry the `g`,
+ * `y`, or `d` flag: it is reused across trials, and `lastIndex` would make
+ * it alternate match/no-match. */
 export interface TimeSource {
-  pattern: string | RegExp
-  group?: number
-  unit?: TimeUnit
+  pattern: string | RegExp;
+  group?: number;
+  unit?: TimeUnit;
 }
 
-/** A pattern miss (a per-trial drop), unlike a matched-but-malformed capture,
- * which is a configuration error and throws a plain `Error`. */
+/**
+ * A pattern miss (a per-trial drop), unlike a matched-but-malformed
+ * capture, which is a configuration error and throws a plain `Error`. */
 class TimeSourceNoMatchError extends Error {}
 
-const compiledPatterns = new WeakMap<TimeSource, RegExp>()
+const compiledPatterns = new WeakMap<TimeSource, RegExp>();
 
-/** A string pattern is compiled once per `TimeSource` object, not per trial. */
+/**
+ * A string pattern is compiled once per `TimeSource` object, not per
+ * trial.
+ */
 function compiledPattern(source: TimeSource): RegExp {
-  if (typeof source.pattern !== "string") return source.pattern
-  let re = compiledPatterns.get(source)
+  if (typeof source.pattern !== "string") return source.pattern;
+  let re = compiledPatterns.get(source);
   if (!re) {
-    re = new RegExp(source.pattern)
-    compiledPatterns.set(source, re)
+    re = new RegExp(source.pattern);
+    compiledPatterns.set(source, re);
   }
-  return re
+  return re;
 }
 
 /** Called once per workload so a bad pattern fails before any trial runs. */
 export function assertReusableTimeSource(source: TimeSource): void {
-  const re = compiledPattern(source)
+  const re = compiledPattern(source);
   if (/[gyd]/.test(re.flags)) {
-    throw new RangeError("timeSource pattern must not use the g, y or d flag")
+    throw new RangeError("timeSource pattern must not use the g, y or d flag");
   }
 }
 
 export interface SpawnTrialOptions {
-  argv: string[]
-  cwd?: string
-  env?: Record<string, string>
-  timeSource?: TimeSource
-  /** SIGKILLs the trial after this many ms; it resolves (never rejects) with
+  argv: string[];
+  cwd?: string;
+  env?: Record<string, string>;
+  timeSource?: TimeSource;
+  /**
+   * SIGKILLs the trial after this many ms; it resolves (never rejects) with
    * `exitCode: null, timedOut: true`. Unset never times out. */
-  timeoutMs?: number
-  /** Aborting SIGKILLs the process. Unlike `timeoutMs`, the caller discards
+  timeoutMs?: number;
+  /**
+   * Aborting SIGKILLs the process. Unlike `timeoutMs`, the caller discards
    * the trial rather than recording `timedOut`. */
-  signal?: AbortSignal
+  signal?: AbortSignal;
 }
 
 const UNIT_NS: Record<TimeUnit, number> = {
@@ -91,32 +107,35 @@ const UNIT_NS: Record<TimeUnit, number> = {
   us: 1e3,
   ms: 1e6,
   s: 1e9,
-}
+};
 
-/** `timeoutMs` and the caller's `signal` folded into spawn options that
+/**
+ * `timeoutMs` and the caller's `signal` folded into spawn options that
  * SIGKILL on either; `timedOut()` tells the two apart afterwards. */
 export function killSwitch(
   timeoutMs: number | undefined,
   signal: AbortSignal | undefined,
 ): {
-  spawn: { signal?: AbortSignal; killSignal?: "SIGKILL" }
-  timedOut: () => boolean
+  spawn: { signal?: AbortSignal; killSignal?: "SIGKILL" };
+  timedOut: () => boolean;
 } {
   const timeout =
-    timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined
+    timeoutMs !== undefined ? AbortSignal.timeout(timeoutMs) : undefined;
   const combined =
-    timeout && signal ? AbortSignal.any([timeout, signal]) : (timeout ?? signal)
+    timeout && signal
+      ? AbortSignal.any([timeout, signal])
+      : (timeout ?? signal);
   return {
     spawn: combined ? { signal: combined, killSignal: "SIGKILL" } : {},
     timedOut: () => timeout?.aborted ?? false,
-  }
+  };
 }
 
 export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
-  const capture = opts.timeSource !== undefined
-  const start = Bun.nanoseconds()
+  const capture = opts.timeSource !== undefined;
+  const start = Bun.nanoseconds();
 
-  const kill = killSwitch(opts.timeoutMs, opts.signal)
+  const kill = killSwitch(opts.timeoutMs, opts.signal);
   const proc = Bun.spawn(opts.argv, {
     cwd: opts.cwd,
     env: opts.env,
@@ -124,18 +143,19 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
     stderr: capture ? "pipe" : "ignore",
     stdin: "ignore",
     ...kill.spawn,
-  })
-  // Drain concurrently with exit: a full pipe would block the command and inflate the wall time.
+  });
+  // Drain concurrently with exit: a full pipe would block the command and
+  // inflate the wall time.
   const output = capture
     ? Promise.all([
         new Response(proc.stdout as ReadableStream).text(),
         new Response(proc.stderr as ReadableStream).text(),
       ])
-    : undefined
-  const exitCode = await proc.exited
-  const end = Bun.nanoseconds()
-  const usage = proc.resourceUsage?.()
-  const timedOut = kill.timedOut()
+    : undefined;
+  const exitCode = await proc.exited;
+  const end = Bun.nanoseconds();
+  const usage = proc.resourceUsage?.();
+  const timedOut = kill.timedOut();
 
   const result: TrialResult = {
     wallNs: end - start,
@@ -144,9 +164,9 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
     systemNs: usage ? Number(usage.cpuTime.system) * 1000 : undefined,
     maxRssBytes: usage?.maxRSS,
     ...(timedOut && { timedOut: true as const }),
-  }
+  };
   if (output) {
-    const [stdout, stderr] = await output
+    const [stdout, stderr] = await output;
     // A killed process's output is partial: nothing to parse.
     if (opts.timeSource && !timedOut) {
       try {
@@ -155,17 +175,17 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
           stdout,
           stderr,
           opts.argv,
-        )
+        );
       } catch (err) {
         // A miss drops this trial's sample; a malformed capture would hit
         // every trial identically, so that still throws.
-        if (!(err instanceof TimeSourceNoMatchError)) throw err
-        result.timeSourceNoMatch = true
-        result.timeSourceMissOutput = excerptForNoMatch(stdout, stderr)
+        if (!(err instanceof TimeSourceNoMatchError)) throw err;
+        result.timeSourceNoMatch = true;
+        result.timeSourceMissOutput = excerptForNoMatch(stdout, stderr);
       }
     }
   }
-  return result
+  return result;
 }
 
 export function parseReportedTime(
@@ -174,140 +194,145 @@ export function parseReportedTime(
   stderr: string,
   argv: string[] = [],
 ): number {
-  const re = compiledPattern(source)
-  const group = source.group ?? 1
-  const match = re.exec(stdout) ?? re.exec(stderr)
-  const label = argv.length > 0 ? ` for "${argv.join(" ")}"` : ""
+  const re = compiledPattern(source);
+  const group = source.group ?? 1;
+  const match = re.exec(stdout) ?? re.exec(stderr);
+  const label = argv.length > 0 ? ` for "${argv.join(" ")}"` : "";
   if (!match) {
     throw new TimeSourceNoMatchError(
       `timeSource pattern ${re} did not match the output${label}. Output was:\n${excerpt(stdout, stderr)}`,
-    )
+    );
   }
-  const raw = match[group]
+  const raw = match[group];
   if (raw === undefined) {
     throw new Error(
       `timeSource pattern ${re} matched${label} but has no capture group ${group} (matched text: "${match[0]}").`,
-    )
+    );
   }
-  const value = Number(raw)
+  const value = Number(raw);
   if (!Number.isFinite(value)) {
     throw new Error(
       `timeSource pattern ${re} group ${group} captured "${raw}"${label}, which is not a number.`,
-    )
+    );
   }
-  return value * UNIT_NS[source.unit ?? "ms"]
+  return value * UNIT_NS[source.unit ?? "ms"];
 }
 
 function excerpt(stdout: string, stderr: string): string {
-  const LIMIT = 800
+  const LIMIT = 800;
   const clip = (s: string) =>
-    s.length > LIMIT ? `${s.slice(0, LIMIT)}…(${s.length - LIMIT} more)` : s
-  const parts: string[] = []
-  if (stdout.trim()) parts.push(`--- stdout ---\n${clip(stdout.trimEnd())}`)
-  if (stderr.trim()) parts.push(`--- stderr ---\n${clip(stderr.trimEnd())}`)
-  return parts.length > 0 ? parts.join("\n") : "(empty)"
+    s.length > LIMIT ? `${s.slice(0, LIMIT)}…(${s.length - LIMIT} more)` : s;
+  const parts: string[] = [];
+  if (stdout.trim()) parts.push(`--- stdout ---\n${clip(stdout.trimEnd())}`);
+  if (stderr.trim()) parts.push(`--- stderr ---\n${clip(stderr.trimEnd())}`);
+  return parts.length > 0 ? parts.join("\n") : "(empty)";
 }
 
-const NO_MATCH_OUTPUT_LIMIT_BYTES = 2048
+const NO_MATCH_OUTPUT_LIMIT_BYTES = 2048;
 
-/** `excerpt` capped at 2 KiB total, for a `time-source-no-match` warning's `data`. */
+/**
+ * `excerpt` capped at 2 KiB total, for a `time-source-no-match` warning's
+ * `data`.
+ */
 function excerptForNoMatch(stdout: string, stderr: string): string {
-  const full = excerpt(stdout, stderr)
+  const full = excerpt(stdout, stderr);
   if (Buffer.byteLength(full, "utf8") <= NO_MATCH_OUTPUT_LIMIT_BYTES) {
-    return full
+    return full;
   }
-  let sliced = full.slice(0, NO_MATCH_OUTPUT_LIMIT_BYTES)
+  let sliced = full.slice(0, NO_MATCH_OUTPUT_LIMIT_BYTES);
   while (Buffer.byteLength(sliced, "utf8") > NO_MATCH_OUTPUT_LIMIT_BYTES) {
-    sliced = sliced.slice(0, -1)
+    sliced = sliced.slice(0, -1);
   }
-  return `${sliced}…`
+  return `${sliced}…`;
 }
 
-const OUTPUT_CAP_BYTES = 1024 * 1024
+const OUTPUT_CAP_BYTES = 1024 * 1024;
 
-/** Reads a stream into a string capped at `capBytes`: the first and last half
- * joined by an elision marker, dropping the middle as it arrives so memory
- * stays bounded. For debug output (a misbehaving `prepare` hook's stderr), not
- * `timeSource` capture, which stays unbounded because a summary line may be
- * anywhere in the output. */
+/**
+ * Reads a stream into a string capped at `capBytes`: the first and last
+ * half joined by an elision marker, dropping the middle as it arrives so
+ * memory stays bounded. For debug output (a misbehaving `prepare` hook's
+ * stderr), not `timeSource` capture, which stays unbounded because a
+ * summary line may be anywhere in the output. */
 export async function readBoundedText(
   stream: ReadableStream<Uint8Array>,
   capBytes: number = OUTPUT_CAP_BYTES,
 ): Promise<string> {
-  const halfBytes = Math.floor(capBytes / 2)
-  const reader = stream.getReader()
-  const headChunks: Uint8Array[] = []
-  let headBytes = 0
-  const tailChunks: Uint8Array[] = []
-  let tailBytes = 0
-  let totalBytes = 0
+  const halfBytes = Math.floor(capBytes / 2);
+  const reader = stream.getReader();
+  const headChunks: Uint8Array[] = [];
+  let headBytes = 0;
+  const tailChunks: Uint8Array[] = [];
+  let tailBytes = 0;
+  let totalBytes = 0;
 
   try {
     for (;;) {
-      const { done, value } = await reader.read()
-      if (done) break
-      if (!value || value.byteLength === 0) continue
-      totalBytes += value.byteLength
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+      totalBytes += value.byteLength;
 
-      let chunk = value
+      let chunk = value;
       if (headBytes < halfBytes) {
-        const room = halfBytes - headBytes
+        const room = halfBytes - headBytes;
         if (chunk.byteLength <= room) {
-          headChunks.push(chunk)
-          headBytes += chunk.byteLength
-          continue
+          headChunks.push(chunk);
+          headBytes += chunk.byteLength;
+          continue;
         }
-        headChunks.push(chunk.subarray(0, room))
-        headBytes += room
-        chunk = chunk.subarray(room)
+        headChunks.push(chunk.subarray(0, room));
+        headBytes += room;
+        chunk = chunk.subarray(room);
       }
-      tailChunks.push(chunk)
-      tailBytes += chunk.byteLength
+      tailChunks.push(chunk);
+      tailBytes += chunk.byteLength;
       // Keep only the last `halfBytes`.
       while (tailBytes > halfBytes && tailChunks.length > 0) {
-        const first = tailChunks[0]!
-        const excess = tailBytes - halfBytes
+        const first = tailChunks[0]!;
+        const excess = tailBytes - halfBytes;
         if (first.byteLength <= excess) {
-          tailChunks.shift()
-          tailBytes -= first.byteLength
+          tailChunks.shift();
+          tailBytes -= first.byteLength;
         } else {
-          tailChunks[0] = first.subarray(excess)
-          tailBytes -= excess
+          tailChunks[0] = first.subarray(excess);
+          tailBytes -= excess;
         }
       }
     }
   } finally {
-    reader.releaseLock()
+    reader.releaseLock();
   }
 
-  const decoder = new TextDecoder()
-  const head = decoder.decode(Buffer.concat(headChunks))
-  if (totalBytes <= headBytes + tailBytes) return head
-  const tail = decoder.decode(Buffer.concat(tailChunks))
-  const elidedBytes = totalBytes - headBytes - tailBytes
-  return `${head}\n…(${elidedBytes} bytes elided)…\n${tail}`
+  const decoder = new TextDecoder();
+  const head = decoder.decode(Buffer.concat(headChunks));
+  if (totalBytes <= headBytes + tailBytes) return head;
+  const tail = decoder.decode(Buffer.concat(tailChunks));
+  const elidedBytes = totalBytes - headBytes - tailBytes;
+  return `${head}\n…(${elidedBytes} bytes elided)…\n${tail}`;
 }
 
-/** Runs a `prepare` hook ahead of one trial. Command forms must exit 0.
- * `timeoutMs` SIGKILLs a hung command and aborts the run; `signal` kills it
- * silently, since cancellation isn't a failure. stderr is captured (1 MiB
- * bounded) and folded into the thrown error rather than streamed. */
+/**
+ * Runs a `prepare` hook ahead of one trial. Command forms must exit 0.
+ * `timeoutMs` SIGKILLs a hung command and aborts the run; `signal` kills
+ * it silently, since cancellation isn't a failure. stderr is captured (1
+ * MiB bounded) and folded into the thrown error rather than streamed. */
 export async function runPrepare(
   hook: PrepareHook,
   run: PrepareRun,
   opts: {
-    cwd?: string
-    env?: Record<string, string>
-    timeoutMs?: number
-    signal?: AbortSignal
+    cwd?: string;
+    env?: Record<string, string>;
+    timeoutMs?: number;
+    signal?: AbortSignal;
   },
 ): Promise<void> {
   if (typeof hook === "function") {
-    await hook(run)
-    return
+    await hook(run);
+    return;
   }
-  const argv = prepareArgv(hook)!
-  const kill = killSwitch(opts.timeoutMs, opts.signal)
+  const argv = prepareArgv(hook)!;
+  const kill = killSwitch(opts.timeoutMs, opts.signal);
   const proc = Bun.spawn(argv, {
     cwd: opts.cwd,
     env: opts.env,
@@ -315,38 +340,41 @@ export async function runPrepare(
     stderr: "pipe",
     stdin: "ignore",
     ...kill.spawn,
-  })
+  });
   // Drain even if nothing reads it, so a chatty hook can't block on a full
   // pipe; `.catch` avoids an unhandled rejection.
   const stderrText = readBoundedText(proc.stderr as ReadableStream).catch(
     () => "",
-  )
-  const exitCode = await proc.exited
-  const timedOut = kill.timedOut()
-  if (!timedOut && opts.signal?.aborted) return
-  if (!timedOut && exitCode === 0) return
+  );
+  const exitCode = await proc.exited;
+  const timedOut = kill.timedOut();
+  if (!timedOut && opts.signal?.aborted) return;
+  if (!timedOut && exitCode === 0) return;
   const how = timedOut
     ? `timed out after ${opts.timeoutMs}ms`
-    : `exited with code ${exitCode}`
-  const stderr = (await stderrText).trim()
+    : `exited with code ${exitCode}`;
+  const stderr = (await stderrText).trim();
   throw new Error(
     `prepare command "${argv.join(" ")}" ${how} before ${run.phase} trial ${run.index}.${stderr ? `\n${stderr}` : ""}`,
-  )
+  );
 }
 
-/** The command form's argv, for the document; a function isn't serializable. */
+/**
+ * The command form's argv, for the document; a function isn't
+ * serializable.
+ */
 export function prepareArgv(
   hook: PrepareHook | undefined,
 ): string[] | undefined {
-  if (hook === undefined || typeof hook === "function") return undefined
-  return Array.isArray(hook) ? hook : splitCommand(hook)
+  if (hook === undefined || typeof hook === "function") return undefined;
+  return Array.isArray(hook) ? hook : splitCommand(hook);
 }
 
 /** A `RegExp` pattern becomes its source string (flags dropped). */
 export function timeSourceSpec(
   source: TimeSource | undefined,
 ): SerializedTimeSource | undefined {
-  if (source === undefined) return undefined
+  if (source === undefined) return undefined;
   return {
     pattern:
       typeof source.pattern === "string"
@@ -354,15 +382,15 @@ export function timeSourceSpec(
         : source.pattern.source,
     ...(source.group !== undefined && { group: source.group }),
     ...(source.unit !== undefined && { unit: source.unit }),
-  }
+  };
 }
 
 export interface SerializedTimeSource {
-  pattern: string
-  group?: number
-  unit?: TimeUnit
+  pattern: string;
+  group?: number;
+  unit?: TimeUnit;
 }
 
 export function splitCommand(command: string): string[] {
-  return command.trim().split(/\s+/).filter(Boolean)
+  return command.trim().split(/\s+/).filter(Boolean);
 }

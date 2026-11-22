@@ -1,4 +1,4 @@
-import type { ProfileDocument } from "../ir/types.ts"
+import type { ProfileDocument } from "../ir/types.ts";
 
 export type FormatName =
   | "table"
@@ -9,19 +9,19 @@ export type FormatName =
   | "collapsed"
   | "mermaid"
   | "speedscope"
-  | "cpuprofile"
+  | "cpuprofile";
 
 export interface VizOptions {
   /** Render this measurement only, instead of every CPU measurement. */
-  measurementId?: string
+  measurementId?: string;
 }
 
 export interface RenderResult {
-  text?: string
-  files?: { path?: string; content: string }[]
+  text?: string;
+  files?: { path?: string; content: string }[];
 }
 
 export interface Renderer<O = unknown> {
-  name: FormatName
-  render(doc: ProfileDocument, options: O): Promise<RenderResult>
+  name: FormatName;
+  render(doc: ProfileDocument, options: O): Promise<RenderResult>;
 }

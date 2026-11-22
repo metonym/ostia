@@ -1,6 +1,7 @@
 # Library API
 
-The CLI is a thin wrapper over these functions; both produce the same `ProfileDocument`
+The CLI is a thin wrapper over these functions;
+both produce the same `ProfileDocument`
 ([document-schema.md](document-schema.md)).
 
 ```ts
@@ -21,7 +22,8 @@ import type {
 
 ## `time(opts)` → `Promise<ProfileDocument>`
 
-Subprocess timing; the same behavior as `ostia time` ([cli.md](cli.md#ostia-time)).
+Subprocess timing; the same behavior as `ostia time`
+([cli.md](cli.md#ostia-time)).
 
 ```ts
 const controller = new AbortController()
@@ -45,10 +47,11 @@ const doc = await time({
 })
 ```
 
-A command is a string (whitespace-split, no shell), an argv array, or an object
-`{ command, label?, prepare?, timeSource?, timeoutMs?, ignoreExitCodes? }` whose fields
-override the top-level ones for that command. That's how one command becomes several
-labeled workloads:
+A command is a string (whitespace-split, no shell), an argv array,
+or an object
+`{ command, label?, prepare?, timeSource?, timeoutMs?, ignoreExitCodes? }`
+whose fields override the top-level ones for that command.
+That's how one command becomes several labeled workloads:
 
 ```ts
 const build = ["bun", "cli.ts", "build", "fixture"]
@@ -64,20 +67,24 @@ const doc = await time({
 })
 ```
 
-A `prepare` function receives `{ phase, index }` with `phase` one of `"warmup"`,
-`"timing"`, `"cpu"`, `"heap"`. A `RegExp` `timeSource` pattern must not have the `g`, `y`
-or `d` flag; `time()` rejects with a `RangeError` before running anything.
+A `prepare` function receives `{ phase, index }` with `phase` one of
+`"warmup"`, `"timing"`, `"cpu"`, `"heap"`.
+A `RegExp` `timeSource` pattern must not have the `g`, `y` or `d` flag;
+`time()` rejects with a `RangeError` before running anything.
 
-A command stops at its first non-ignored non-zero exit. `time()` still resolves; check
-`Trial.exitCode` or the `nonzero-exit` warning. Aborting `signal` kills in-flight
-children and resolves with the measurements completed so far, the last one carrying an
-`aborted` warning.
+A command stops at its first non-ignored non-zero exit.
+`time()` still resolves; check `Trial.exitCode` or the `nonzero-exit`
+warning.
+Aborting `signal` kills in-flight children and resolves with the
+measurements completed so far, the last one carrying an `aborted`
+warning.
 
 ## `profile(fn, opts?)` → `Promise<{ result, measurement, document }>`
 
-CPU capture of a function in the current process. The default `origin: "inspector"`
-produces CDP-shaped evidence; `origin: "jsc"` uses `bun:jsc`'s sampling profiler and adds
-JIT tier counts (LLInt / Baseline / DFG / FTL).
+CPU capture of a function in the current process.
+The default `origin: "inspector"` produces CDP-shaped evidence;
+`origin: "jsc"` uses `bun:jsc`'s sampling profiler
+and adds JIT tier counts (LLInt / Baseline / DFG / FTL).
 
 ```ts
 const { result, measurement, document } = await profile(() => hashLoop(8_000_000), {
@@ -89,16 +96,21 @@ measurement.jit?.tiers // { llint: 0, baseline: 9, dfg: 37, ftl: 2825 }
 const { files } = await renderers.collapsed.render(document, {})
 ```
 
-`document` holds the one workload and measurement. An already-aborted `signal` runs `fn`
-without the profiler and returns an `aborted` warning in place of CPU evidence; a signal
-can't interrupt `fn` once it's running.
+`document` holds the one workload and measurement.
+An already-aborted `signal` runs `fn` without the profiler
+and returns an `aborted` warning in place of CPU evidence;
+a signal can't interrupt `fn` once it's running.
 
-By default the workload id hashes the function's name and source text, not the values
-it closes over: `() => work(n)` profiled for two different `n` yields the same id twice,
-and editing the function changes its id. Pass `name` to identify the workload yourself:
-the id then hashes `name` alone and `name` is also the label, so differently-parameterised
-closures stay distinct under `createDocument`, comparisons and renderers, and the id
-survives edits to the function. `name` must be a non-empty string.
+By default the workload id hashes the function's name and source text,
+not the values it closes over: `() => work(n)` profiled for two
+different `n` yields the same id twice,
+and editing the function changes its id.
+Pass `name` to identify the workload yourself:
+the id then hashes `name` alone and `name` is also the label,
+so differently-parameterised closures stay distinct under
+`createDocument`, comparisons and renderers,
+and the id survives edits to the function.
+`name` must be a non-empty string.
 
 ## Suites: `group()`, `task()`, `bench()`
 
@@ -136,11 +148,15 @@ const doc = await bench({
 })
 ```
 
-`bench()` runs each suite file in a child process (and each isolated task in its own),
-exactly like `ostia bench` ([cli.md](cli.md#ostia-bench)). It rejects if a suite fails, if a
-suite file doesn't exist, or if `jobs` isn't an integer >= 1. Each call keeps its scratch files
-in a directory of its own under `outDir`, so concurrent calls can share one. It also takes a `signal`: aborting kills in-flight suite processes and resolves with the
-suites and tasks that had finished.
+`bench()` runs each suite file in a child process
+(and each isolated task in its own),
+exactly like `ostia bench` ([cli.md](cli.md#ostia-bench)).
+It rejects if a suite fails, if a suite file doesn't exist,
+or if `jobs` isn't an integer >= 1.
+Each call keeps its scratch files in a directory of its own under
+`outDir`, so concurrent calls can share one.
+It also takes a `signal`: aborting kills in-flight suite processes
+and resolves with the suites and tasks that had finished.
 
 ### `TaskOptions`
 
@@ -154,17 +170,23 @@ suites and tasks that had finished.
 | `params` | Structured parameters; part of the workload id. Merged over the current `sweep()` point. |
 | `before`, `after` | Run once, unmeasured, before the task's warmup and after its last trial, in the task's own process (works with `isolate`). |
 
-`GroupOptions` takes `description`, `isolate`, `gc`, `cpu`, `alloc`, `peakMem`, `before` and `after`;
-the flags are defaults for the group's tasks, and `before`/`after` run once around the
-group's first and last measured task.
+`GroupOptions` takes `description`, `isolate`, `gc`, `cpu`, `alloc`,
+`peakMem`, `before` and `after`; the flags are defaults for the group's
+tasks, and `before`/`after` run once around the group's first
+and last measured task.
 
-Groups nest. A task's group is the names of its enclosing groups joined with `/`, outermost
-first, so a task `t` in `group("a")` > `group("b")` has id `a/b/t` and `Workload.group` `a/b`
-(ids of tasks in a single group are unchanged). An inner group inherits what it doesn't set
-from the group around it: `description`, `isolate`, `gc`, `cpu`, `alloc` and `peakMem` (the
-inner value wins), and `.skip`/`.only`. Hooks don't merge, they nest: the outer group's `before`
-runs once before the first measured task anywhere inside it, nested groups included, then each
-inner group's own, and `after` runs innermost first.
+Groups nest.
+A task's group is the names of its enclosing groups joined with `/`,
+outermost first, so a task `t` in `group("a")` > `group("b")` has id
+`a/b/t` and `Workload.group` `a/b`
+(ids of tasks in a single group are unchanged).
+An inner group inherits what it doesn't set from the group around it:
+`description`, `isolate`, `gc`, `cpu`,
+`alloc` and `peakMem` (the inner value wins), and `.skip`/`.only`.
+Hooks don't merge, they nest: the outer group's `before` runs once
+before the first measured task anywhere inside it,
+nested groups included, then each inner group's own,
+and `after` runs innermost first.
 
 ```ts
 group(
@@ -181,29 +203,37 @@ group(
 )
 ```
 
-Module-scope code in a suite file runs once, before any task is sampled. There is no
-per-trial hook, since that would defeat batching; use `gc` or `isolate` for per-trial
-concerns. Because `before`/`after` run once per task, a suite that creates several
-instances of something stateful (a mounted component, a server) should scope its queries
-to the instance, not to a global lookup that assumes only one exists.
+Module-scope code in a suite file runs once, before any task is sampled.
+There is no per-trial hook, since that would defeat batching;
+use `gc` or `isolate` for per-trial concerns.
+Because `before`/`after` run once per task,
+a suite that creates several instances of something stateful
+(a mounted component, a server) needs to scope its queries to the
+instance, not to a global lookup that assumes only one exists.
 
-Task functions and hooks may be async. Awaiting costs a microtask per call, so an async
-task measures a few nanoseconds slower than the same synchronous body.
+Task functions and hooks may be async.
+Awaiting costs a microtask per call,
+so an async task measures a few nanoseconds slower than the same
+synchronous body.
 
 ### `.skip` and `.only`
 
-`task.skip()`/`group.skip()` register without measuring. The workload stays in the
-document with `skipped: true`, prints as `- skipped`, and `compare` treats it as
-unchanged with a `skipped` warning. `task.only()`/`group.only()` restrict the suite file
-to the marked tasks (`--filter` still applies) and print `bench: N task(s) selected by
-.only` to stderr, once per suite file, so a forgotten `.only` is visible. A `.skip` or `.only`
-group applies to the groups nested in it. Under `ab`, a `.only` in the candidate suite also
-leaves out the tasks that exist only at the base ref, as `--filter` does.
+`task.skip()`/`group.skip()` register without measuring.
+The workload stays in the document with `skipped: true`,
+prints as `- skipped`, and `compare` treats it as unchanged with a
+`skipped` warning.
+`task.only()`/`group.only()` restrict the suite file to the marked tasks
+(`--filter` still applies) and print
+`bench: N task(s) selected by .only` to stderr, once per suite file,
+so a forgotten `.only` is visible.
+A `.skip` or `.only` group applies to the groups nested in it.
+Under `ab`, a `.only` in the candidate suite also leaves out the tasks
+that exist only at the base ref, as `--filter` does.
 
 ### `keep(value)`
 
-A task's return value is already protected from dead-code elimination. Use `keep()` for
-an intermediate value the task doesn't return:
+A task's return value is already protected from dead-code elimination.
+Use `keep()` for an intermediate value the task doesn't return:
 
 ```ts
 task("parse then validate", () => {
@@ -215,9 +245,10 @@ task("parse then validate", () => {
 
 ## `sweep(dims, fn)` and `range(start, end, multiplier = 8)`
 
-`sweep()` calls `fn` once per point of the Cartesian product of `dims`; `task()` calls
-inside inherit the point as `params`, so each point is its own workload and `compare`
-matches points across runs.
+`sweep()` calls `fn` once per point of the Cartesian product of `dims`;
+`task()` calls inside inherit the point as `params`,
+so each point is its own workload and `compare` matches points across
+runs.
 
 ```ts
 group("parse", () => {
@@ -228,15 +259,17 @@ group("parse", () => {
 })
 ```
 
-`range()` produces geometric points ending exactly on `end`: `range(100, 10_000)` is
-`[100, 800, 6400, 10000]`. The markdown renderer pivots a group into a table (rows = first
-dimension, columns = second) when all its tasks share the same two param keys; otherwise
-params print as a `key=value` suffix.
+`range()` produces geometric points ending exactly on `end`:
+`range(100, 10_000)` is `[100, 800, 6400, 10000]`.
+The markdown renderer pivots a group into a table
+(rows = first dimension, columns = second) when all its tasks share the
+same two param keys; otherwise params print as a `key=value` suffix.
 
 ## `run(opts?)` → `Promise<ProfileDocument>`
 
-Runs the tasks registered in the current file, in the current process, prints a report,
-and returns the document. For a suite run directly with `bun suite.ts`:
+Runs the tasks registered in the current file, in the current process,
+prints a report, and returns the document.
+For a suite run directly with `bun suite.ts`:
 
 ```ts
 import { group, run, task } from "ostia"
@@ -250,15 +283,18 @@ try {
 }
 ```
 
-Options: `filter`, `budgetMs`, `samples`, `minSamples`, `warmup` (a fraction of the
-budget, default 0.1), `gc`, `cpu`, `cpuIntervalUs`, `alloc`, `noiseCheck`, `quiet` (don't
-print), `format` (default `"table"`). There is no subprocess, so `isolate` and `peakMem`
-are ignored; prefer `ostia bench` or `bench()` for numbers you will compare.
+Options: `filter`, `budgetMs`, `samples`, `minSamples`,
+`warmup` (a fraction of the budget, default 0.1), `gc`, `cpu`,
+`cpuIntervalUs`, `alloc`, `noiseCheck`, `quiet` (don't print),
+`format` (default `"table"`).
+There is no subprocess, so `isolate` and `peakMem` are ignored;
+prefer `ostia bench` or `bench()` for numbers you will compare.
 
 ## `ab(opts)` → `Promise<ProfileDocument>`
 
-Paired A/B timing of suite files against a git ref; the same behavior as `ostia ab`
-([cli.md](cli.md#ostia-ab)). The suite files are the ones `bench()` runs, unchanged.
+Paired A/B timing of suite files against a git ref;
+the same behavior as `ostia ab` ([cli.md](cli.md#ostia-ab)).
+The suite files are the ones `bench()` runs, unchanged.
 
 ```ts
 const doc = await ab({
@@ -288,19 +324,21 @@ doc.measurements  // one phase: "paired" measurement per paired task; `threw` in
 if (doc.ab!.verdict === "fail") process.exitCode = 1
 ```
 
-It rejects with a `RangeError` for bad settings, with an `AbBaseError` when `cwd` isn't
-in a git repository or `base` isn't a commit, with an `AbSetupError` (its message
-ends with the command's output) when a `baseSetup` command fails, and with an
-`AbSuiteError` when one side's suite fails outside any task, such as on import; its `side`
-is `"base"` or `"cand"`. A task that returns its
-result gets an output comparison between the two sides for free
-(`paired.sameOutput`).
+It rejects with a `RangeError` for bad settings,
+with an `AbBaseError` when `cwd` isn't in a git repository
+or `base` isn't a commit, with an `AbSetupError`
+(its message ends with the command's output) when a `baseSetup` command
+fails, and with an `AbSuiteError` when one side's suite fails outside
+any task, such as on import; its `side` is `"base"` or `"cand"`.
+A task that returns its result gets an output comparison between the two
+sides for free (`paired.sameOutput`).
 
 ## `compareDocuments(base, cand, thresholds?)` → `CompareResult`
 
-The comparison behind `ostia compare` and `ostia ci` ([statistics.md](statistics.md)).
-`thresholds` defaults to `DEFAULT_THRESHOLDS` and must be complete; spread over the
-defaults to change one field.
+The comparison behind `ostia compare`
+and `ostia ci` ([statistics.md](statistics.md)).
+`thresholds` defaults to `DEFAULT_THRESHOLDS` and must be complete;
+spread over the defaults to change one field.
 
 ```ts
 const result = compareDocuments(base, cand, { ...DEFAULT_THRESHOLDS, timingPct: 3 })
@@ -320,8 +358,8 @@ await saveDocument(doc, "doc.json")          // atomic write
 const loaded = await loadDocument("doc.json") // throws OstiaDocumentError
 ```
 
-`createDocument` stamps versions, platform, timestamp and git metadata. It's useful for
-combining several `profile()` results:
+`createDocument` stamps versions, platform, timestamp and git metadata.
+It's useful for combining several `profile()` results:
 
 ```ts
 const a = await profile(() => taskA())
@@ -336,18 +374,24 @@ const doc = createDocument(
 
 ## `renderers`
 
-Each renderer is `{ name, render(doc, options) }` returning `{ text? }` and/or
-`{ files? }`. Names: `table`, `markdown`, `json`, `jsonl`, `minimal`, `collapsed`,
-`mermaid`, `speedscope`, `cpuprofile`. Each renderer's options are typed per format:
-`collapsed`, `speedscope` and `cpuprofile` take `VizOptions` (`{ measurementId? }`),
-`mermaid` takes `MermaidOptions` (`VizOptions` plus `topN?`), `minimal` takes
-`MinimalRenderOptions` (`{ protocol? }`, a `MinimalProtocolContext`, to emit the
-`unmatched` and `summary` events), and the rest take no options (pass `{}`).
+Each renderer is `{ name, render(doc, options) }` returning `{ text? }`
+and/or `{ files? }`.
+Names: `table`, `markdown`, `json`, `jsonl`, `minimal`, `collapsed`,
+`mermaid`, `speedscope`, `cpuprofile`.
+Each renderer's options are typed per format:
+`collapsed`, `speedscope` and `cpuprofile` take `VizOptions`
+(`{ measurementId? }`), `mermaid` takes `MermaidOptions`
+(`VizOptions` plus `topN?`), `minimal` takes `MinimalRenderOptions`
+(`{ protocol? }`, a `MinimalProtocolContext`, to emit the `unmatched`
+and `summary` events), and the rest take no options (pass `{}`).
 
-The `table` and `markdown` renderers agree on grouping (a task's `group`, else the part of
-its id before the last `/`), on percent deltas (`+3.2%`, `-1.5%`, and `0.0%` with no sign
-when a delta rounds to zero), on byte counts (1024-based `B`/`KiB`/`MiB`), and on naming a
-comparison or capture whose workload is missing from the document by its raw id.
+The `table` and `markdown` renderers agree on grouping
+(a task's `group`, else the part of its id before the last `/`),
+on percent deltas
+(`+3.2%`, `-1.5%`, and `0.0%` with no sign when a delta rounds to zero),
+on byte counts (1024-based `B`/`KiB`/`MiB`),
+and on naming a comparison or capture whose workload is missing from the
+document by its raw id.
 
 ```ts
 const { text } = await renderers.markdown.render(doc, {})
@@ -356,7 +400,8 @@ const { files } = await renderers.speedscope.render(doc, { measurementId })
 
 ## `defineConfig(config)`
 
-Returns its argument unchanged; it exists to type-check `ostia.config.ts`.
+Returns its argument unchanged; it exists to type-check
+`ostia.config.ts`.
 See [config.md](config.md).
 
 ## Coming from mitata or hyperfine

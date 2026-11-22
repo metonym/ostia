@@ -34,7 +34,7 @@ Examples:
   ostia time --prepare "rm -rf dist" "bun build.ts"
   ostia time --time-source "built in (\\d+)ms" "bun build.ts"
   ostia time -- bun -e "console.log('a b')"
-`
+`;
 
 export const BENCH_HELP = `ostia bench [flags] <suite.ts...>
 
@@ -73,7 +73,7 @@ Examples:
   ostia bench bench/*.ts
   ostia bench bench/*.ts --filter parse --cpu --alloc
   ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
-`
+`;
 
 export const AB_HELP = `ostia ab [flags] <suite.ts...>
 
@@ -131,7 +131,7 @@ Examples:
   ostia ab bench/*.ts --metric instructions --threshold 3
   ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
   ostia ab bench/paint.bench.ts --alloc --peak-mem
-`
+`;
 
 export const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
 ostia compare <candidate.json> --baseline <base.json>
@@ -151,7 +151,7 @@ Flags:
 
 Exactly two document paths (one with --baseline); anything more is an error.
 Exit codes: 0 pass, 1 a workload regressed, 2 nothing matched or a harness error.
-`
+`;
 
 export const REPORT_HELP = `ostia report <document.json> [flags]
 
@@ -181,7 +181,7 @@ Examples:
   ostia report doc.json --format markdown
   ostia report doc.json --format speedscope --out-dir node_modules/.cache/ostia/viz
   ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
-`
+`;
 
 export const CI_HELP = `ostia ci [flags]
 
@@ -203,7 +203,7 @@ Flags:
 Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, a workload
 failed or produced no samples, or an onMissingBaseline "fail" mismatch), 130 Ctrl-C (the
 partial document is exported; nothing is compared or saved).
-`
+`;
 
 export const BASELINE_HELP = `ostia baseline <save|list|show> [args]
 
@@ -228,7 +228,7 @@ Examples:
   ostia baseline list
   ostia baseline show main
   ostia baseline show main --format markdown
-`
+`;
 
 export const MAIN_HELP = `ostia - profiling and benchmarking for Bun
 
@@ -242,4 +242,4 @@ Commands:
   baseline  Manage baseline ProfileDocuments (save/list/show)
 
 Run "ostia <command> --help" for details.
-`
+`;

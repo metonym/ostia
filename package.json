@@ -12,26 +12,6 @@
   "bin": {
     "ostia": "src/cli/main.ts"
   },
-  "scripts": {
-    "build": "bun scripts/build.ts",
-    "smoke:package": "bun scripts/smoke-package.ts",
-    "test": "bun test",
-    "typecheck": "bun check",
-    "typecheck:package": "bun check -p tests/types",
-    "lint:all": "bun fmt && bun lint --fix",
-    "lint:changed": "bun fmt --changed && bun lint --changed --fix",
-    "knip": "knip-bun",
-    "bench": "bun src/cli/main.ts bench bench/*.ts",
-    "bench:baseline": "bun src/cli/main.ts bench bench/*.ts --budget 3000 --min-samples 30 --export-json .ostia/baselines/bench-main.json",
-    "baseline": "bun src/cli/main.ts baseline save",
-    "dogfood": "bun test && bun src/cli/main.ts ci",
-    "examples": "bun scripts/run-examples.ts"
-  },
-  "devDependencies": {
-    "@types/bun": "^1.4.4",
-    "knip": "^6.38.0",
-    "typescript": "npm:@typescript/typescript6@^6.0.2"
-  },
   "repository": {
     "type": "git",
     "url": "git+https://github.com/metonym/ostia.git"

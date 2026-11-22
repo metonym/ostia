@@ -1,18 +1,19 @@
-import type { HeapEvidence, Warning } from "../../ir/types.ts"
-import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts"
-import { parseHeapSnapshot, type RawHeapSnapshot } from "./parse.ts"
+import type { HeapEvidence, Warning } from "../../ir/types.ts";
+import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts";
+import { parseHeapSnapshot, type RawHeapSnapshot } from "./parse.ts";
 
-export type HeapCaptureOptions = ProfiledRunOptions
+export type HeapCaptureOptions = ProfiledRunOptions;
 
 export interface HeapCaptureResult {
-  diagnosticWallNs: number
-  exitCode: number
-  artifactPath?: string
-  heap?: HeapEvidence
-  warnings: Warning[]
+  diagnosticWallNs: number;
+  exitCode: number;
+  artifactPath?: string;
+  heap?: HeapEvidence;
+  warnings: Warning[];
 }
 
-// `--heap-prof-md` must not accompany `--heap-prof`: md wins and the binary snapshot is skipped.
+// `--heap-prof-md` must not accompany `--heap-prof`: md wins and the
+// binary snapshot is skipped.
 export async function runHeapCapture(
   opts: HeapCaptureOptions,
 ): Promise<HeapCaptureResult> {
@@ -26,6 +27,6 @@ export async function runHeapCapture(
       opts.fileName,
     ],
     { what: "a heap snapshot", kind: "heap" },
-  )
-  return raw ? { ...run, heap: parseHeapSnapshot(raw) } : run
+  );
+  return raw ? { ...run, heap: parseHeapSnapshot(raw) } : run;
 }

@@ -1,33 +1,42 @@
 # ProfileDocument schema
 
-Every command and library call produces a `ProfileDocument`: one JSON object holding the
-workloads measured, their measurements, and (after a comparison) the comparisons. The
-TypeScript source of truth is [`src/ir/types.ts`](../src/ir/types.ts); `ProfileDocument`,
-`Workload`, `Comparison`, `Warning` and `WarningCode` are exported from `ostia`.
+Every command and library call produces a `ProfileDocument`:
+one JSON object holding the workloads measured, their measurements,
+and (after a comparison) the comparisons.
+The TypeScript source of truth is
+[`src/ir/types.ts`](../src/ir/types.ts); `ProfileDocument`, `Workload`,
+`Comparison`, `Warning` and `WarningCode` are exported from `ostia`.
 
-Units are fixed: nanoseconds for time, bytes for memory, microseconds for sampling
-intervals.
+Units are fixed: nanoseconds for time, bytes for memory,
+microseconds for sampling intervals.
 
 ## Versioning
 
-`schemaVersion` is `2`. `loadDocument` (and therefore `compare`, `report`, `ci`) rejects
-any other version with `OstiaDocumentError` (`code: "unsupported-schema"`); version 1
-documents can't be loaded. New optional fields are added without a version bump.
+`schemaVersion` is `2`.
+`loadDocument` (and therefore `compare`, `report`, `ci`) rejects any
+other version with `OstiaDocumentError` (`code: "unsupported-schema"`);
+version 1 documents can't be loaded.
+New optional fields are added without a version bump.
 
-Documents written before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`; `loadDocument`
-recomputes them from the stored samples, so every loaded `TimingStats` has them.
+Documents written before ostia 0.2.4 lack `p25`/`p75`/`p99`/`mad`;
+`loadDocument` recomputes them from the stored samples,
+so every loaded `TimingStats` has them.
 
 `ab` documents written by ostia 0.2.8-0.2.9 name the ratio quartiles of
-`PairedEvidence` (and its `repeats`) `p25`/`p75`; they are now `ratioP25`/`ratioP75`,
-distinct from `TimingStats.p25`/`p75`, which are ns. This did not bump `schemaVersion`:
-`loadDocument` reads the old names as the new ones.
+`PairedEvidence` (and its `repeats`) `p25`/`p75`;
+later versions name them `ratioP25`/`ratioP75`,
+distinct from `TimingStats.p25`/`p75`, which are ns.
+This did not bump `schemaVersion`: `loadDocument` reads the old names as
+the new ones.
 
-`ab` documents written before ostia 0.2.12 lack `ab.metric`; `loadDocument` sets it to
-`"time"`, the only metric they could have used.
+`ab` documents written before ostia 0.2.12 lack `ab.metric`;
+`loadDocument` sets it to `"time"`, the only metric they could have
+used.
 
-`OstiaDocumentError.code` is `"invalid-json"`, `"not-a-document"` (no numeric
-`schemaVersion`, or `workloads`/`measurements` that aren't arrays of well-formed
-objects) or `"unsupported-schema"`.
+`OstiaDocumentError.code` is `"invalid-json"`,
+`"not-a-document"`
+(no numeric `schemaVersion`, or `workloads`/`measurements` that aren't
+arrays of well-formed objects) or `"unsupported-schema"`.
 
 ## Top level
 
@@ -69,19 +78,23 @@ objects) or `"unsupported-schema"`.
 
 Ids identify what was measured, not where or when:
 
-- Subprocess command: a hash of the argv, plus the `prepare` hook (its argv, or a
-  function's source text) and the `timeSource` spec when present. The working directory is
-  not included, so a baseline saved in one checkout (a CI runner, another worktree)
+- Subprocess command: a hash of the argv,
+  plus the `prepare` hook (its argv, or a function's source text)
+  and the `timeSource` spec when present.
+  The working directory is not included,
+  so a baseline saved in one checkout (a CI runner, another worktree)
   matches a run from another.
-- Suite task: a hash of the suite file path relative to the working directory, the
-  `group/name` task id, and `params` when present, so, as with commands, moving the
-  checkout doesn't change the id.
-- `profile()` capture: a hash of the `name` option when given (it is also the label),
-  else of the function's name and source text, so closures that differ only in captured
-  values share an id unless named.
+- Suite task: a hash of the suite file path relative to the working
+  directory, the `group/name` task id, and `params` when present, so,
+  as with commands, moving the checkout doesn't change the id.
+- `profile()` capture: a hash of the `name` option
+  when given (it is also the label), else of the function's name
+  and source text, so closures that differ only in captured values share
+  an id unless named.
 
-`label`, `description`, `baseline`, `inputs`, `timeoutMs` and `ignoreExitCodes` never
-affect the id. (`profile()`'s `name` is the exception only because it is the workload's
+`label`, `description`, `baseline`, `inputs`,
+`timeoutMs` and `ignoreExitCodes` never affect the id.
+(`profile()`'s `name` is the exception only because it is the workload's
 identity; it is shown as the label too.)
 
 ## Measurements
@@ -106,28 +119,34 @@ identity; it is shown as the label too.)
 | `warnings` | `Warning[]`. |
 | `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
 
-`Trial`: `{ i, wallNs, exitCode?, userNs?, systemNs?, maxRssBytes?, reportedNs?, timedOut?, timeSourceNoMatch? }`.
-`reportedNs` is the value parsed by a `timeSource`; timed-out and unmatched trials
-contribute no sample.
+`Trial`:
+`{ i, wallNs, exitCode?, userNs?, systemNs?, maxRssBytes?, reportedNs?, timedOut?, timeSourceNoMatch? }`.
+`reportedNs` is the value parsed by a `timeSource`;
+timed-out and unmatched trials contribute no sample.
 
-`TimingStats`: `{ unit: "ns", samples, mean, median, stddev, min, max, outliers: { mild, severe }, p25, p75, p99, mad, batch? }`.
-For batched in-process tasks, `samples` are per-call times and `batch` is the number of
-calls per trial.
+`TimingStats`:
+`{ unit: "ns", samples, mean, median, stddev, min, max, outliers: { mild, severe }, p25, p75, p99, mad, batch? }`.
+For batched in-process tasks, `samples` are per-call times
+and `batch` is the number of calls per trial.
 
-`PairedEvidence` (`phase: "paired"`): `{ rounds, batch, baseSamples, baseMedianNs, ratios,
-medianRatio, ratioP25, ratioP75, instructions?, flagged?, repeats?, confirmed?, verdict,
-sameOutput, suiteChanged?, retained?, peak? }`. `baseSamples[i]` and `timing.samples[i]`
-are the two sides' per-call times in round `i`, and `ratios[i]` is candidate over base.
-`instructions`, where the machine counts them, holds the same rounds' instructions per
-call: `{ baseSamples, candSamples, baseMedian, candMedian, ratios, medianRatio, ratioP25,
-ratioP75 }`. `flagged` is what the first process saw, by `ab.metric`'s ratios; `repeats`
-are the fresh-process re-measurements of a flagged task (`{ medianRatio, ratioP25,
-ratioP75, instructions?: { medianRatio, ratioP25, ratioP75 }, flagged? }`), and `verdict`
-is `flagged` only when `confirmed`. `suiteChanged` is `true` when the suite file differs from the base's copy;
-with `sameOutput: false` too, `verdict` is `unchanged`. `retained` (`--alloc`) and `peak`
-(`--peak-mem`) are `MemoryChange`s: `{ baseBytes, candBytes, verdict, floorBytes }`, where
-`verdict` counts only a change past both the memory threshold and `floorBytes`. See
-[cli.md](cli.md#ostia-ab).
+`PairedEvidence` (`phase: "paired"`):
+`{ rounds, batch, baseSamples, baseMedianNs, ratios, medianRatio, ratioP25, ratioP75, instructions?, flagged?, repeats?, confirmed?, verdict, sameOutput, suiteChanged?, retained?, peak? }`.
+`baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
+times in round `i`, and `ratios[i]` is candidate over base.
+`instructions`, where the machine counts them,
+holds the same rounds' instructions per call:
+`{ baseSamples, candSamples, baseMedian, candMedian, ratios, medianRatio, ratioP25, ratioP75 }`.
+`flagged` is what the first process saw, by `ab.metric`'s ratios;
+`repeats` are the fresh-process re-measurements of a flagged task
+(`{ medianRatio, ratioP25, ratioP75, instructions?: { medianRatio, ratioP25, ratioP75 }, flagged? }`),
+and `verdict` is `flagged` only when `confirmed`.
+`suiteChanged` is `true` when the suite file differs from the base's
+copy; with `sameOutput: false` too, `verdict` is `unchanged`.
+`retained` (`--alloc`) and `peak` (`--peak-mem`) are `MemoryChange`s:
+`{ baseBytes, candBytes, verdict, floorBytes }`,
+where `verdict` counts only a change past both the memory threshold
+and `floorBytes`.
+See [cli.md](cli.md#ostia-ab).
 
 ## Comparisons
 
@@ -145,9 +164,10 @@ See [statistics.md](statistics.md) for how these are computed.
 
 ## Compared tasks
 
-`compared` holds what the table and markdown formats print for a comparison, one entry per
-task, flat for scripts: matched tasks in the candidate's order, then candidate-only, then
-base-only ones.
+`compared` holds what the table and markdown formats print for a
+comparison, one entry per task, flat for scripts:
+matched tasks in the candidate's order, then candidate-only,
+then base-only ones.
 
 | Field | Meaning |
 |---|---|
@@ -159,13 +179,15 @@ base-only ones.
 | `timing?` | `{ unit: "ns", baseMedian, candMedian, baseSamples?, candSamples, medianDeltaPct, ci95?, pValue?, thresholdPct }`. Absent on one-sided and skipped tasks. |
 | `memory?` | `{ reading, baseBytes, candBytes, deltaPct }[]` for each reading both sides have: `heapUsedBefore`, `heapUsedAfter`, `retained` (`--alloc`), `peak` (`--peak-mem`), `maxRss`. Informational, never gated. |
 
-A document compared before `compared` existed renders rows rebuilt from `comparisons`:
-no sample count for the base, no memory, the base median derived from the change.
+A document compared before `compared` existed renders rows rebuilt from
+`comparisons`: no sample count for the base, no memory,
+the base median derived from the change.
 
 ## Warnings
 
-`Warning` is `{ code, message, data? }`. The terminal table prints codes under each row
-and messages below the table; `--format minimal` includes `code` and `data`.
+`Warning` is `{ code, message, data? }`.
+The terminal table prints codes under each row and messages below the
+table; `--format minimal` includes `code` and `data`.
 
 | Code | Where | When |
 |---|---|---|
@@ -189,12 +211,14 @@ and messages below the table; `--format minimal` includes `code` and `data`.
 
 ## Files on disk
 
-- `outDir` (default `node_modules/.cache/ostia`): the `ci` cache, `artifacts/`, and
-  `bench` and `ab` scratch files.
-- `.ostia/ab/` at the project root: `<sha>/` (or `<sha>-<hash>/` with setup commands),
-  the base trees `ab` extracts (one per commit and setup, reused; the 5 most recently used
-  are kept, see `--keep-trees`), and a `.gitignore` that ignores them.
+- `outDir` (default `node_modules/.cache/ostia`): the `ci` cache,
+  `artifacts/`, and `bench` and `ab` scratch files.
+- `.ostia/ab/` at the project root: `<sha>/`
+  (or `<sha>-<hash>/` with setup commands),
+  the base trees `ab` extracts
+  (one per commit and setup, reused; the 5 most recently used are kept,
+  see `--keep-trees`), and a `.gitignore` that ignores them.
 - `baselineDir` (default `.ostia/baselines`): `<name>.json` baselines.
 
-Documents are written atomically (temp file, then rename), so an interrupted write never
-leaves a truncated file.
+Documents are written atomically (temp file, then rename),
+so an interrupted write never leaves a truncated file.

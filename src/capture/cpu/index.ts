@@ -1,20 +1,21 @@
-import type { CpuEvidence, Warning } from "../../ir/types.ts"
-import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts"
-import { parseCpuProfile, type RawCpuProfile } from "./parse.ts"
+import type { CpuEvidence, Warning } from "../../ir/types.ts";
+import { type ProfiledRunOptions, runProfiled } from "../bunflags.ts";
+import { parseCpuProfile, type RawCpuProfile } from "./parse.ts";
 
 export interface CpuCaptureOptions extends ProfiledRunOptions {
-  intervalUs: number
+  intervalUs: number;
 }
 
 export interface CpuCaptureResult {
-  diagnosticWallNs: number
-  exitCode: number
-  artifactPath?: string
-  cpu?: CpuEvidence
-  warnings: Warning[]
+  diagnosticWallNs: number;
+  exitCode: number;
+  artifactPath?: string;
+  cpu?: CpuEvidence;
+  warnings: Warning[];
 }
 
-// BUN_CPU_PROFILE is documented but doesn't work on Bun 1.4.0, hence flags/BUN_OPTIONS.
+// BUN_CPU_PROFILE is documented but doesn't work on Bun 1.4.0, hence
+// flags/BUN_OPTIONS.
 export async function runCpuCapture(
   opts: CpuCaptureOptions,
 ): Promise<CpuCaptureResult> {
@@ -30,14 +31,14 @@ export async function runCpuCapture(
       String(opts.intervalUs),
     ],
     { what: "a .cpuprofile", kind: "CPU" },
-  )
-  if (!raw) return run
+  );
+  if (!raw) return run;
 
   if (raw.samples.length === 0) {
     run.warnings.push({
       code: "empty-profile",
       message: "CPU capture produced zero samples.",
-    })
+    });
   }
-  return { ...run, cpu: parseCpuProfile(raw, "cpu-prof", opts.intervalUs) }
+  return { ...run, cpu: parseCpuProfile(raw, "cpu-prof", opts.intervalUs) };
 }

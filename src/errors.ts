@@ -1,5 +1,5 @@
 export function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err)
+  return err instanceof Error ? err.message : String(err);
 }
 
 /** The caller's input can't be run as given (missing suite, bad ref, absent

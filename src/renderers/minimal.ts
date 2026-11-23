@@ -98,7 +98,7 @@ interface MinimalMemoryChange {
 /**
  * One per timing run, for piping into an agent's context in place of the
  * full `ProfileDocument`. Numbers stay in the IR's units (ns). */
-interface MinimalRunLine {
+export interface MinimalRunLine {
   event: "run";
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
   schemaVersion: ProfileDocument["schemaVersion"];
@@ -166,7 +166,7 @@ interface MinimalRunLine {
 }
 
 /** A workload present on only one side of a `compare`/`ci` run. */
-interface MinimalUnmatchedLine {
+export interface MinimalUnmatchedLine {
   event: "unmatched";
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
   workloadId: string;
@@ -177,7 +177,7 @@ interface MinimalUnmatchedLine {
 /**
  * The last line of a `compare`/`ci`/`ab` run; never emitted for a bare
  * `time`/`bench` document. */
-interface MinimalSummaryLine {
+export interface MinimalSummaryLine {
   event: "summary";
   protocolVersion: typeof MINIMAL_PROTOCOL_VERSION;
   command: "compare" | "ci" | "ab";

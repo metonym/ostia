@@ -5,7 +5,7 @@ export const NO_TASKS_HINT =
   " If the suite does call task(), it imports a different copy of ostia than the CLI running it (a global install, or another version): run the one from the project's node_modules.";
 
 /** A task body or hook; it may return a promise, which the runner awaits. */
-type Hook = () => unknown;
+export type Hook = () => unknown;
 
 export interface TaskOptions {
   /**
@@ -207,7 +207,7 @@ type GroupRegistrar = (
   opts?: GroupOptions,
 ) => void;
 
-interface GroupFn extends GroupRegistrar {
+export interface GroupFn extends GroupRegistrar {
   /**
    * Registers every task inside as skipped: the runner never measures
    * them, but the document still carries their workloads (marked
@@ -263,7 +263,7 @@ function registerTask(
 
 type TaskRegistrar = (name: string, fn: Hook, opts?: TaskOptions) => void;
 
-interface TaskFn extends TaskRegistrar {
+export interface TaskFn extends TaskRegistrar {
   /**
    * Registers the task as skipped: the runner never measures it, but the
    * document still carries its workload (marked `Workload.skipped`) so a

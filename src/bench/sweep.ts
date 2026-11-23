@@ -1,6 +1,6 @@
 import { withCurrentParams } from "./registry.ts";
 
-type SweepPoint<T extends Record<string, readonly unknown[]>> = {
+export type SweepPoint<T extends Record<string, readonly unknown[]>> = {
   [K in keyof T]: T[K][number];
 };
 

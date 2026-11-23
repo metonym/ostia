@@ -25,9 +25,9 @@ export function sweep<T extends Record<string, readonly unknown[]>>(
     const key = keys[index];
     if (key === undefined) {
       withCurrentParams(
-        // eslint-disable-next-line typescript/consistent-type-assertions, no-restricted-syntax -- `dims` may hold any value, and params carry the point as given
+        // eslint-disable-next-line typescript/consistent-type-assertions -- `dims` may hold any value, and params carry the point as given
         point as Record<string, string | number | boolean>,
-        // eslint-disable-next-line typescript/consistent-type-assertions, no-restricted-syntax -- every key of `dims` is set by now, which TS can't follow through a mapped type
+        // eslint-disable-next-line typescript/consistent-type-assertions -- every key of `dims` is set by now, which TS can't follow through a mapped type
         () => fn(point as SweepPoint<T>),
       );
       return;

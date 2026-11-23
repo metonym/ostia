@@ -1,6 +1,6 @@
 {
   "name": "ostia",
-  "version": "0.3.1",
+  "version": "0.4.0",
   "description": "Fast profiling and benchmarking for Bun.",
   "license": "MIT",
   "author": "Eric Liu (https://github.com/metonym)",

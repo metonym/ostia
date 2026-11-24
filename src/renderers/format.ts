@@ -41,8 +41,8 @@ export function frameName(frame: Frame | undefined): string {
   return frame?.name || "(anonymous)";
 }
 
-// `cpu.totals` is pre-sorted by self time, so the first `limit` are the
-// heaviest.
+// `cpu.totals` is pre-sorted by self time, so the first `limit` are
+// the heaviest.
 export function topSelfFrames(
   cpu: CpuEvidence,
   limit: number,
@@ -97,8 +97,8 @@ export function escapeMdCell(s: string): string {
     .replace(/\r\n|\r|\n/g, "<br>");
 }
 
-// Median per trial; in-process measurements have no CPU times, so
-// undefined.
+// Median per trial; in-process measurements have no CPU times,
+// so undefined.
 export function cpuTimes(
   run: Pick<Measurement, "trials">,
 ): { userNs: number; systemNs: number } | undefined {

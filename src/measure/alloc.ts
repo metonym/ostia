@@ -19,8 +19,8 @@ interface AllocCaptureResult {
 // Retained heap growth per call: heap size after a batch and a full GC,
 // minus before, over the calls made: up to `batchSize`, fewer (at least
 // one) once `budgetMs` has passed. Garbage is collected, so this is a leak
-// check and a garbage-heavy task reads near zero. Never feeds timing
-// stats.
+// check and a garbage-heavy task reads near zero. Never feeds
+// timing stats.
 export async function measureAllocPerOp(
   fn: () => unknown,
   batchSize: number = DEFAULT_BATCH_SIZE,

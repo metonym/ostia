@@ -116,9 +116,11 @@ export interface AbOptions {
    * Task/group options override these. */
   alloc?: boolean;
   peakMem?: boolean;
-  /** Flag a memory reading that moves past this many percent of the base's
-   * and past its noise floor (default: 10). A memory regression fails the
-   * run. */
+  /**
+   * Flag a memory reading that moves past this many percent of the base's
+   * and past its noise floor (default: 10). A memory regression fails
+   * the run.
+   */
   memThresholdPct?: number;
   /** Shell commands run once, in order, in a freshly extracted base tree
    * before it's used: to build what the suites import but git doesn't hold
@@ -215,8 +217,10 @@ async function saltScripts(dir: string): Promise<void> {
 
 interface TreeSetup {
   commands: string[];
-  /** The project root and the directory `ab()` runs from, in the working
-   * tree. */
+  /**
+   * The project root and the directory `ab()` runs from, in the
+   * working tree.
+   */
   toplevel: string;
   cwd: string;
   timeoutMs?: number | undefined;

@@ -112,8 +112,8 @@ export interface MinimalRunLine {
   groupDescription?: string;
   params?: Record<string, string | number | boolean>;
   /**
-   * `task.skip()` / `group.skip()`: no measurement, so every stats field is
-   * absent.
+   * `task.skip()` / `group.skip()`: no measurement, so every stats field
+   * is absent.
    */
   skipped?: true;
   unit?: "ns";
@@ -207,8 +207,8 @@ export interface MinimalSummaryLine {
   /** `ab` only: the gate on `geomeanPct`. */
   geomeanThresholdPct?: number;
   /**
-   * `ab` only: flagged in the first process but not reproduced; counted in
-   * `unchanged`.
+   * `ab` only: flagged in the first process but not reproduced; counted
+   * in `unchanged`.
    */
   unconfirmed?: number;
   /**
@@ -239,8 +239,9 @@ export type MinimalEvent =
 /**
  * What the `unmatched`/`summary` events need beyond one `ProfileDocument`.
  * The CLI builds it for `compare`/`ci`/`ab`; without it `minimal` emits
- * only `run` lines. `exitCode` is inline because the CLI decides it after
- * rendering. */
+ * only `run` lines. `exitCode` is inline because the CLI decides it
+ * after rendering.
+ */
 export interface MinimalProtocolContext {
   command: "compare" | "ci" | "ab";
   exitCode: number;

@@ -286,8 +286,8 @@ export function memoryChange(
 // `regressed` when the median ratio is above `1 + thresholdPct/100` and
 // the 25th percentile is above 1 (slower in at least three quarters of
 // rounds); `improved` is the mirror. The quartile condition is there so a
-// few wild rounds can't flag a workload whose typical round shows no
-// change.
+// few wild rounds can't flag a workload whose typical round shows
+// no change.
 export function ratioStats(ratios: number[], thresholdPct: number): RatioStats {
   const sorted = sortedCopy(ratios);
   const medianRatio = percentile(sorted, 0.5);

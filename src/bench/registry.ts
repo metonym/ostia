@@ -29,8 +29,9 @@ export interface TaskOptions {
   aliases?: string[];
   /**
    * What this task measures and why. Flows into `Workload.description` so
-   * the intent travels with the numbers instead of living only in a source
-   * comment. */
+   * the intent travels with the numbers instead of living only in a
+   * source comment.
+   */
   description?: string;
   /**
    * Give this task its own subprocess instead of sharing its suite file's,
@@ -210,8 +211,9 @@ type GroupRegistrar = (
 export interface GroupFn extends GroupRegistrar {
   /**
    * Registers every task inside as skipped: the runner never measures
-   * them, but the document still carries their workloads (marked
-   * `Workload.skipped`). */
+   * them, but the document still carries their workloads
+   * (marked `Workload.skipped`).
+   */
   skip: GroupRegistrar;
   /**
    * When any task or group in the suite uses `.only`, the runner restricts

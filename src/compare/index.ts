@@ -43,8 +43,8 @@ export const DEFAULT_THRESHOLDS: Thresholds = {
 };
 
 // Below this many samples on either side, fall back to the point-estimate
-// rule (with a `thin-comparison` warning), because CI and p-value are too
-// noisy.
+// rule (with a `thin-comparison` warning), because CI and p-value are
+// too noisy.
 const MIN_SAMPLES_FOR_TEST = 5;
 
 function pctDelta(base: number, cand: number): number {
@@ -257,8 +257,8 @@ export function createComparer(
     unmatched,
     compared(matched) {
       // A candidate workload whose base has no measurement of it (a base
-      // `task.skip()`) has no comparison either, so it's missing its base
-      // too.
+      // `task.skip()`) has no comparison either, so it's missing its
+      // base too.
       const compared = new Set(matched.map(([id]) => id));
       const candOnly = cand.workloads.filter((w) => !compared.has(w.id));
       const { baseOnly } = unmatched();

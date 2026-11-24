@@ -146,8 +146,8 @@ interface OutputOptions {
 }
 
 // Honors `--export-json`; returns the JSON text when `--format json` will
-// print it (the json renderer's output is exactly this, so serialize
-// once).
+// print it (the json renderer's output is exactly this, so
+// serialize once).
 export async function exportDocument(
   doc: ProfileDocument,
   { exportJson, format, quiet }: OutputOptions,

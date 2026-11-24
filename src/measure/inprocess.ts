@@ -22,23 +22,25 @@ export interface InprocessTimingOptions {
   /** Keep sampling past the budget until this many trials exist. When unset
    * the floor is cost-aware (see `defaultSampleFloor`). */
   minSamples?: number;
-  /** Warmup budget as a fraction of `budgetMs` (default: 0.1); unlike
-   * `time()`'s `warmup`, which is a trial count. Always runs at least one
-   * call. */
+  /**
+   * Warmup budget as a fraction of `budgetMs` (default: 0.1); unlike
+   * `time()`'s `warmup`, which is a trial count. Always runs at least
+   * one call.
+   */
   warmup?: number;
   gc?: boolean;
 }
 
 const DEFAULT_TIME_BUDGET_MS = 500;
-// Upper bound only: a task cheap enough to fit 20 trials in the budget is
-// time-bound.
+// Upper bound only: a task cheap enough to fit 20 trials in the budget
+// is time-bound.
 const BUDGET_FLOOR_CAP = 20;
 const RIGOR_FLOOR_MIN = 3;
 const RIGOR_FLOOR_CAP = 10;
 const RIGOR_SAMPLES_PER_DECADE = 2;
 const DEFAULT_WARMUP_FRACTION = 0.1;
-// Batch each trial to at least this long so timer resolution doesn't
-// dominate.
+// Batch each trial to at least this long so timer resolution
+// doesn't dominate.
 const BATCH_THRESHOLD_NS = 1000;
 // Batch further so a full budget yields about this many trials: every
 // trial is sorted, serialized over IPC and parsed back, which costs
@@ -83,9 +85,11 @@ export function defaultSampleFloor(
 // Write-only on purpose: a store to module state is never provably dead.
 const kept: { value?: unknown } = {};
 
-/** Pins `value` against dead-code elimination for an intermediate inside a
- * task body. A task's own return value is already pinned by the timing
- * loop. */
+/**
+ * Pins `value` against dead-code elimination for an intermediate inside a
+ * task body. A task's own return value is already pinned by the
+ * timing loop.
+ */
 export function keep(value: unknown): void {
   kept.value = value;
 }

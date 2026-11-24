@@ -1,8 +1,8 @@
 import { resolve } from "node:path";
 
 const SKIPPED_DIRS = ["node_modules", ".git"];
-// Wildcards skip it because `ostia ab` extracts copies of the project
-// there.
+// Wildcards skip it because `ostia ab` extracts copies of the
+// project there.
 const AB_TREES = ".ostia/ab";
 // compat: `@(` and `+(` open extglobs since Bun 1.4.4; a bare `(` isn't a
 // glob character, so `app/(marketing)` stays literal.

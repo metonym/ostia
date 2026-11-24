@@ -10,8 +10,8 @@ export interface MemorySnapshot {
 }
 
 // Taken before the suite loads so `measurePeakMem` can split the starting
-// RSS into live data and memory setup freed that the allocator still
-// holds.
+// RSS into live data and memory setup freed that the allocator
+// still holds.
 export function memorySnapshot(): MemorySnapshot {
   const { heapSize, extraMemorySize } = heapStats();
   const rssBytes = process.memoryUsage.rss();
@@ -23,8 +23,8 @@ export function memorySnapshot(): MemorySnapshot {
 }
 
 // Bun 1.4.3+ reports the physical footprint as RSS on macOS, which misses
-// reused freed pages for a while (oven-sh/bun#44951). Resident size
-// doesn't.
+// reused freed pages for a while (oven-sh/bun#44951). Resident
+// size doesn't.
 function residentBytes(): number | undefined {
   if (process.platform !== "darwin") return undefined;
   readResident ??= residentReader();

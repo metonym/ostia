@@ -10,14 +10,14 @@ ostia ci                       run configured workloads against a baseline, gate
 ostia baseline save|list|show  manage baseline documents
 ```
 
-Every command takes `--help`; `ostia --version` (or `-v`) prints the
-version.
+Every command takes `--help`; `ostia --version` (or `-v`) prints
+the version.
 A flag's value can follow it (`--format minimal`)
 or be attached (`--format=minimal`);
 `--ignore-failure[=CODES]` only takes the attached form.
 A flag that needs a value and is given none is a usage error (exit 2).
-Exit codes and the machine-readable error line are described in
-[agent-protocol.md](agent-protocol.md).
+Exit codes and the machine-readable error line are described
+in [agent-protocol.md](agent-protocol.md).
 
 `bench`, `ab`, `compare`, `ci` and `baseline` read the config file
 ([config.md](config.md)): `ostia.config.ts`, else `ostia.config.json`,
@@ -88,15 +88,15 @@ With several commands, each gets its own N or its own budget.
 
 With 2+ commands, trials run round-robin
 (one trial of each command, repeated) so drift over the run
-(thermal throttling, a busy neighbor process) affects every command
-equally.
+(thermal throttling, a busy neighbor process) affects every
+command equally.
 Each such measurement carries `interleaved: true`.
 `--no-interleave` runs the commands one after another.
 
 ### Failures
 
-A command's trial loop stops at its first non-zero exit that isn't
-ignored.
+A command's trial loop stops at its first non-zero exit that
+isn't ignored.
 That trial's sample is kept, the measurement carries a `nonzero-exit`
 warning, and `ostia time` exits 2.
 The same rule applies in `ostia ci`: any non-ignored non-zero exit,
@@ -111,8 +111,8 @@ ostia time --ignore-failure "./flaky-exit.sh"      # every exit code counts as s
 A timed-out trial contributes no sample and the measurement carries a
 `timeout` warning.
 If every trial of a command times out, the command has no timing stats,
-prints like a skipped workload, and the run exits 2 with error code
-`timeout`.
+prints like a skipped workload, and the run exits 2 with error
+code `timeout`.
 `--timeout` also applies to `--prepare` hooks;
 a hook that times out aborts the run.
 A timed-out trial has no exit code, so it is not a failing exit:
@@ -170,16 +170,16 @@ A match with no group 1, or a non-numeric capture, is an error.
 The budget always counts wall time.
 
 The time source is part of the workload id,
-so timing the same command both ways gives two workloads with two
-verdicts.
+so timing the same command both ways gives two workloads with
+two verdicts.
 
 ### `--cpu` / `--heap`
 
 Each adds one instrumented trial per command after the timing trials,
 labeled as a separate measurement (`phase: "cpu"` / `"heap"`)
 and never mixed into timing.
-The raw `.cpuprofile` / `.heapsnapshot` is written under
-`<out-dir>/artifacts/`.
+The raw `.cpuprofile` / `.heapsnapshot` is written
+under `<out-dir>/artifacts/`.
 
 ```
 CPU capture - bun fixtures/work.ts (instrumented, 1000µs interval, diagnostic wall 300.558ms)
@@ -312,11 +312,11 @@ and loops the task long enough to collect about 2,000 samples:
 and never less than one whole call.
 The header of each CPU section shows the sample count;
 below 1,000 the measurement carries a `low-sample-count` warning
-(`{ samples, target, intervalUs }`),
-since frame shares that thin move by several points between runs.
+(`{ samples, target, intervalUs }`), since frame shares that thin move
+by several points between runs.
 When more than 20% of its samples are in the llint/baseline tiers,
-it carries a `jit-cold` warning
-(`{ llintPct, baselinePct, dfgPct, ftlPct }`).
+it carries a `jit-cold`
+warning (`{ llintPct, baselinePct, dfgPct, ftlPct }`).
 With CPU evidence on both sides, `compare` reports per-frame deltas.
 
 Self time is attributed to the frame the JIT compiled,
@@ -404,8 +404,8 @@ A cache that grows the heap elsewhere in the process shows in
 `heapUsedBefore` of every task after it.
 `ostia compare` reports either reading when it moves 10%
 or more
-(`+9.4% median` next to
-`heap used before 12.00MiB → 16.80MiB (+40.0%)`).
+(`+9.4% median` next
+to `heap used before 12.00MiB → 16.80MiB (+40.0%)`).
 Bun exposes neither a JS allocation counter nor GC counts
 or pause times, so ostia can't report bytes allocated per call
 or GC activity.
@@ -429,14 +429,14 @@ Object.assign(globalThis, { document: dom.window.document, window: dom.window })
 ostia bench --preload ./bench/jsdom-setup.ts bench/*.dom.bench.ts
 ```
 
-Complete jsdom, happy-dom and Svelte-plugin setups are in
-[preload-recipes.md](preload-recipes.md).
+Complete jsdom, happy-dom and Svelte-plugin setups are
+in [preload-recipes.md](preload-recipes.md).
 To give only some suite files a preload (the DOM ones, say),
-set it per group with the config's
-[`bench.projects`](config.md#projects).
+set it per group with the
+config's [`bench.projects`](config.md#projects).
 
-`--bun-flags FLAGS` passes flags to the `bun` process that runs each
-suite.
+`--bun-flags FLAGS` passes flags to the `bun` process that runs
+each suite.
 The common case is a package whose `exports` map branches on a condition
 Bun doesn't set by default: Svelte 5 resolves to its server build
 without `--conditions=browser`, and mounting a component then fails.
@@ -556,8 +556,8 @@ The base tree's paths are about 20 characters longer than the working
 tree's, so code that does string work on absolute paths
 (joining, relativizing, hashing them) does slightly more on the base
 side and can read as a few percent faster on the candidate;
-in one path-heavy task, each extra character cost 0.3–0.45% more
-instructions.
+in one path-heavy task, each extra character cost 0.3–0.45%
+more instructions.
 A suite file that doesn't exist at the ref has nothing to pair with:
 it's listed as a new suite, its tasks are candidate-only
 and aren't timed, and the run goes on with the other suites.
@@ -573,8 +573,8 @@ Use it when the suites import generated or gitignored files:
 ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
 ```
 
-Each command runs in the tree's counterpart of the current directory,
-with:
+Each command runs in the tree's counterpart of the current
+directory, with:
 
 - the project's `node_modules` linked into the tree,
   so build scripts that read `./node_modules/...`
@@ -585,8 +585,8 @@ with:
 - `OSTIA_AB_SHA`, the base commit, and `OSTIA_AB_CANDIDATE_DIR`,
   the current directory in the working tree.
   When the generated files don't depend on the base's code,
-  copying them is cheaper than building them:
-  `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
+  copying them is cheaper than building
+  them: `--base-setup 'cp -R "$OSTIA_AB_CANDIDATE_DIR/src/gen" src/'`.
 
 The tree is cached under `.ostia/ab/<sha>-<hash>/`,
 where the hash covers the commands, so changing them builds a new tree.
@@ -595,8 +595,8 @@ when every command succeeds, so a failed or interrupted setup never
 leaves a half-built tree for a later run to reuse.
 Each command runs in its own process group,
 and the whole group is killed when the command ends,
-times out or is cancelled, so nothing it started in the background keeps
-running.
+times out or is cancelled, so nothing it started in the background
+keeps running.
 A command that exits non-zero (or runs past `--timeout`) stops the run
 with exit 2 (`command-failed`) and the last 20 lines of its stderr.
 
@@ -661,8 +661,8 @@ so the candidate was slower in at least three quarters of rounds;
 `improved` is the mirror image.
 Pairing can't cancel one thing: how the JIT happened to compile each
 side's copy of the code in that process,
-which can skew a small task by 20% in either direction with tight
-quartiles.
+which can skew a small task by 20% in either direction with
+tight quartiles.
 So each flagged task is measured again in `--confirm` fresh processes,
 and only counts when every repeat flags it the same way;
 otherwise it reads `unconfirmed` and counts as unchanged.
@@ -687,10 +687,10 @@ to mean anything.
 **Errors.**
 A task that throws, on either side, doesn't stop the suite.
 It isn't timed, reads `base threw`, `candidate threw`
-or `both threw` in the table, and the error's first line is listed under
-"Threw".
-A throw from a task's `before` or `after` hook counts for that hook's
-side.
+or `both threw` in the table, and the error's first line is listed
+under "Threw".
+A throw from a task's `before` or `after` hook counts for that
+hook's side.
 Each hook runs once: a side whose `before` threw isn't timed
 or torn down, and every side that was set up is torn down once,
 even when a hook throws.
@@ -726,8 +726,8 @@ with a load average of 4–6 on 8 cores,
 rounds of identical code spread −40%…+44%,
 and a real 5% change can't be told apart.
 The number of instructions a call retires barely moves with load,
-since another process taking the CPU doesn't change what this thread
-executes.
+since another process taking the CPU doesn't change what this
+thread executes.
 So where the machine can count them,
 `ostia ab` reads the hardware counter of the thread running the task
 around each batch, and shows the change in instructions per call next to
@@ -794,8 +794,8 @@ For `--peak-mem` it's 1 MiB
 when a `peak-hidden` warning says memory freed before the call could
 hide part of its peak, the size of that memory.
 A memory regression fails the run like a time regression.
-Task and group `alloc`/`peakMem` options apply under `ab` as under
-`bench`.
+Task and group `alloc`/`peakMem` options apply under `ab` as
+under `bench`.
 A task that's not comparable gets no memory verdict.
 The Change column leaves out the percent when the base reading is under
 the floor: a percent of almost nothing means little.
@@ -840,8 +840,8 @@ or timed out (`spawn-failed`); `130` Ctrl-C.
 With no suite files, `ostia ab` uses the config's `bench.suites`,
 and its `filter`, `preload`, `bunFlags`, `outDir` and `timeoutMs`,
 and its setup commands from `ab.setup`
-(and `ab.metric`, `ab.alloc` and the other `ab` keys; see
-[config.md](config.md)).
+(and `ab.metric`, `ab.alloc` and the other `ab` keys;
+see [config.md](config.md)).
 The sampling settings (`budgetMs`, `samples`, `isolate` and the rest)
 don't apply.
 
@@ -936,22 +936,22 @@ the same rows the table and markdown print:
 `verdict` is `improved`, `unchanged`, `regressed`,
 `missing-base` (candidate only) or `missing-cand` (base only).
 `pass` is whether the comparison passed the gate,
-frames and heap types included; one-sided tasks have neither `pass` nor
-`timing`.
+frames and heap types included; one-sided tasks have neither `pass`
+nor `timing`.
 Frame and heap-type deltas and warnings stay on the `Comparison` named
 by `comparisonId`.
 
 When the documents differ in OS, architecture, Bun version,
 CPU model or core count, every comparison carries an
-`environment-mismatch` warning; table and markdown print it once in the
-header.
+`environment-mismatch` warning; table and markdown print it once in
+the header.
 
 Workloads are compared, and listed, in the candidate document's order.
 
 Exit codes: `0` pass, `1` at least one workload failed
 (timing regression, or a CPU frame / heap type over its threshold),
-`2` zero workloads matched (`no-matches`) or a document failed to load
-(`document-load-failed`).
+`2` zero workloads matched (`no-matches`) or a document failed to
+load (`document-load-failed`).
 How verdicts are decided: [statistics.md](statistics.md).
 
 ## `ostia report`
@@ -981,8 +981,8 @@ error (exit 2).
 | `speedscope` | Sampled-profile JSON for speedscope.app |
 | `cpuprofile` | The original `.cpuprofile` artifact, verbatim (`cpu-prof`/`inspector` origins only) |
 
-A visualization format on a document with no CPU evidence exits 2 with
-`no-cpu-evidence`.
+A visualization format on a document with no CPU evidence exits 2
+with `no-cpu-evidence`.
 
 ```
 $ ostia report doc.json --format collapsed
@@ -1070,8 +1070,8 @@ and the contents of the files matched by `inputs`:
 - no `inputs` field: never cached, always reruns;
 - `inputs: []`: depends on nothing, cached until the command
   or settings change;
-- `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`:
-  reused while the matched files' contents are unchanged.
+- `inputs: ["src/**/*.ts", "/abs/path/data.bin"]`: reused
+  while the matched files' contents are unchanged.
   Absolute paths work.
   Globs match dotfiles, but wildcards skip `node_modules`,
   `.git` and `.ostia/ab` (`ostia ab`'s base trees)
@@ -1178,8 +1178,8 @@ An option that means the same thing has the same name everywhere:
 the CLI flag is its kebab-case form
 (`timeoutMs` is `--timeout`, `outDir` is `--out-dir`, `cpuIntervalUs` is
 `--cpu-interval`), and the config key and library option are identical.
-The defaults differ on purpose where the commands measure different
-things:
+The defaults differ on purpose where the commands measure
+different things:
 
 | Setting | `time` | `bench` / `ci` suites | `ab` |
 |---|---|---|---|

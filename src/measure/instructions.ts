@@ -38,8 +38,8 @@ function openCounter(): InstructionCounter {
 }
 
 // spec: thread_selfcounts(1, ...) fills { instructions, cycles } for the
-// calling thread: what `/usr/bin/time -l` totals over a process, read per
-// thread.
+// calling thread: what `/usr/bin/time -l` totals over a process, read
+// per thread.
 function darwinCounter(): InstructionCounter {
   const { symbols } = dlopen("/usr/lib/libSystem.B.dylib", {
     thread_selfcounts: {

@@ -38,8 +38,9 @@ interface CiOptions {
   /**
    * Abort kills in-flight trials and suite processes and stops scheduling
    * workloads. `runCi` then resolves with `aborted: true`: the document
-   * holds what completed, nothing is compared, and no run is written to the
-   * cache. */
+   * holds what completed, nothing is compared, and no run is written to
+   * the cache.
+   */
   signal?: AbortSignal;
 }
 
@@ -83,8 +84,8 @@ interface CiSummary {
 }
 
 /**
- * Base of the two baseline errors, so the CLI reports either as
- * `baseline-missing`.
+ * Base of the two baseline errors, so the CLI reports either
+ * as `baseline-missing`.
  */
 export class BaselineError extends OstiaUsageError {}
 
@@ -145,8 +146,8 @@ async function measureSuiteWorkloads(
       `Workload suites ${JSON.stringify(suites)} matched no files.`,
     );
   }
-  // Same CLI-over-config resolution as `ostia bench`; only the defaults
-  // differ.
+  // Same CLI-over-config resolution as `ostia bench`; only the
+  // defaults differ.
   const benchOpts = await resolveBenchOptions(
     { suites: suiteFiles, preload: [], bunFlags: [], noiseCheck: false },
     config.bench,

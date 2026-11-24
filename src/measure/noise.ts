@@ -2,12 +2,12 @@ import type { NoiseFloor } from "../ir/types.ts";
 import { computeTimingStats } from "../stats/index.ts";
 
 const DEFAULT_BUDGET_MS = 200;
-// Keeps a trial in the microsecond range so timer resolution doesn't
-// dominate.
+// Keeps a trial in the microsecond range so timer resolution
+// doesn't dominate.
 const HASHES_PER_TRIAL = 64;
 
-// Fixed and allocation-free, so trial-to-trial variance is the machine's
-// noise.
+// Fixed and allocation-free, so trial-to-trial variance is the
+// machine's noise.
 const REFERENCE_BUFFER = (() => {
   const buf = new Uint8Array(4096);
   for (let i = 0; i < buf.length; i++) buf[i] = (i * 2654435761) & 0xff;

@@ -224,8 +224,8 @@ function rebuildCompared(doc: ProfileDocument): ComparedTask[] {
   ];
 }
 
-// Heap readings move with GC timing, so a small change is noise, not a
-// line.
+// Heap readings move with GC timing, so a small change is noise, not
+// a line.
 const MIN_MEMORY_DISPLAY_PCT = 10;
 
 const MEMORY_READING_LABELS: Record<MemoryDelta["reading"], string> = {

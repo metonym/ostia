@@ -114,8 +114,8 @@ const { text } = await renderers.markdown.render(doc, {})
 
 ## Docs
 
-- [CLI](https://github.com/metonym/ostia/blob/master/docs/cli.md):
-  every command and flag
+- [CLI](https://github.com/metonym/ostia/blob/master/docs/cli.md): every
+  command and flag
 - [Library](https://github.com/metonym/ostia/blob/master/docs/library.md):
   `time()`, `bench()`, `ab()`, `profile()`, and documents
 - [Config](https://github.com/metonym/ostia/blob/master/docs/config.md):

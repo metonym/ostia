@@ -57,8 +57,8 @@ export const mermaidRenderer: Renderer<MermaidOptions> = {
         const { parentIx } = tree;
         const rootIx = tree.roots[0] ?? -1;
 
-        // The top-N self-time nodes plus every ancestor, so each has a path to the
-        // root.
+        // The top-N self-time nodes plus every ancestor, so each has a path to
+        // the root.
         const included = new Set<number>(rootIx !== -1 ? [rootIx] : []);
         for (const ix of topNBySelf(selfUs, tree.count, rootIx, topN)) {
           const path: number[] = [];

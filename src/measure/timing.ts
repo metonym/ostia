@@ -51,8 +51,8 @@ interface TimingPhaseIterator {
   result(): TimingPhaseResult;
 }
 
-// `undefined` is a timed-out trial: killed, so it has no exit code to fail
-// on.
+// `undefined` is a timed-out trial: killed, so it has no exit code to
+// fail on.
 function isFailedExit(code: number | undefined, ignored: Set<number>): boolean {
   return code !== undefined && code !== 0 && !ignored.has(code);
 }

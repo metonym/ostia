@@ -97,8 +97,8 @@ function resampleMedian(s: Side, rng: () => number): number {
   return sorted[n - 1] ?? 0;
 }
 
-// Hash of both arrays, so identical input always gets the same CI and
-// verdict.
+// Hash of both arrays, so identical input always gets the same CI
+// and verdict.
 function seedFromSamples(base: number[], cand: number[]): number {
   const all = new Float64Array(base.length + cand.length + 1);
   all.set(base);

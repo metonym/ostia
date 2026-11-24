@@ -1,8 +1,8 @@
 # Library API
 
 The CLI is a thin wrapper over these functions;
-both produce the same `ProfileDocument`
-([document-schema.md](document-schema.md)).
+both produce the same
+`ProfileDocument` ([document-schema.md](document-schema.md)).
 
 ```ts
 import {
@@ -22,8 +22,8 @@ import type {
 
 ## `time(opts)` → `Promise<ProfileDocument>`
 
-Subprocess timing; the same behavior as `ostia time`
-([cli.md](cli.md#ostia-time)).
+Subprocess timing; the same behavior as
+`ostia time` ([cli.md](cli.md#ostia-time)).
 
 ```ts
 const controller = new AbortController()
@@ -73,11 +73,11 @@ A `RegExp` `timeSource` pattern must not have the `g`, `y` or `d` flag;
 `time()` rejects with a `RangeError` before running anything.
 
 A command stops at its first non-ignored non-zero exit.
-`time()` still resolves; check `Trial.exitCode` or the `nonzero-exit`
-warning.
+`time()` still resolves; check `Trial.exitCode`
+or the `nonzero-exit` warning.
 Aborting `signal` kills in-flight children and resolves with the
-measurements completed so far, the last one carrying an `aborted`
-warning.
+measurements completed so far, the last one carrying an
+`aborted` warning.
 
 ## `profile(fn, opts?)` → `Promise<{ result, measurement, document }>`
 
@@ -247,8 +247,8 @@ task("parse then validate", () => {
 
 `sweep()` calls `fn` once per point of the Cartesian product of `dims`;
 `task()` calls inside inherit the point as `params`,
-so each point is its own workload and `compare` matches points across
-runs.
+so each point is its own workload and `compare` matches points
+across runs.
 
 ```ts
 group("parse", () => {
@@ -400,8 +400,8 @@ const { files } = await renderers.speedscope.render(doc, { measurementId })
 
 ## `defineConfig(config)`
 
-Returns its argument unchanged; it exists to type-check
-`ostia.config.ts`.
+Returns its argument unchanged; it exists to
+type-check `ostia.config.ts`.
 See [config.md](config.md).
 
 ## Coming from mitata or hyperfine

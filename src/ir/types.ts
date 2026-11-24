@@ -1,5 +1,5 @@
-// Profile IR schema v2. Units: ns (time), bytes (memory), µs (sampling
-// interval).
+// Profile IR schema v2. Units: ns (time), bytes (memory), µs
+// (sampling interval).
 
 export interface ProfileDocument {
   schemaVersion: 2;
@@ -23,17 +23,20 @@ export interface ProfileDocument {
    * `comparisons` is. */
   compared?: ComparedTask[];
   /**
-   * Machine conditions at measurement time; absent when the noise check was
-   * skipped. */
+   * Machine conditions at measurement time; absent when the noise check
+   * was skipped.
+   */
   environment?: Environment;
   /**
-   * Run-level result of `ostia ab` / `ab()`, whose measurements are
-   * `phase: "paired"`. */
+   * Run-level result of `ostia ab` / `ab()`, whose measurements
+   * are `phase: "paired"`.
+   */
   ab?: AbSummary;
   /**
    * Repo state of the process's cwd; absent outside a git repo. Never part
-   * of an id or fingerprint, so a commit or dirty tree doesn't orphan a
-   * baseline. */
+   * of an id or fingerprint, so a commit or dirty tree doesn't orphan
+   * a baseline.
+   */
   git?: GitMetadata;
 }
 
@@ -250,8 +253,9 @@ export interface MemoryEvidence {
   origin: "resourceUsage" | "heapStats";
   /**
    * `memstats` only: `"retained"` (`--alloc`, `bytesPerOp`) or `"peak"`
-   * (`--peak-mem`, `peakBytes`). Absent means `"retained"` on older
-   * documents. */
+   * (`--peak-mem`, `peakBytes`). Absent means `"retained"` on
+   * older documents.
+   */
   kind?: "retained" | "peak";
   /** Largest `Trial.maxRssBytes` across a timing measurement's trials. */
   maxRssBytes?: number;
@@ -305,8 +309,9 @@ export interface PairedEvidence {
    * side of 1 in at least three quarters of rounds. */
   flagged?: "regressed" | "improved";
   /**
-   * Each fresh-process re-measurement of a flagged workload; `flagged` by
-   * `AbSummary.metric`. */
+   * Each fresh-process re-measurement of a flagged workload; `flagged`
+   * by `AbSummary.metric`.
+   */
   repeats?: {
     medianRatio: number;
     ratioP25: number;
@@ -390,15 +395,17 @@ export interface AbSummary {
   improved: number;
   unchanged: number;
   /**
-   * Flagged in-process, but a fresh-process repeat disagreed; counted in
-   * `unchanged`. */
+   * Flagged in-process, but a fresh-process repeat disagreed; counted
+   * in `unchanged`.
+   */
   unconfirmed: number;
   /** Workloads whose first call returned different values on each side. */
   outputDiffers: number;
   /**
    * Workloads whose suite file and output both changed (see
-   * `PairedEvidence.suiteChanged`); counted in `unchanged`, left out of
-   * `geomeanPct`. */
+   * `PairedEvidence.suiteChanged`); counted in `unchanged`, left out
+   * of `geomeanPct`.
+   */
   notComparable: number;
   /**
    * Workloads that threw on either side or both, and so weren't timed;
@@ -424,8 +431,8 @@ export interface AbSummary {
 // its stack when another module imports a type taken with `typeof` from
 // an unannotated array (WarningCode, below).
 /**
- * Every `Warning.code`. A runtime array so a test can assert each is
- * emitted.
+ * Every `Warning.code`. A runtime array so a test can assert each
+ * is emitted.
  */
 export const WARNING_CODES: readonly [
   "slow-first-run",
@@ -499,8 +506,8 @@ export interface Comparison {
     verdict: "improved" | "regressed" | "unchanged";
   };
   /**
-   * Caveats about this comparison, e.g. a thin-sample point-estimate
-   * verdict.
+   * Caveats about this comparison, e.g. a thin-sample
+   * point-estimate verdict.
    */
   warnings?: Warning[];
   frames?: {
@@ -526,8 +533,8 @@ export interface Comparison {
     alpha: number;
     bootstrapIterations: number;
     /**
-     * `max(timingPct, both documents' noise floors)`: what timing was tested
-     * against.
+     * `max(timingPct, both documents' noise floors)`: what timing was
+     * tested against.
      */
     effectiveTimingPct: number;
   };
@@ -606,8 +613,9 @@ export interface ComparedTask {
 export interface MemoryDelta {
   /**
    * `heapUsedBefore`/`heapUsedAfter`: in-process heap around the timing
-   * run; `retained`: `--alloc`; `peak`: `--peak-mem`; `maxRss`: subprocess
-   * timing. */
+   * run; `retained`: `--alloc`; `peak`: `--peak-mem`; `maxRss`:
+   * subprocess timing.
+   */
   reading: "heapUsedBefore" | "heapUsedAfter" | "retained" | "peak" | "maxRss";
   baseBytes: number;
   candBytes: number;

@@ -56,8 +56,8 @@ export async function loadIfExists(
   return (await Bun.file(path).exists()) ? loadDocument(path) : undefined;
 }
 
-// invariant: a `--peak-mem` reading is the median of this many fresh
-// processes.
+// invariant: a `--peak-mem` reading is the median of this many
+// fresh processes.
 export const PEAK_MEM_PROCESSES = 3;
 // Slack below this is what any suite that loads fixtures leaves behind
 // (8MB for caligula's), so it's too common to warn about.

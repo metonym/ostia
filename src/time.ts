@@ -75,8 +75,9 @@ export interface TimeOptions {
   warmup?: number;
   /**
    * Round-robin trials across commands instead of finishing each command
-   * first, so drift hits every command equally. Default: true with 2+
-   * commands. */
+   * first, so drift hits every command equally. Default: true with
+   * 2+ commands.
+   */
   interleave?: boolean;
   cwd?: string;
   env?: Record<string, string>;
@@ -201,8 +202,8 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
       ...(interleave && { interleaved: true }),
     });
     measurements.push(timingMeasurement);
-    // An instrumented capture is one more spawned run, so don't start it once
-    // cancelled.
+    // An instrumented capture is one more spawned run, so don't start it
+    // once cancelled.
     if (!opts.signal?.aborted) {
       measurements.push(
         ...(await captureInstrumentedPhases({

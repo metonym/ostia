@@ -8,8 +8,8 @@ interface TrialResult {
   /** Parsed from the command's output via `timeSource`, in ns. */
   reportedNs?: number;
   /**
-   * `timeoutMs` elapsed and the process was SIGKILLed; contributes no
-   * sample.
+   * `timeoutMs` elapsed and the process was SIGKILLed; contributes
+   * no sample.
    */
   timedOut?: true;
   /**
@@ -351,8 +351,8 @@ function commandArgv(hook: string | string[]): string[] {
   return Array.isArray(hook) ? hook : splitCommand(hook);
 }
 
-// The command form's argv, for the document; a function isn't
-// serializable.
+// The command form's argv, for the document; a function
+// isn't serializable.
 export function prepareArgv(
   hook: PrepareHook | undefined,
 ): string[] | undefined {

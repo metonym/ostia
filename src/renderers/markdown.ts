@@ -373,8 +373,8 @@ function timingSection(
     for (const { run, workload } of groupRows) {
       const v1 = workload?.params?.[key1];
       const v2 = workload?.params?.[key2];
-      // invariant: `pivotKeysFor` pivots only rows whose params hold both
-      // keys.
+      // invariant: `pivotKeysFor` pivots only rows whose params hold
+      // both keys.
       if (v1 === undefined || v2 === undefined) continue;
       if (!rowValues.includes(v1)) rowValues.push(v1);
       if (!colValues.includes(v2)) colValues.push(v2);

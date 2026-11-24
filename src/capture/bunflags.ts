@@ -2,8 +2,8 @@ import { processEnv } from "../config/env.ts";
 import type { Warning } from "../ir/types.ts";
 
 // BUN_OPTIONS is split on whitespace; a backslash escapes a space or quote
-// (Bun doesn't honour quoting, and a literal backslash can't be
-// expressed).
+// (Bun doesn't honour quoting, and a literal backslash can't
+// be expressed).
 function escapeBunOption(flag: string): string {
   return flag.replace(/[\s"']/g, "\\$&");
 }

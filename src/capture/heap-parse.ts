@@ -12,8 +12,8 @@ export interface RawHeapSnapshot {
   strings: string[];
 }
 
-// Checks only the arrays `parseHeapSnapshot` walks and the count it
-// reports.
+// Checks only the arrays `parseHeapSnapshot` walks and the count
+// it reports.
 export function isRawHeapSnapshot(value: unknown): value is RawHeapSnapshot {
   if (typeof value !== "object" || value === null) return false;
   if (!("nodes" in value) || !Array.isArray(value.nodes)) return false;

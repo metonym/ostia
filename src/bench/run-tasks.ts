@@ -49,8 +49,8 @@ export interface MeasureTasksOpts extends InprocessTimingOptions {
   noiseCheck?: boolean;
 }
 
-// Shared by every runner so a task has the same id under `bench()` and
-// `ab()`.
+// Shared by every runner so a task has the same id under `bench()`
+// and `ab()`.
 export function taskWorkload(
   suiteFile: string,
   t: RegisteredTask,

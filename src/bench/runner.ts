@@ -57,8 +57,8 @@ export interface RunnerOpts extends MeasureTasksOpts {
   preload?: string[];
 }
 
-// The parent serializes a `RunnerOpts`; only that it's an object is
-// checked.
+// The parent serializes a `RunnerOpts`; only that it's an object
+// is checked.
 function isRunnerOpts(value: unknown): value is RunnerOpts {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

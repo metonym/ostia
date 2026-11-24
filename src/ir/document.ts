@@ -76,8 +76,8 @@ interface SubprocessWorkloadOptions {
 
 // `prepare` and `timeSource` join the id only when given, so commands
 // without them keep their old id. A function `prepare` hashes by source
-// text. The id excludes `process.cwd()` so baselines match across
-// checkouts.
+// text. The id excludes `process.cwd()` so baselines match
+// across checkouts.
 export function makeSubprocessWorkload(
   command: string[],
   label?: string,

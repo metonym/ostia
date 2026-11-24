@@ -174,8 +174,8 @@ interface ParseSpec<T> {
   /** Receives each bare word; omitted, a bare word is an unknown-flag error. */
   positional?: (arg: string, args: T) => void;
   /**
-   * Receives everything after a `--`, verbatim; omitted, `--` is an unknown
-   * flag.
+   * Receives everything after a `--`, verbatim; omitted, `--` is an
+   * unknown flag.
    */
   rest?: (rest: string[], args: T) => void;
 }

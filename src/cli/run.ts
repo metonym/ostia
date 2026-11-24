@@ -150,8 +150,8 @@ const TIME_UNITS: readonly TimeUnit[] = ["ns", "us", "ms", "s"];
 interface TimeArgs extends RunArgs {
   commands: string[];
   /**
-   * Everything after `--`: one more command, whose argv is never
-   * whitespace-split.
+   * Everything after `--`: one more command, whose argv is
+   * never whitespace-split.
    */
   argvCommand: string[];
   /** One entry applies to every command; otherwise one per command. */

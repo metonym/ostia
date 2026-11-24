@@ -7,8 +7,8 @@ export interface TimingRow {
 }
 
 // The explicit `entry.group` the bench runner records, else the
-// "group/name" id split on its last "/" (documents from before that field
-// existed).
+// "group/name" id split on its last "/" (documents from before that
+// field existed).
 export function groupOf(workload: Workload | undefined): string | undefined {
   if (!workload?.entry) return undefined;
   if (workload.entry.group !== undefined) return workload.entry.group;

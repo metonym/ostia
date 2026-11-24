@@ -45,8 +45,8 @@ export async function computeInputsDigest(
       const k = next++;
       const path = paths[k];
       if (path === undefined) continue;
-      // `resolve`, not a join, since absolute patterns scan to absolute
-      // paths.
+      // `resolve`, not a join, since absolute patterns scan to
+      // absolute paths.
       const buf = await Bun.file(resolve(cwd, path)).arrayBuffer();
       entries[k] = {
         path,

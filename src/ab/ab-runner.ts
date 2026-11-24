@@ -112,8 +112,8 @@ async function importTasks(suiteFile: string): Promise<RegisteredTask[]> {
   return [...getRegisteredTasks()];
 }
 
-// The parent writes optsJson, so this checks only the fields every run
-// reads.
+// The parent writes optsJson, so this checks only the fields every
+// run reads.
 function isRunnerOpts(v: unknown): v is AbRunnerOpts {
   return (
     typeof v === "object" &&
@@ -157,8 +157,8 @@ type MeasureOutcome =
 // `before` threw isn't timed or torn down. Every side that was set up is
 // torn down once, in reverse order, even when a hook throws. When only one
 // side has thrown, the other side's task is called once more, before
-// teardown and only if that side is set up, to tell whether it throws too
-// (`"both"`).
+// teardown and only if that side is set up, to tell whether it throws
+// too (`"both"`).
 async function measureTask(
   base: RegisteredTask,
   cand: RegisteredTask,
@@ -302,8 +302,8 @@ async function measureMemory(
 // in this process. Each side is imported from its own path so its relative
 // imports resolve within its own tree, while bare imports (including
 // `ostia`, hence the shared registry) share `node_modules`. `baseSuite` is
-// "" when the file doesn't exist at the base ref: every task is
-// candidate-only.
+// "" when the file doesn't exist at the base ref: every task
+// is candidate-only.
 async function main(): Promise<number> {
   const [candSuite, baseSuite, outputPath, optsJson] = process.argv.slice(2);
   if (!candSuite || baseSuite === undefined || !outputPath || !optsJson) {

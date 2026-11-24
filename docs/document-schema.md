@@ -30,13 +30,13 @@ This did not bump `schemaVersion`: `loadDocument` reads the old names as
 the new ones.
 
 `ab` documents written before ostia 0.2.12 lack `ab.metric`;
-`loadDocument` sets it to `"time"`, the only metric they could have
-used.
+`loadDocument` sets it to `"time"`, the only metric they could
+have used.
 
 `OstiaDocumentError.code` is `"invalid-json"`,
-`"not-a-document"`
-(no numeric `schemaVersion`, or `workloads`/`measurements` that aren't
-arrays of well-formed objects) or `"unsupported-schema"`.
+`"not-a-document"` (no numeric `schemaVersion`, or
+`workloads`/`measurements` that aren't arrays of well-formed objects)
+or `"unsupported-schema"`.
 
 ## Top level
 
@@ -134,7 +134,8 @@ and `batch` is the number of calls per trial.
 `baseSamples[i]` and `timing.samples[i]` are the two sides' per-call
 times in round `i`, and `ratios[i]` is candidate over base.
 `instructions`, where the machine counts them,
-holds the same rounds' instructions per call:
+holds the same rounds' instructions per
+call:
 `{ baseSamples, candSamples, baseMedian, candMedian, ratios, medianRatio, ratioP25, ratioP75 }`.
 `flagged` is what the first process saw, by `ab.metric`'s ratios;
 `repeats` are the fresh-process re-measurements of a flagged task
@@ -143,9 +144,8 @@ and `verdict` is `flagged` only when `confirmed`.
 `suiteChanged` is `true` when the suite file differs from the base's
 copy; with `sameOutput: false` too, `verdict` is `unchanged`.
 `retained` (`--alloc`) and `peak` (`--peak-mem`) are `MemoryChange`s:
-`{ baseBytes, candBytes, verdict, floorBytes }`,
-where `verdict` counts only a change past both the memory threshold
-and `floorBytes`.
+`{ baseBytes, candBytes, verdict, floorBytes }`, where `verdict` counts
+only a change past both the memory threshold and `floorBytes`.
 See [cli.md](cli.md#ostia-ab).
 
 ## Comparisons

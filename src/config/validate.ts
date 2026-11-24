@@ -1,8 +1,8 @@
 import { errorMessage } from "../errors.ts";
 
 /**
- * A config file that exists but can't be used; the CLI reports it as
- * `config-invalid`.
+ * A config file that exists but can't be used; the CLI reports it
+ * as `config-invalid`.
  */
 export class ConfigError extends Error {}
 
@@ -222,8 +222,8 @@ function checkWorkload(
 
 // Throws `ConfigError` naming the offending key for a wrong type or value;
 // `warn` gets keys that are unknown (or inapplicable) and so ignored.
-// `raw` is the already-object-checked config with `undefined` values still
-// present.
+// `raw` is the already-object-checked config with `undefined` values
+// still present.
 export function validateConfig(
   raw: Record<string, unknown>,
   file: string,

@@ -466,8 +466,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
 
     // Plan order (registration order, filtered) within a suite, suites in
     // command-line order. Measurements are matched by workload id, not
-    // position, because a task.skip()'d task has a workload but no
-    // measurement.
+    // position, because a task.skip()'d task has a workload but
+    // no measurement.
     const workloads: Workload[] = [];
     const measurements: Measurement[] = [];
     for (const { suite, tasks, doc: sharedDoc } of plans) {

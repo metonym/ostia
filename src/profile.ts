@@ -17,8 +17,9 @@ export interface ProfileOptions {
   /**
    * Names the workload: it becomes the label and, instead of the function's
    * name and source, what the id hashes, so closures that differ only in
-   * captured values get distinct ids and the id survives editing the
-   * function. */
+   * captured values get distinct ids and the id survives editing
+   * the function.
+   */
   name?: string;
   /**
    * `"inspector"` (default) captures through CDP and writes a portable
@@ -28,8 +29,9 @@ export interface ProfileOptions {
   /**
    * There's no child to kill, so an already-aborted signal skips the
    * profiler, calls `fn` plain (still returning its `result`) and records an
-   * `aborted` warning instead of CPU evidence. It can't interrupt a running
-   * `fn`. */
+   * `aborted` warning instead of CPU evidence. It can't interrupt a
+   * running `fn`.
+   */
   signal?: AbortSignal;
 }
 

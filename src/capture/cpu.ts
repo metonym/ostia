@@ -14,8 +14,8 @@ interface CpuCaptureResult {
   warnings: Warning[];
 }
 
-// BUN_CPU_PROFILE is documented but doesn't work on Bun 1.4.0, hence
-// flags/BUN_OPTIONS.
+// BUN_CPU_PROFILE is documented but doesn't work on Bun 1.4.0,
+// hence flags/BUN_OPTIONS.
 export async function runCpuCapture(
   opts: CpuCaptureOptions,
 ): Promise<CpuCaptureResult> {

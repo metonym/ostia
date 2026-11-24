@@ -31,18 +31,21 @@ export interface WorkloadConfig {
   /**
    * `command`: kills a trial (or prepare hook) after this many ms.
    * `suites`: kills a suite file's (or isolated task's) process after this
-   * many ms, overriding `bench.timeoutMs`. Overrides `ostia ci`'s 10-minute
-   * default. */
+   * many ms, overriding `bench.timeoutMs`. Overrides `ostia ci`'s
+   * 10-minute default.
+   */
   timeoutMs?: number;
   /**
-   * `command` only. Exit codes to treat as success; see
-   * `TimeOptions.ignoreExitCodes`. */
+   * `command` only. Exit codes to treat as success;
+   * see `TimeOptions.ignoreExitCodes`.
+   */
   ignoreExitCodes?: number[];
 }
 
 /**
- * Launch settings for the suite files matching `suites`; see
- * `BenchOptions.projects`. */
+ * Launch settings for the suite files matching `suites`;
+ * see `BenchOptions.projects`.
+ */
 export interface BenchProject {
   /**
    * Globs against the current directory. A suite file takes the first
@@ -103,8 +106,9 @@ export interface AbConfig {
    * `--base-setup` replaces this list. */
   setup?: string | string[];
   /**
-   * Base trees to keep cached; see `AbOptions.keepTrees`. `--keep-trees`
-   * overrides. Default: 5. */
+   * Base trees to keep cached; see `AbOptions.keepTrees`.
+   * `--keep-trees` overrides. Default: 5.
+   */
   keepTrees?: number;
   /**
    * Judge rounds by `"time"` or `"instructions"`; see `AbOptions.metric`.
@@ -153,8 +157,8 @@ export interface OstiaConfig {
   noiseCheck?: boolean;
 }
 
-// Partial is shallow, so `thresholds` needs its own Partial to merge
-// field-by-field.
+// Partial is shallow, so `thresholds` needs its own Partial to
+// merge field-by-field.
 export type OstiaConfigInput = Omit<Partial<OstiaConfig>, "thresholds"> & {
   thresholds?: Partial<Thresholds>;
 };

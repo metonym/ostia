@@ -7,8 +7,8 @@ import { isPromiseLike } from "./loop.ts";
 // call, too few for a top-frame table to hold still between runs.
 export const DEFAULT_TASK_CPU_INTERVAL_US = 100;
 // perf: the sampler manages well under one sample per interval (about 0.6
-// at 100µs, 0.8 at 1000µs on an idle M2), hence the 2x slack on the
-// window.
+// at 100µs, 0.8 at 1000µs on an idle M2), hence the 2x slack on
+// the window.
 const TARGET_SAMPLES = 2000;
 const WINDOW_SLACK = 2;
 const MIN_WINDOW_MS = 200;

@@ -110,8 +110,8 @@ export function timingWarnings(
   }
 
   // In-process samples always have a long right tail (GC, tier-up) that the
-  // median is robust to; with a handful of subprocess trials one outlier
-  // matters.
+  // median is robust to; with a handful of subprocess trials one
+  // outlier matters.
   if (mode !== "inprocess" && stats.outliers.mild + stats.outliers.severe > 0) {
     warnings.push({
       code: "outliers-detected",

@@ -15,8 +15,8 @@ dependencies - install whichever one your suite needs.
 
 ## jsdom
 
-The naive version of this script does
-`Object.assign(globalThis, { document, window })`
+The naive version of this script
+does `Object.assign(globalThis, { document, window })`
 - see the tiny example in [cli.md](cli.md#--preload-and---bun-flags).
   That's enough for suites that only ever touch `document`,
   but it breaks the moment a suite does an `instanceof` check
@@ -69,8 +69,8 @@ Same global-copy pattern, different source object - `happy-dom`'s
 `Window` class instead of `JSDOM`'s `.window`.
 happy-dom trades some spec coverage
 (fewer of the more obscure DOM APIs are implemented) for a noticeably
-faster startup, which matters when `--preload` runs once per suite-file
-subprocess.
+faster startup, which matters when `--preload` runs once per
+suite-file subprocess.
 Reach for this first if your suite's DOM surface is simple
 (rendering components, reading text content) and only fall back to jsdom
 if something you need isn't implemented.

@@ -57,8 +57,8 @@ export default defineConfig({
 A config that isn't valid JSON, isn't an object,
 has no default export (`.ts`), uses a renamed field,
 or has a value of the wrong type fails with error code `config-invalid`
-(exit 2); the message names the key
-(`"bench.jobs" must be a positive integer or "auto", got "many"`).
+(exit 2); the message names the
+key (`"bench.jobs" must be a positive integer or "auto", got "many"`).
 The top-level `runs` field was renamed to `samples`;
 a config that still has `runs` is rejected with a message saying so.
 

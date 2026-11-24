@@ -1,7 +1,7 @@
 # Statistics
 
-How ostia samples, summarizes, and decides whether a change is a
-regression.
+How ostia samples, summarizes, and decides whether a change is
+a regression.
 
 ## Summary statistics
 
@@ -58,8 +58,8 @@ For the most comparable numbers, run tasks with `isolate`.
 
 Before measuring, `time()`, `bench()` and `ostia ci` each run a fixed,
 allocation-free hash loop for about 200ms, once per call,
-and record `mad / median` of its trial times as
-`environment.noise.floorPct`.
+and record `mad / median` of its trial times
+as `environment.noise.floorPct`.
 This is how much this machine's timings vary at the moment,
 independent of the workload.
 `noiseCheck: false` / `--no-noise-check` skips it
@@ -89,8 +89,8 @@ each side, runs two tests on the raw samples:
   first, which bounds the cost.
 - **Mann-Whitney U test**, two-sided, tie-corrected,
   normal approximation, reported as `pValue`.
-  It tests whether the two distributions differ without assuming
-  normality.
+  It tests whether the two distributions differ without
+  assuming normality.
 
 The bootstrap PRNG is seeded from a hash of the two sample arrays,
 so the same two documents always produce the same interval and verdict.
@@ -108,8 +108,8 @@ Let `T = effectiveTimingPct` (below).
 A large point estimate is not enough.
 For example, `+21.4% median, 95% CI [+5.6%, +23.9%], p=0.023` against
 `T = 10` and `alpha = 0.01` is `unchanged`:
-the interval reaches below the threshold and the p-value is above
-`alpha`.
+the interval reaches below the threshold
+and the p-value is above `alpha`.
 
 With fewer than 5 samples on either side,
 the tests are skipped and the verdict uses the median change alone
@@ -214,5 +214,5 @@ which is why the quartile rule and confirmation stay.
 When base and candidate differ in OS, architecture, Bun version,
 or (when both have it) CPU model or core count,
 every comparison carries an `environment-mismatch` warning with the
-differing fields: the delta may reflect the machine rather than the
-code.
+differing fields: the delta may reflect the machine rather than
+the code.

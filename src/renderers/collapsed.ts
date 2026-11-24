@@ -23,8 +23,8 @@ export const collapsedRenderer: Renderer<VizOptions> = {
           pathOf[i] = p === -1 ? name : `${pathOf[p]};${name}`;
         }
 
-        // Typed counts plus a first-seen list, because this runs over every
-        // sample.
+        // Typed counts plus a first-seen list, because this runs over
+        // every sample.
         const counts = new Float64Array(tree.count);
         const seen: number[] = [];
         for (const id of cpu.samples?.nodeIds ?? []) {

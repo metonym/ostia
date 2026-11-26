@@ -11,6 +11,7 @@ Flags:
   --warmup N           discarded warmup trials (default: 3)
   --no-interleave      run commands one after another instead of round-robin
   --prepare CMD        run before every trial, unmeasured; once, or once per command
+  --shell SH           run each command, and --prepare, as SH -c CMD (sh, bash)
   --time-source REGEX  take each trial's time from capture group 1 in the command's output
   --time-unit UNIT     unit of --time-source: ns | us | ms | s (default: ms); needs --time-source
   --cpu                capture one extra CPU-profile trial

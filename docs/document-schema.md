@@ -48,6 +48,7 @@ or `"unsupported-schema"`.
 | `createdAt` | ISO timestamp. Metadata only. |
 | `workloads` | `Workload[]`: what was measured. |
 | `measurements` | `Measurement[]`: one per workload and phase. |
+| `shell?` | `{ command, startupNs }`: the shell `--shell` ran each command through, and its startup (`SH -c :`, median wall time), which the timings include. Absent without a shell. |
 | `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples, checkMs?, budgetMs?, driftPct? } }`. Absent when the noise check was skipped. `checkMs`: how long the start check sampled. `budgetMs`: the fixed budget `--noise-budget` asked for, absent for the default adaptive check. `driftPct`: how much slower the reference loop ran at the end of the run than at the start. |
 | `git?` | `{ sha, branch, dirty }` from the process's cwd. Absent outside a repo. Never part of an id or cache key. |
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |

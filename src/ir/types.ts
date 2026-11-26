@@ -28,6 +28,11 @@ export interface ProfileDocument {
    */
   environment?: Environment;
   /**
+   * The shell `time({ shell })` ran each string command through, and its
+   * startup (`shell -c :`, median wall time, ns), which the timings include
+   * and nothing subtracts. Absent without a shell. */
+  shell?: { command: string; startupNs: number };
+  /**
    * Run-level result of `ostia ab` / `ab()`, whose measurements
    * are `phase: "paired"`.
    */

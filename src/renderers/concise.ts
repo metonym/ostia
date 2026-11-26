@@ -1,6 +1,11 @@
 import { formatDuration, pickDurationUnit } from "../format.ts";
 import type { ProfileDocument, Warning, Workload } from "../ir/types.ts";
-import { formatRelative, formatSignedPct, workloadLabel } from "./format.ts";
+import {
+  formatRelative,
+  formatShellLine,
+  formatSignedPct,
+  workloadLabel,
+} from "./format.ts";
 import { abRows, formatAbSummary, formatThrew, pairedCells } from "./paired.ts";
 import { relativeRatios, type TimingRow } from "./relative.ts";
 import {
@@ -136,6 +141,7 @@ export const conciseRenderer: Renderer = {
       const lines = doc.ab
         ? abLines(doc, doc.ab)
         : [...timingLines(doc), ...comparisonLines(doc)];
+      if (doc.shell) lines.push(formatShellLine(doc.shell));
       return { text: lines.length > 0 ? `${lines.join("\n")}\n` : "" };
     });
   },

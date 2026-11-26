@@ -6,6 +6,7 @@ import type {
   GitMetadata,
   HeapEvidence,
   Measurement,
+  ProfileDocument,
   Workload,
 } from "../ir/types.ts";
 import { percentile, sortedCopy } from "../stats/index.ts";
@@ -79,6 +80,14 @@ export function workloadLabel(w: Workload): string {
 
 export function labelOrId(w: Workload | undefined, id: string): string {
   return w ? workloadLabel(w) : id;
+}
+
+// The shell a run went through and its startup, which every time it
+// prints includes, so a fast command's time isn't read as its own.
+export function formatShellLine(
+  shell: NonNullable<ProfileDocument["shell"]>,
+): string {
+  return `Shell: ${shell.command} -c, ${formatDuration(shell.startupNs)} to start, included in each time`;
 }
 
 export function formatRelative(relative: number, baseline: boolean): string {

@@ -57,6 +57,14 @@ export interface CommandSpec {
 export interface TimeOptions {
   commands: (string | string[] | CommandSpec)[];
   /**
+   * Run each string command, and a string `prepare`, as `shell -c COMMAND`
+   * (`"sh"`, `"bash"`) instead of splitting it on whitespace, so env
+   * prefixes, pipes, `&&` and `$(...)` work. An argv array runs as given.
+   * The shell's own startup is measured and recorded as `doc.shell`,
+   * not subtracted.
+   */
+  shell?: string;
+  /**
    * Runs unmeasured before every trial (warmup and instrumented included),
    * in `cwd`/`env`: a command spawned and awaited, or a function. */
   prepare?: PrepareHook;
@@ -148,8 +156,14 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
         : entry;
     const argv = Array.isArray(spec.command)
       ? spec.command
-      : splitCommand(spec.command);
-    const prepare = spec.prepare ?? opts.prepare;
+      : opts.shell
+        ? [opts.shell, "-c", spec.command]
+        : splitCommand(spec.command);
+    const givenPrepare = spec.prepare ?? opts.prepare;
+    const prepare =
+      opts.shell && typeof givenPrepare === "string"
+        ? [opts.shell, "-c", givenPrepare]
+        : givenPrepare;
     const timeSource = spec.timeSource ?? opts.timeSource;
     const workload = makeSubprocessWorkload(
       argv,
@@ -223,6 +237,10 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     }
   };
 
+  const shell = opts.shell
+    ? { command: opts.shell, startupNs: await shellStartupNs(opts.shell) }
+    : undefined;
+
   if (interleave) {
     for (const { phase } of runs) await phase.warmup();
     let stepped = true;
@@ -246,7 +264,26 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   }
 
   stampDrift(environment);
-  return createDocument(workloads, measurements, environment);
+  const doc = createDocument(workloads, measurements, environment);
+  if (shell) doc.shell = shell;
+  return doc;
+}
+
+const SHELL_STARTUP_RUNS = 5;
+
+// The median wall time of `shell -c :`, the startup every command run
+// through the shell pays, so a reader can tell it from the command's own.
+async function shellStartupNs(shell: string): Promise<number> {
+  const samples: number[] = [];
+  for (let i = 0; i < SHELL_STARTUP_RUNS; i++) {
+    const start = Bun.nanoseconds();
+    // eslint-disable-next-line no-await-in-loop -- one at a time, so the runs don't share the machine
+    await Bun.spawn([shell, "-c", ":"], { stdout: "ignore", stderr: "ignore" })
+      .exited;
+    samples.push(Bun.nanoseconds() - start);
+  }
+  samples.sort((a, b) => a - b);
+  return samples[samples.length >> 1] ?? 0;
 }
 
 async function captureInstrumentedPhases({

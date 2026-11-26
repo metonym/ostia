@@ -14,6 +14,7 @@ import {
   formatInstructions,
   formatNsAsMs,
   formatRelative,
+  formatShellLine,
   formatSignedPct,
   formatSpan,
   formatUsAsMs,
@@ -123,9 +124,11 @@ export const terminalRenderer: Renderer = {
   name: "table",
   render(doc: ProfileDocument): Promise<RenderResult> {
     return Promise.try(() => {
-      const env = doc.environment
-        ? [formatEnvironmentLine(doc.environment), ""]
-        : [];
+      const env = [
+        ...(doc.environment ? [formatEnvironmentLine(doc.environment)] : []),
+        ...(doc.shell ? [formatShellLine(doc.shell)] : []),
+      ];
+      if (env.length > 0) env.push("");
 
       // Only `ab()` writes paired measurements, and it always stamps `ab`.
       if (doc.ab) return finish(renderPaired(doc, doc.ab, env));

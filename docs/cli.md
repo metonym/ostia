@@ -63,6 +63,7 @@ ostia time [flags] -- <argv...>
 | `--warmup N` | Discarded warmup trials per command (default: 3). |
 | `--no-interleave` | Run each command's trials to completion before the next command starts. |
 | `--prepare CMD` | Run `CMD` before every trial, unmeasured. Once (all commands) or once per command. |
+| `--shell SH` | Run each command, and `--prepare`, as `SH -c CMD` (`sh`, `bash`), so env prefixes, pipes, `&&` and `$(...)` work; without it, a command is split on whitespace and run with no shell. The shell's startup is measured, printed and stored as `shell`, and not subtracted: two commands under one shell pay it alike. |
 | `--time-source REGEX` | Take each trial's time from capture group 1 of the command's output. |
 | `--time-unit UNIT` | Unit of the `--time-source` number: `ns`, `us`, `ms` (default), `s`. Needs `--time-source`. |
 | `--cpu` | Capture one extra CPU-profile trial per command. |

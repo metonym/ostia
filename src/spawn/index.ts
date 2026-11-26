@@ -1,5 +1,7 @@
 interface TrialResult {
   wallNs: number;
+  /** Where `outputPath` wrote the command's output. */
+  outputPath?: string;
   /** `null` when the trial timed out: its exit code carries no information. */
   exitCode: number | null;
   userNs?: number;
@@ -96,6 +98,12 @@ export interface SpawnTrialOptions {
    * Aborting SIGKILLs the process. Unlike `timeoutMs`, the caller discards
    * the trial rather than recording `timedOut`. */
   signal?: AbortSignal;
+  /**
+   * Write the command's stdout, then its stderr, to this file once it
+   * exits, after the clock stops. */
+  outputPath?: string;
+  /** Pass the command's output to ostia's stderr, keeping stdout ostia's. */
+  showOutput?: boolean;
 }
 
 const UNIT_NS: Record<TimeUnit, number> = {
@@ -127,24 +135,41 @@ export function killSwitch(
 }
 
 export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
-  const capture = opts.timeSource !== undefined;
+  const capture =
+    opts.timeSource !== undefined || opts.outputPath !== undefined;
   const start = Bun.nanoseconds();
 
   const kill = killSwitch(opts.timeoutMs, opts.signal);
-  const proc = Bun.spawn(opts.argv, {
+  const where = {
     ...(opts.cwd !== undefined && { cwd: opts.cwd }),
     ...(opts.env !== undefined && { env: opts.env }),
-    stdout: capture ? "pipe" : "ignore",
-    stderr: capture ? "pipe" : "ignore",
-    stdin: "ignore",
-    ...kill.spawn,
-  });
+  };
+  const piped = capture
+    ? Bun.spawn(opts.argv, {
+        ...where,
+        stdout: "pipe",
+        stderr: "pipe",
+        stdin: "ignore",
+        ...kill.spawn,
+      })
+    : undefined;
+  // fd 2: shown output goes to ostia's stderr, so a machine format on
+  // stdout stays parseable.
+  const proc =
+    piped ??
+    Bun.spawn(opts.argv, {
+      ...where,
+      stdout: opts.showOutput ? 2 : "ignore",
+      stderr: opts.showOutput ? 2 : "ignore",
+      stdin: "ignore",
+      ...kill.spawn,
+    });
   // Drain concurrently with exit: a full pipe would block the command and
   // inflate the wall time.
-  const output = capture
+  const output = piped
     ? Promise.all([
-        new Response(proc.stdout).text(),
-        new Response(proc.stderr).text(),
+        new Response(piped.stdout).text(),
+        new Response(piped.stderr).text(),
       ])
     : undefined;
   const exitCode = await proc.exited;
@@ -164,6 +189,14 @@ export async function runTrial(opts: SpawnTrialOptions): Promise<TrialResult> {
   };
   if (output) {
     const [stdout, stderr] = await output;
+    if (opts.outputPath !== undefined) {
+      await Bun.write(
+        opts.outputPath,
+        stderr ? `${stdout}\n--- stderr ---\n${stderr}` : stdout,
+      );
+      result.outputPath = opts.outputPath;
+    }
+    if (opts.showOutput) await Bun.write(Bun.stderr, stdout + stderr);
     // A killed process's output is partial: nothing to parse.
     if (opts.timeSource && !timedOut) {
       try {

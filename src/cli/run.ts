@@ -172,6 +172,8 @@ interface TimeArgs extends RunArgs {
   ignoreExitCodes: number[];
   outDir?: string;
   shell?: string;
+  saveOutput?: string;
+  showOutput?: boolean;
 }
 
 const TIME_FLAGS = {
@@ -183,6 +185,8 @@ const TIME_FLAGS = {
   "--no-interleave": flag.off("interleave"),
   "--prepare": flag.list("prepare"),
   "--shell": flag.str("shell"),
+  "--save-output": flag.str("saveOutput"),
+  "--show-output": flag.on("showOutput"),
   "--time-source": flag.str("timeSource"),
   "--time-unit": flag.oneOf("timeUnit", TIME_UNITS),
   "--cpu": flag.on("cpu"),
@@ -290,6 +294,8 @@ async function timeCommand(argv: string[]): Promise<number> {
           noiseCheck: parsed.noiseCheck,
           noiseBudgetMs: parsed.noiseBudgetMs,
           shell: parsed.shell,
+          saveOutput: parsed.saveOutput,
+          showOutput: parsed.showOutput,
         }),
         signal,
       }),

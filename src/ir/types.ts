@@ -173,6 +173,8 @@ export interface Measurement {
 export interface Trial {
   i: number;
   wallNs: number;
+  /** The file `--save-output` wrote this trial's stdout and stderr to. */
+  outputPath?: string;
   /**
    * The command's self-reported time (ns) under a `timeSource`; these, not
    * `wallNs`, are then the `timing.samples`. */

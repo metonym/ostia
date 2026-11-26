@@ -65,6 +65,15 @@ export interface TimeOptions {
    */
   shell?: string;
   /**
+   * Save each trial's stdout and stderr under this directory, one folder
+   * per command (its label, made safe for a path, and its id), as
+   * `trial-N.log` and `warmup-N.log`; each trial's `outputPath` names
+   * its file.
+   */
+  saveOutput?: string;
+  /** Pass each trial's output to stderr, for debugging. */
+  showOutput?: boolean;
+  /**
    * Runs unmeasured before every trial (warmup and instrumented included),
    * in `cwd`/`env`: a command spawned and awaited, or a function. */
   prepare?: PrepareHook;
@@ -201,6 +210,10 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
         ignoreExitCodes: entry.ignoreExitCodes,
       }),
       ...(opts.signal !== undefined && { signal: opts.signal }),
+      ...(opts.saveOutput !== undefined && {
+        outputDir: `${opts.saveOutput}/${outputFolder(entry.workload)}`,
+      }),
+      ...(opts.showOutput && { showOutput: true }),
     }),
   }));
 
@@ -267,6 +280,16 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   const doc = createDocument(workloads, measurements, environment);
   if (shell) doc.shell = shell;
   return doc;
+}
+
+// A command's folder under `--save-output`: its label, safe for a path,
+// then its id, since two commands can share a label.
+function outputFolder(workload: Workload): string {
+  const name = (workload.label ?? workload.command?.join(" ") ?? "command")
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 60);
+  return `${name || "command"}-${workload.id.slice(3, 11)}`;
 }
 
 const SHELL_STARTUP_RUNS = 5;

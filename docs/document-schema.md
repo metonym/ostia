@@ -121,8 +121,9 @@ identity; it is shown as the label too.)
 | `artifacts` | `{ kind, path, sha256, bytes }[]`: raw `.cpuprofile`/`.heapsnapshot` files. |
 
 `Trial`:
-`{ i, wallNs, exitCode?, userNs?, systemNs?, maxRssBytes?, reportedNs?, timedOut?, timeSourceNoMatch? }`.
+`{ i, wallNs, exitCode?, userNs?, systemNs?, maxRssBytes?, reportedNs?, timedOut?, timeSourceNoMatch?, outputPath? }`.
 `reportedNs` is the value parsed by a `timeSource`;
+`outputPath`, the file `--save-output` wrote the trial's output to;
 timed-out and unmatched trials contribute no sample.
 
 `TimingStats`:

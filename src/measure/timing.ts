@@ -20,6 +20,11 @@ interface TimingPhaseOptions extends SpawnTrialOptions {
   /** Runs unmeasured before every trial, warmup included. */
   prepare?: PrepareHook;
   /**
+   * Save each trial's output here, as `trial-N.log`, and each warmup's
+   * as `warmup-N.log`.
+   */
+  outputDir?: string;
+  /**
    * Exit codes treated as success (hyperfine's `--ignore-failure`): such a
    * trial still contributes its sample and never triggers `nonzero-exit`. */
   ignoreExitCodes?: number[];
@@ -99,7 +104,14 @@ export function createTimingPhase(
         },
       );
     }
-    return runTrial(opts);
+    return runTrial(
+      opts.outputDir === undefined
+        ? opts
+        : {
+            ...opts,
+            outputPath: `${opts.outputDir}/${phase === "warmup" ? "warmup" : "trial"}-${index}.log`,
+          },
+    );
   }
 
   return {
@@ -132,6 +144,9 @@ export function createTimingPhase(
         }),
         ...(result.timedOut && { timedOut: true as const }),
         ...(result.timeSourceNoMatch && { timeSourceNoMatch: true as const }),
+        ...(result.outputPath !== undefined && {
+          outputPath: result.outputPath,
+        }),
       });
       // The budget bounds the loop's wall time even for reported-time samples.
       totalNs += result.wallNs;

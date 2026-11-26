@@ -187,7 +187,7 @@ the base median derived from the change.
 
 `Warning` is `{ code, message, data? }`.
 The terminal table prints codes under each row and messages below the
-table; `--format minimal` includes `code` and `data`.
+table; `--format events` includes `code` and `data`.
 
 | Code | Where | When |
 |---|---|---|

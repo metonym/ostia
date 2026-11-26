@@ -22,7 +22,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --json               same as --format json
   --quiet              don't print the report
   --help               show this message
 
@@ -64,7 +65,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --json               same as --format json
   --quiet              don't print the report
   --help               show this message
 
@@ -111,7 +113,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --json               same as --format json
   --progress           print progress to stderr (default: when stderr is a terminal and not
                        --quiet); --no-progress turns it off
   --quiet              don't print the report
@@ -130,7 +133,7 @@ unknown ref, a failed setup or suite), 130 Ctrl-C.
 Examples:
   ostia ab bench/parse.bench.ts
   ostia ab bench/*.ts --base origin/main --rounds 21
-  ostia ab bench/*.ts --filter parse --format minimal
+  ostia ab bench/*.ts --filter parse --format events
   ostia ab bench/*.ts --metric instructions --threshold 3
   ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
   ostia ab bench/paint.bench.ts --alloc --peak-mem
@@ -148,7 +151,8 @@ Flags:
   --baseline PATH      the base document, when only the candidate is positional
   --config PATH        read thresholds from this config file instead of ostia.config.ts/.json
   --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --json               same as --format json
   --quiet              don't print the report
   --help               show this message
 
@@ -166,7 +170,9 @@ Formats:
   json         pretty JSON document
   jsonl        one metadata line, then one line per measurement
   markdown     agent- and human-readable report
-  minimal      one compact JSON object per timing measurement, for LLM/CI consumption
+  concise      one line per task, then its warnings (alias: agent)
+  events       one compact JSON object per timing measurement, for scripts and CI
+               (alias: minimal)
   collapsed    folded stacks: "root;a;b 42" - flamegraph.pl and most flame tooling
   mermaid      call tree, top-15 frames by total time (never the whole profile)
   speedscope   sampled profile JSON for speedscope.app
@@ -199,7 +205,8 @@ Flags:
   --config PATH        read this config file instead of ostia.config.ts/.json
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --json               same as --format json
   --quiet              don't print the report
   --help               show this message
 

@@ -1,6 +1,7 @@
 # Machine-readable output
 
-`--format minimal` is a line protocol for scripts and LLM agents:
+`--format events` is a line protocol for scripts
+and LLM agents (`minimal`, its name until 0.5.0, still works):
 one JSON object per line on stdout, nothing else.
 It drops the raw sample arrays and prose that make a full
 `ProfileDocument` large.
@@ -8,11 +9,11 @@ It works on `time`, `bench`, `ab`, `compare`, `ci`,
 `report` and `baseline show`.
 
 ```sh
-ostia time --samples 10 "bun a.ts" --format minimal
-ostia bench bench/*.ts --format minimal
-ostia ab bench/*.ts --base origin/main --format minimal
-ostia compare before.json after.json --format minimal
-ostia ci --format minimal; echo $?
+ostia time --samples 10 "bun a.ts" --format events
+ostia bench bench/*.ts --format events
+ostia ab bench/*.ts --base origin/main --format events
+ostia compare before.json after.json --format events
+ostia ci --format events; echo $?
 ```
 
 `ostia ab` can run for many minutes.
@@ -146,7 +147,7 @@ Never emitted for `time`, `bench` or `report`.
 | `verdict` | `"pass"` when `exitCode` is 0, `"fail"` when it is 1 (a regression), `"error"` otherwise: exit 2 (harness error) or 130 (cancelled), where no verdict was reached. |
 | `exitCode` | The process's exit code. |
 
-Example (`ostia ci --format minimal` after a regression):
+Example (`ostia ci --format events` after a regression):
 
 ```
 {"event":"run","protocolVersion":2,"schemaVersion":2,"workloadId":"wl_11e8562f3622d528","task":"work","unit":"ns","samples":10,"batch":1,"mean":21012800,"median":20999900,"stddev":231456,"stddevPct":1.1015,"min":20664000,"max":21552300,"warnings":[{"code":"outliers-detected","data":{"mild":1,"severe":0}}],"p75":21086100,"p99":21517600,"mad":126625,"userNs":15519000,"systemNs":6015500,"noiseFloorPct":2.09286,"delta":{"medianPct":44.0989,"meanPct":43.9626,"verdict":"regressed","pass":false,"effectiveTimingPct":10,"matched":true,"ci95":[41.4394,45.5841],"pValue":0.000157103}}
@@ -170,8 +171,9 @@ and exits 2.
 ## Errors
 
 On exit 2, stderr gets a prose message.
-When stderr is not a TTY, or `--format` is `minimal`, `json` or `jsonl`,
-one more line follows it as the last line of stderr:
+When stderr is not a TTY, or `--format` is `events`,
+`json` or `jsonl` (or `--json`), one more line follows it as the last
+line of stderr:
 
 ```json
 {"event":"error","protocolVersion":2,"code":"command-failed","message":"One or more commands failed to produce a clean measurement; see the report above for details."}

@@ -45,6 +45,7 @@ import {
   CONFIG_FLAGS,
   type ConfigArgs,
   flag,
+  FORMAT_ALIASES,
   HELP_FLAGS,
   NOISE_CHECK_FLAGS,
   OUTPUT_DEFAULTS,
@@ -721,7 +722,7 @@ interface ReportArgs extends ConfigArgs {
 
 const REPORT_FLAGS = {
   ...HELP_FLAGS,
-  "--format": flag.oneOf("format", REPORT_FORMATS),
+  "--format": flag.oneOf("format", REPORT_FORMATS, FORMAT_ALIASES),
   "--measurement": flag.str("measurementId"),
   "--out-dir": flag.str("outDir"),
 };

@@ -5,7 +5,10 @@ export type FormatName =
   | "json"
   | "markdown"
   | "jsonl"
+  | "events"
+  /** `events`, by the name it had until 0.5.0. */
   | "minimal"
+  | "concise"
   | "collapsed"
   | "mermaid"
   | "speedscope"

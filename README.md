@@ -85,7 +85,7 @@ ostia ci
 ostia time "bun a.ts" --cpu
 
 # One JSON object per line, for a script or an agent
-ostia bench suite.ts --format minimal
+ostia bench suite.ts --format events
 ```
 
 These docs ship in the package, at `node_modules/ostia/docs/`.
@@ -121,7 +121,7 @@ const { text } = await renderers.markdown.render(doc, {})
 - [Config](https://github.com/metonym/ostia/blob/master/docs/config.md):
   `ostia.config` workloads, thresholds and baselines
 - [Machine-readable output](https://github.com/metonym/ostia/blob/master/docs/agent-protocol.md):
-  `--format minimal`, exit codes and error codes, for scripts and agents
+  `--format events`, exit codes and error codes, for scripts and agents
 - [Statistics](https://github.com/metonym/ostia/blob/master/docs/statistics.md):
   how a comparison decides, and the noise floor
 - [Document schema](https://github.com/metonym/ostia/blob/master/docs/document-schema.md):

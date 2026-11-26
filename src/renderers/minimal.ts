@@ -585,7 +585,7 @@ function summaryLine(
 }
 
 export const minimalRenderer: Renderer<MinimalRenderOptions> = {
-  name: "minimal",
+  name: "events",
   render(
     doc: ProfileDocument,
     options: MinimalRenderOptions = {},

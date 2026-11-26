@@ -12,9 +12,9 @@ ostia baseline save|list|show  manage baseline documents
 
 Every command takes `--help`; `ostia --version` (or `-v`) prints
 the version.
-A flag's value can follow it (`--format minimal`)
-or be attached (`--format=minimal`);
-`--ignore-failure[=CODES]` only takes the attached form.
+A flag's value can follow it (`--format events`)
+or be attached (`--format=events`); `--ignore-failure[=CODES]` only
+takes the attached form.
 A flag that needs a value and is given none is a usage error (exit 2).
 Exit codes and the machine-readable error line are described
 in [agent-protocol.md](agent-protocol.md).
@@ -35,7 +35,9 @@ or a flag with nothing to act on
 format) exits 2 with `invalid-flag`.
 
 Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`:
-`table` (default), `json`, `jsonl`, `markdown`, `minimal`.
+`table` (default), `concise`, `events`, `json`, `jsonl`, `markdown`.
+`--json` is short for `--format json`.
+`minimal` still names `events`, and `agent` names `concise`.
 `report` additionally accepts the CPU visualization formats.
 
 ## `ostia time`
@@ -64,7 +66,7 @@ ostia time [flags] -- <argv...>
 | `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
 | `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
-| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
 
 ### Commands
@@ -230,7 +232,7 @@ ostia bench [flags] <suite.ts...>
 | `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
 | `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
-| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
 
 With no suite files, `ostia bench` uses the config's `bench` section
@@ -495,7 +497,7 @@ ostia ab [flags] <suite.ts...>
 | `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
 | `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
-| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal and `--quiet` isn't given. |
 | `--quiet` | Don't print the report. |
 
@@ -827,7 +829,7 @@ which is how a script or agent can tell a long run from a stuck one:
 [ab] memory · process 2/6 candidate search/regex
 ```
 
-Progress never goes to stdout, so `--format minimal` output stays clean.
+Progress never goes to stdout, so `--format events` output stays clean.
 
 Exit codes: `0` pass, `1` a confirmed regression,
 a task that threw on the candidate side only,
@@ -860,7 +862,7 @@ ostia compare <candidate.json> --baseline <base.json>
 | `--baseline PATH` | The base document, when only the candidate is positional. |
 | `--config PATH` | Config file to take `thresholds` from, instead of discovery. |
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
-| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
 
 Exactly two document paths are taken (one with `--baseline`);
@@ -978,7 +980,8 @@ error (exit 2).
 | `json` | The document, pretty-printed (same bytes as `--export-json`) |
 | `jsonl` | One `kind: "document"` header line, then one `kind: "measurement"` line per measurement |
 | `markdown` | Report for humans and agents |
-| `minimal` | One JSON object per timing measurement ([agent-protocol.md](agent-protocol.md)) |
+| `concise` | One line per task, then its warnings; alias `agent` |
+| `events` | One JSON object per timing measurement ([agent-protocol.md](agent-protocol.md)); alias `minimal` |
 | `collapsed` | Folded stacks, `root;a;b 42`, for `flamegraph.pl` and similar tools |
 | `mermaid` | Call tree, top 15 frames by total time |
 | `speedscope` | Sampled-profile JSON for speedscope.app |
@@ -1029,7 +1032,7 @@ ostia ci [flags]
 | `--config PATH` | Config file to read instead of discovery. |
 | `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
-| `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
+| `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
 
 `ostia ci` loads the config ([config.md](config.md)),

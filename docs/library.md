@@ -165,7 +165,7 @@ and resolves with the suites and tasks that had finished.
 | `budgetMs`, `samples`, `minSamples` | Override the suite-wide sampling settings for this task. |
 | `isolate`, `gc`, `cpu`, `alloc`, `peakMem` | Override the suite-wide flag (and the group's) for this task. |
 | `baseline` | This task is the group's Relative reference (default: the group's fastest). |
-| `description` | Stored as `Workload.description` and shown in `minimal` output. |
+| `description` | Stored as `Workload.description` and shown in `events` output. |
 | `aliases` | Former names of the task in the same group. `compare`, `ci` and `ab` match a base measured under any of them, so a rename still compares. |
 | `params` | Structured parameters; part of the workload id. Merged over the current `sweep()` point. |
 | `before`, `after` | Run once, unmeasured, before the task's warmup and after its last trial, in the task's own process (works with `isolate`). |
@@ -376,12 +376,14 @@ const doc = createDocument(
 
 Each renderer is `{ name, render(doc, options) }` returning `{ text? }`
 and/or `{ files? }`.
-Names: `table`, `markdown`, `json`, `jsonl`, `minimal`, `collapsed`,
+Names: `table`, `markdown`, `json`, `jsonl`,
+`events` (and `minimal`, its name until 0.5.0), `concise`, `collapsed`,
 `mermaid`, `speedscope`, `cpuprofile`.
 Each renderer's options are typed per format:
 `collapsed`, `speedscope` and `cpuprofile` take `VizOptions`
 (`{ measurementId? }`), `mermaid` takes `MermaidOptions`
-(`VizOptions` plus `topN?`), `minimal` takes `MinimalRenderOptions`
+(`VizOptions` plus `topN?`), `events`
+and `minimal` take `MinimalRenderOptions`
 (`{ protocol? }`, a `MinimalProtocolContext`, to emit the `unmatched`
 and `summary` events), and the rest take no options (pass `{}`).
 

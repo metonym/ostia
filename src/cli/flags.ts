@@ -13,8 +13,17 @@ const DOCUMENT_FORMATS = [
   "json",
   "jsonl",
   "markdown",
-  "minimal",
+  "events",
+  "concise",
 ] as const;
+
+// The names a format went by, or shares with another tool: `minimal` was
+// `events`' name until 0.5.0, and svelte-typecheck and svelte-lint call
+// their agent format `agent`.
+export const FORMAT_ALIASES: Readonly<Record<string, string>> = {
+  minimal: "events",
+  agent: "concise",
+};
 
 export const VIZ_FORMATS = [
   "collapsed",
@@ -63,7 +72,12 @@ type FlagSpec =
   | { kind: "int"; min?: number; allowAuto?: boolean }
   | { kind: "number"; min: number }
   | { kind: "bool"; value: boolean }
-  | { kind: "enum"; values: readonly string[] }
+  | {
+      kind: "enum";
+      values: readonly string[];
+      aliases?: Readonly<Record<string, string>>;
+    }
+  | { kind: "const"; value: string }
   | { kind: "list" }
   | { kind: "words" }
   | { kind: "exitCodes" };
@@ -85,8 +99,15 @@ export const flag = {
     def(dest, { kind: "number", min }),
   on: (dest: string): FlagDef => def(dest, { kind: "bool", value: true }),
   off: (dest: string): FlagDef => def(dest, { kind: "bool", value: false }),
-  oneOf: (dest: string, values: readonly string[]): FlagDef =>
-    def(dest, { kind: "enum", values }),
+  oneOf: (
+    dest: string,
+    values: readonly string[],
+    aliases?: Readonly<Record<string, string>>,
+  ): FlagDef =>
+    def(dest, { kind: "enum", values, ...(aliases && { aliases }) }),
+  /** Sets `dest` to `value`; `--flag=false` leaves it, as `--json=false`. */
+  is: (dest: string, value: string): FlagDef =>
+    def(dest, { kind: "const", value }),
   /** Repeatable; each occurrence appends one value. */
   list: (dest: string): FlagDef => def(dest, { kind: "list" }),
   /** Repeatable; each occurrence is whitespace-split and appended. */
@@ -125,7 +146,8 @@ export const HELP_FLAGS: FlagTable = {
 export const OUTPUT_FLAGS: FlagTable = {
   ...HELP_FLAGS,
   "--export-json": flag.str("exportJson"),
-  "--format": flag.oneOf("format", DOCUMENT_FORMATS),
+  "--format": flag.oneOf("format", DOCUMENT_FORMATS, FORMAT_ALIASES),
+  "--json": flag.is("format", "json"),
   "--quiet": flag.on("quiet"),
 };
 
@@ -257,12 +279,23 @@ export function parseFlags<T extends object>(
         break;
       case "enum": {
         const raw = value();
-        if (!spec.values.includes(raw)) {
+        const resolved = spec.aliases?.[raw] ?? raw;
+        if (!spec.values.includes(resolved)) {
           throw new CliUsageError(
             `Invalid ${name} "${raw}": expected one of: ${spec.values.join(", ")}`,
           );
         }
-        set(dest, raw);
+        set(dest, resolved);
+        break;
+      }
+      case "const": {
+        const raw = eq > 0 ? arg.slice(eq + 1) : "true";
+        if (raw !== "true" && raw !== "false") {
+          throw new CliUsageError(
+            `Invalid ${name} "${raw}": expected true or false`,
+          );
+        }
+        if (raw === "true") set(dest, spec.value);
         break;
       }
     }

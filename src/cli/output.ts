@@ -69,7 +69,8 @@ export async function orFail<T>(
   }
 }
 
-const MACHINE_FORMATS = new Set(["minimal", "json", "jsonl"]);
+// `minimal` too, since this reads argv before the alias resolves.
+const MACHINE_FORMATS = new Set(["events", "minimal", "json", "jsonl"]);
 
 // Machine errors are for scripts and agents: stderr isn't a terminal, or a
 // machine `--format` was asked for.
@@ -81,6 +82,8 @@ async function wantsMachineErrors(): Promise<boolean> {
   const argv = process.argv.slice(2);
   return argv.some(
     (arg, i) =>
+      arg === "--json" ||
+      arg === "--json=true" ||
       (arg === "--format" && MACHINE_FORMATS.has(argv[i + 1] ?? "")) ||
       (arg.startsWith("--format=") &&
         MACHINE_FORMATS.has(arg.slice("--format=".length))),

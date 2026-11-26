@@ -1,20 +1,21 @@
 import os from "node:os";
 
 import type { Environment, Warning } from "../ir/types.ts";
-import { measureNoiseFloor } from "./noise.ts";
+import { DRIFT_BUDGET_MS, measureNoiseFloor } from "./noise.ts";
 
 const LOAD_WARNING_FRACTION = 0.75;
 
-// perf: takes ~200ms (runs the noise-floor workload), so call it once per
-// invocation, never per workload.
-export function captureEnvironment(): Environment {
+// perf: takes 25 to 50 ms (runs the noise-floor workload), or the
+// `noiseBudgetMs` asked for, so call it once per invocation, never
+// per workload.
+export function captureEnvironment(noiseBudgetMs?: number): Environment {
   const [loadAvg1 = 0, loadAvg5 = 0] = os.loadavg();
   return {
     cpuModel: os.cpus()[0]?.model ?? "unknown",
     cores: os.availableParallelism(),
     loadAvg1,
     loadAvg5,
-    noise: measureNoiseFloor(),
+    noise: measureNoiseFloor(noiseBudgetMs),
   };
 }
 
@@ -24,7 +25,11 @@ export function captureEnvironment(): Environment {
 export function stampDrift(env: Environment | undefined): void {
   if (!env) return;
   const start = env.noise.referenceMedianNs;
-  const end = measureNoiseFloor().referenceMedianNs;
+  // The start check's own budget when one was asked for, so the two
+  // medians are measured alike.
+  const end = measureNoiseFloor(
+    env.noise.budgetMs ?? DRIFT_BUDGET_MS,
+  ).referenceMedianNs;
   env.noise.driftPct = start > 0 ? (end / start - 1) * 100 : 0;
 }
 

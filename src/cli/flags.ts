@@ -104,6 +104,7 @@ export interface OutputArgs {
 
 export interface RunArgs extends OutputArgs {
   noiseCheck: boolean;
+  noiseBudgetMs?: number;
 }
 
 export const OUTPUT_DEFAULTS = {
@@ -132,6 +133,12 @@ export const NOISE_CHECK_FLAGS: FlagTable = {
   "--no-noise-check": flag.off("noiseCheck"),
 };
 
+// Apart from NOISE_CHECK_FLAGS, since `ci` takes those but its noise
+// check follows the config, so it must reject this one.
+const NOISE_BUDGET_FLAGS: FlagTable = {
+  "--noise-budget": flag.int("noiseBudgetMs"),
+};
+
 export const CONFIG_FLAGS: FlagTable = {
   "--config": flag.str("config"),
 };
@@ -145,6 +152,7 @@ export interface ConfigArgs {
 export const RUN_FLAGS: FlagTable = {
   ...OUTPUT_FLAGS,
   ...NOISE_CHECK_FLAGS,
+  ...NOISE_BUDGET_FLAGS,
   "--timeout": flag.int("timeoutMs"),
   "--out-dir": flag.str("outDir"),
 };

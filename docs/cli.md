@@ -61,7 +61,8 @@ ostia time [flags] -- <argv...>
 | `--timeout MS` | SIGKILL a trial or `--prepare` hook that runs longer than `MS`. No default. |
 | `--ignore-failure[=CODE,...]` | Treat these exit codes (bare: every code) as success. |
 | `--out-dir PATH` | Artifact directory (default: `node_modules/.cache/ostia`). |
-| `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
+| `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
+| `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
@@ -226,7 +227,8 @@ ostia bench [flags] <suite.ts...>
 | `--timeout MS` | SIGKILL a suite (or isolated task) process after `MS`. No default. |
 | `--out-dir PATH` | Scratch directory (default: `node_modules/.cache/ostia`). |
 | `--config PATH` | Config file to read instead of discovery. |
-| `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
+| `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
+| `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |
@@ -490,7 +492,8 @@ ostia ab [flags] <suite.ts...>
 | `--keep-trees N` | Base trees to keep cached (default: 5). See "The base tree". |
 | `--clean` | Remove every cached base tree, then exit. |
 | `--config PATH` | Config file to read instead of discovery. |
-| `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
+| `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
+| `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal and `--quiet` isn't given. |
@@ -1024,7 +1027,7 @@ ostia ci [flags]
 | `--baseline NAME` | Baseline to compare against (default: config `baseline`, or `main`). |
 | `--save-baseline` | After a pass, write this run as the new baseline at the same path. Always measures fresh (see below). |
 | `--config PATH` | Config file to read instead of discovery. |
-| `--no-noise-check` | Skip the ~200ms noise-floor measurement. |
+| `--no-noise-check` | Skip the noise-floor checks: 25 to 50 ms at the start, until the reference loop's median holds, and 25 ms at the end, for drift. |
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
 | `--format FORMAT` | `table`, `json`, `jsonl`, `markdown`, `minimal`. |
 | `--quiet` | Don't print the report. |

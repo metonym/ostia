@@ -94,6 +94,8 @@ export interface BenchOptions {
    * Measure this machine's noise floor once, before any suite runs
    * (default: true), and stamp it on the document as `environment`. */
   noiseCheck?: boolean;
+  /** Sample the noise floor for exactly this many ms instead. */
+  noiseBudgetMs?: number;
   /**
    * SIGKILLs a suite file's subprocess (or, under `isolate`, one task's)
    * that hasn't finished after this many ms. No default. */
@@ -132,6 +134,7 @@ export interface BenchCliOverrides {
   bunFlags: string[];
   outDir?: string;
   noiseCheck: boolean;
+  noiseBudgetMs?: number;
   timeoutMs?: number;
 }
 
@@ -190,6 +193,9 @@ export async function resolveBenchOptions(
     ...(projects !== undefined && { projects }),
     ...(outDir !== undefined && { outDir }),
     noiseCheck: cli.noiseCheck,
+    ...(cli.noiseBudgetMs !== undefined && {
+      noiseBudgetMs: cli.noiseBudgetMs,
+    }),
     ...(timeoutMs !== undefined && { timeoutMs }),
     cwd,
   };
@@ -274,7 +280,10 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     const path = absolutePath(cwd, given);
     return { given, path, ...launch(path) };
   });
-  const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck);
+  const { environment, noiseWarning } = captureRunEnvironment(
+    opts.noiseCheck,
+    opts.noiseBudgetMs,
+  );
 
   const measureOpts: RunnerOpts = {
     ...(opts.budgetMs !== undefined && { budgetMs: opts.budgetMs }),

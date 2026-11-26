@@ -19,7 +19,8 @@ Flags:
   --timeout MS         kill a trial or --prepare hook after MS
   --ignore-failure[=CODE,...]  treat these exit codes (bare: all) as success
   --out-dir PATH       artifact directory (default: node_modules/.cache/ostia)
-  --no-noise-check     skip the ~200ms noise-floor measurement
+  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
+  --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
   --quiet              don't print the report
@@ -60,7 +61,8 @@ Flags:
   --timeout MS         kill a suite (or isolated task) process after MS
   --out-dir PATH       scratch directory (default: node_modules/.cache/ostia)
   --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the ~200ms noise-floor measurement
+  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
+  --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
   --quiet              don't print the report
@@ -106,7 +108,8 @@ Flags:
   --keep-trees N       base trees to keep cached, least recently used go first (default: 5)
   --clean              remove every cached base tree, then exit
   --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the ~200ms noise-floor measurement
+  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
+  --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
   --progress           print progress to stderr (default: when stderr is a terminal and not
@@ -194,7 +197,7 @@ Flags:
   --save-baseline      after a pass, save this run as the new baseline (always measures
                        fresh: the cache is not used)
   --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the ~200ms noise-floor measurement
+  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --export-json PATH   write the candidate document with comparisons to PATH
   --format FORMAT      table | json | jsonl | markdown | minimal (default: table)
   --quiet              don't print the report

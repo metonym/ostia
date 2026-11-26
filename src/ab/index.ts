@@ -110,6 +110,8 @@ export interface AbOptions {
   outDir?: string;
   cwd?: string;
   noiseCheck?: boolean;
+  /** Sample the noise floor for exactly this many ms instead. */
+  noiseBudgetMs?: number;
   /** Also compare each side's retained heap per call (see
    * `bench({ alloc })`) and how far its first call raises RSS (see
    * `bench({ peakMem })`), each the median of 3 fresh processes per side.
@@ -867,7 +869,10 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
     return doc;
   }
 
-  const { environment, noiseWarning } = captureRunEnvironment(opts.noiseCheck);
+  const { environment, noiseWarning } = captureRunEnvironment(
+    opts.noiseCheck,
+    opts.noiseBudgetMs,
+  );
 
   // "" when the file doesn't exist at the base ref: all its tasks are new.
   const baseSuites = candSuites.map((suite, i) => {

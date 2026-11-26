@@ -76,11 +76,15 @@ export function peakHiddenWarning(
   };
 }
 
-export function captureRunEnvironment(noiseCheck: boolean | undefined): {
+export function captureRunEnvironment(
+  noiseCheck: boolean | undefined,
+  noiseBudgetMs?: number,
+): {
   environment: Environment | undefined;
   noiseWarning: Warning | undefined;
 } {
-  const environment = noiseCheck === false ? undefined : captureEnvironment();
+  const environment =
+    noiseCheck === false ? undefined : captureEnvironment(noiseBudgetMs);
   return {
     environment,
     noiseWarning: environment && noisyMachineWarning(environment),

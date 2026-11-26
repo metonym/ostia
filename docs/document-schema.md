@@ -48,7 +48,7 @@ or `"unsupported-schema"`.
 | `createdAt` | ISO timestamp. Metadata only. |
 | `workloads` | `Workload[]`: what was measured. |
 | `measurements` | `Measurement[]`: one per workload and phase. |
-| `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples, driftPct? } }`. Absent when the noise check was skipped. `driftPct`: how much slower the reference loop ran at the end of the run than at the start. |
+| `environment?` | `{ cpuModel, cores, loadAvg1, loadAvg5, noise: { floorPct, referenceMedianNs, samples, checkMs?, budgetMs?, driftPct? } }`. Absent when the noise check was skipped. `checkMs`: how long the start check sampled. `budgetMs`: the fixed budget `--noise-budget` asked for, absent for the default adaptive check. `driftPct`: how much slower the reference loop ran at the end of the run than at the start. |
 | `git?` | `{ sha, branch, dirty }` from the process's cwd. Absent outside a repo. Never part of an id or cache key. |
 | `comparisons?` | `Comparison[]`, on a candidate document written by `compare`/`ci`. |
 | `comparisonSummary?` | `{ matched, regressed, improved, unchanged, geomeanPct, effectiveTimingPct, driftPct?, verdict }`. `driftPct` is the machine drift added to the timing threshold ([statistics.md](statistics.md#threshold-widening)). |

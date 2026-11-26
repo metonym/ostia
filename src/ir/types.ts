@@ -54,6 +54,14 @@ export interface NoiseFloor {
   referenceMedianNs: number;
   samples: number;
   /**
+   * How long the check sampled, in milliseconds: 25 to 50 by default, as
+   * long as the median took to hold. Absent in older documents. */
+  checkMs?: number;
+  /**
+   * The fixed budget `--noise-budget` asked for, in milliseconds; absent
+   * for the default, adaptive check. */
+  budgetMs?: number;
+  /**
    * How much slower (positive) the reference ran at the end of the run than
    * at the start, percent: the machine's drift over the run. Absent when the
    * run didn't re-measure it (`profile()`, older documents). */

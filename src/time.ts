@@ -86,9 +86,11 @@ export interface TimeOptions {
   cpuIntervalUs?: number;
   outDir?: string;
   /**
-   * Measure the machine's noise floor first (default true, ~200ms) and stamp
-   * it on the document as `environment`. */
+   * Measure the machine's noise floor first (default true, 25 to 50 ms) and
+   * stamp it on the document as `environment`. */
   noiseCheck?: boolean;
+  /** Sample the noise floor for exactly this many ms instead. */
+  noiseBudgetMs?: number;
   /**
    * SIGKILLs a trial (or prepare hook) still running after this many ms. No
    * default. A timed-out trial contributes no sample. */
@@ -128,7 +130,9 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
   });
   const artifactDir = `${opts.outDir ?? DEFAULT_OUT_DIR}/artifacts`;
   const environment =
-    opts.noiseCheck === false ? undefined : captureEnvironment();
+    opts.noiseCheck === false
+      ? undefined
+      : captureEnvironment(opts.noiseBudgetMs);
   const noiseWarning = environment
     ? noisyMachineWarning(environment)
     : undefined;

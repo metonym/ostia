@@ -284,6 +284,7 @@ async function timeCommand(argv: string[]): Promise<number> {
           ignoreExitCodes: parsed.ignoreExitCodes,
           outDir: parsed.outDir,
           noiseCheck: parsed.noiseCheck,
+          noiseBudgetMs: parsed.noiseBudgetMs,
         }),
         signal,
       }),
@@ -514,6 +515,7 @@ async function abCommand(argv: string[]): Promise<number> {
     timeoutMs,
     outDir,
     noiseCheck,
+    noiseBudgetMs,
   } = await resolveBenchOptions(parsed, config?.bench);
   if (suites.length === 0) return showHelp(AB_HELP, false);
 
@@ -553,6 +555,7 @@ async function abCommand(argv: string[]): Promise<number> {
             outDir,
             keepTrees: parsed.keepTrees ?? config?.ab?.keepTrees,
             noiseCheck,
+            noiseBudgetMs,
           }),
           signal,
           ...definedFields({ onProgress: progress?.onProgress }),

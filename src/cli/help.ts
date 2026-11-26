@@ -22,7 +22,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
+                       concise under a coding agent; OSTIA_FORMAT sets another)
   --json               same as --format json
   --quiet              don't print the report
   --help               show this message
@@ -65,7 +66,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
+                       concise under a coding agent; OSTIA_FORMAT sets another)
   --json               same as --format json
   --quiet              don't print the report
   --help               show this message
@@ -113,7 +115,8 @@ Flags:
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --noise-budget MS    sample the noise floor for exactly MS, start and end
   --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
+                       concise under a coding agent; OSTIA_FORMAT sets another)
   --json               same as --format json
   --progress           print progress to stderr (default: when stderr is a terminal and not
                        --quiet); --no-progress turns it off
@@ -151,7 +154,8 @@ Flags:
   --baseline PATH      the base document, when only the candidate is positional
   --config PATH        read thresholds from this config file instead of ostia.config.ts/.json
   --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
+                       concise under a coding agent; OSTIA_FORMAT sets another)
   --json               same as --format json
   --quiet              don't print the report
   --help               show this message
@@ -205,7 +209,8 @@ Flags:
   --config PATH        read this config file instead of ostia.config.ts/.json
   --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
   --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table)
+  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
+                       concise under a coding agent; OSTIA_FORMAT sets another)
   --json               same as --format json
   --quiet              don't print the report
   --help               show this message

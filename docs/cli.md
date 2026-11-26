@@ -40,6 +40,14 @@ Output formats shared by `time`, `bench`, `ab`, `compare` and `ci`:
 `minimal` still names `events`, and `agent` names `concise`.
 `report` additionally accepts the CPU visualization formats.
 
+With no `--format`, a command run by a coding agent prints `concise`:
+one of `AGENT`, `AI_AGENT`, `CLAUDECODE`,
+`CODEX_CI` or `CODEX_THREAD_ID` is set, and not to `0`,
+the variables svelte-typecheck and svelte-lint read.
+A line on stderr says so.
+`OSTIA_FORMAT` sets the default for any caller,
+and `--format` always wins.
+
 ## `ostia time`
 
 ```

@@ -40,6 +40,7 @@ import { formatGit, workloadLabel } from "../renderers/format.ts";
 import { type FormatName, renderers } from "../renderers/index.ts";
 import type { MinimalProtocolContext } from "../renderers/minimal.ts";
 import type { TimeSource, TimeUnit } from "../spawn/index.ts";
+import { withDefaultFormat } from "./agent.ts";
 import {
   CliUsageError,
   CONFIG_FLAGS,
@@ -1094,8 +1095,18 @@ function baselineCommand(argv: string[]): Promise<number> {
   );
 }
 
-export function main(): Promise<number> {
-  const [subcommand, ...rest] = process.argv.slice(2);
+// The commands that take `--format`, so the only ones a default
+// format can be added to.
+const FORMATTED = new Set(["time", "bench", "ab", "compare", "report", "ci"]);
+
+export async function main(): Promise<number> {
+  const [subcommand, ...given] = process.argv.slice(2);
+  let rest = given;
+  if (subcommand !== undefined && FORMATTED.has(subcommand)) {
+    const chosen = withDefaultFormat(given);
+    rest = chosen.argv;
+    if (chosen.notice) await Bun.write(Bun.stderr, chosen.notice);
+  }
   return dispatchSubcommand(
     subcommand,
     rest,

@@ -3,6 +3,8 @@
 `--format events` is a line protocol for scripts
 and LLM agents (`minimal`, its name until 0.5.0, still works):
 one JSON object per line on stdout, nothing else.
+Without `--format`, an agent gets `concise` text instead,
+so a script that parses the output asks for `events` by name.
 It drops the raw sample arrays and prose that make a full
 `ProfileDocument` large.
 It works on `time`, `bench`, `ab`, `compare`, `ci`,

@@ -13,48 +13,45 @@ and every result is one JSON document.
 ```ts
 // suite.ts
 import { group, task } from "ostia"
+import { dedupe } from "./dedupe.ts"
 
-const input = Array.from({ length: 2_000 }, (_, i) => i % 500)
+const ids = Array.from({ length: 2_000 }, (_, i) => (i * 7919) % 500)
 
-group("dedupe", () => {
-  task("naive (indexOf scan, O(n²))", () => dedupeNaive(input))
-  task("Set-based (O(n))", () => [...new Set(input)])
+group("ids", () => {
+  task("dedupe 2,000", () => dedupe(ids))
+  task("sort 2,000", () => ids.toSorted((a, b) => a - b))
 })
 ```
 
-```console
-$ ostia bench suite.ts
-2 tasks · fastest Set-based (O(n)) 35.7 µs
-suite.ts
-
-  task                            median   noise  instr/call  vs fastest
-  dedupe
-  ├ naive (indexOf scan, O(n²))   122 µs  ±17.4%       1.24M       3.42×
-  └ Set-based (O(n))             35.7 µs  ±15.2%        347K     fastest
-
-✓ Measured 2 tasks · 8.60K samples in 1.42 s
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/bench-dark.png">
+  <img alt="ostia bench suite.ts: 2 tasks, fastest dedupe 2,000 at 21.6 µs, sort 2,000 at 123 µs, each with its noise and instructions per call" src="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/bench-light.png">
+</picture>
 
 **It tells you when a change made something slower.**
-Change the code, and `ostia ab` runs your suite against `HEAD`
-and the working tree in alternating batches in one process:
+Rewrite `dedupe` from a `Set` to `indexOf`,
+and `ostia ab` runs your suite against `HEAD` and the working tree in
+alternating batches in one process:
 
-```console
-$ ostia ab suite.ts
-fail · 1 regressed · geomean +76.2% · 1 unchanged
-HEAD 3945768 vs working tree · 15 rounds · thresholds 10%, geomean 1.5%
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/ab-dark.png">
+  <img alt="ostia ab suite.ts after dedupe moved from a Set to indexOf: fail, dedupe 2,000 regressed +207%, confirmed by repeats in fresh processes, sort 2,000 unchanged, ending with the command to profile it" src="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/ab-light.png">
+</picture>
 
-  task                       base  candidate  change   noise  instr  verdict
-  dedupe
-  ├ naive (indexOf scan…   131 µs     147 µs     ~0%  ±13.3%   0.0%
-  └ Set-based (O(n))      47.8 µs     141 µs   +201%  ±22.2%  +257%  regressed
-      repeats +166%, +289%
+While it runs, one line says where it is:
 
-✗ A/B fails: dedupe/Set-based (O(n)) regressed +201%
-  profile it: ostia bench suite.ts --cpu --filter 'dedupe/Set-based \(O\(n\)\)'
-```
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/progress-dark.png">
+  <img alt="ostia ab's progress line: a bar at task 2 of 2, ids/sort 2,000" src="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/progress-light.png">
+</picture>
 
 Exit 1 on a regression, so CI can gate on it.
+`ostia time` does the same for whole commands:
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/time-dark.png">
+  <img alt="ostia time on gzip -1 and gzip -9 of the same file: gzip -1 is 12.9 times faster, with each command's noise and user and system time" src="https://raw.githubusercontent.com/metonym/ostia/master/.github/assets/time-light.png">
+</picture>
 ostia has no dependencies and needs Bun ≥ 1.4.
 
 ## Quick start

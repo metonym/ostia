@@ -234,7 +234,7 @@ export function parseFlags<T extends object>(
     const eq = arg.startsWith("--") ? arg.indexOf("=") : -1;
     const name = eq > 0 ? arg.slice(0, eq) : arg;
     const flagDef = Object.hasOwn(flags, name) ? flags[name] : undefined;
-    if (!flagDef || (eq > 0 && flagDef.spec.kind === "bool")) {
+    if (!flagDef) {
       if (arg.startsWith("-") || !positional) {
         throw new CliUsageError(
           `Unknown flag "${arg}" for "ostia ${command}".`,
@@ -269,9 +269,18 @@ export function parseFlags<T extends object>(
         set(dest, n);
         break;
       }
-      case "bool":
-        set(dest, spec.value);
+      case "bool": {
+        // --flag=true and --flag=false, as a script that passes a variable
+        // writes them; false inverts, so --no-color=false turns color on.
+        const raw = eq > 0 ? arg.slice(eq + 1) : "true";
+        if (raw !== "true" && raw !== "false") {
+          throw new CliUsageError(
+            `Invalid ${name} "${raw}": expected true or false`,
+          );
+        }
+        set(dest, raw === "true" ? spec.value : !spec.value);
         break;
+      }
       case "list":
         listAt(args, dest).push(value());
         break;

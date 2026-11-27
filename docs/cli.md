@@ -79,6 +79,7 @@ ostia time [flags] -- <argv...>
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 
 ### Commands
 
@@ -196,21 +197,19 @@ The raw `.cpuprofile` / `.heapsnapshot` is written
 under `<out-dir>/artifacts/`.
 
 ```
-CPU capture - bun fixtures/work.ts (instrumented, 1000µs interval, diagnostic wall 300.558ms)
-  100.0%    292.61ms self  hashLoop
-    0.0%      0.00ms self  (root)
-    0.0%      0.00ms self  (module)
-  artifact: /tmp/ostia-hot/artifacts/run_0fe944c450b24bfc-cpu.cpuprofile
-```
+CPU profile bun fixtures/work.ts · 14 samples at 1.00 ms
+  function     self  share
+  hotInner  21.0 ms   100%
+  /tmp/ostia-hot/artifacts/run_6dbc7f8302eedc8c-cpu.cpuprofile
 
-```
-Heap snapshot - bun fixtures/allocate.ts (instrumented, 2516 objects, 117.19KiB)
-    1369  string
-     423  code
-     319  closure
-     216  object shape
-     105  hidden
-  artifact: /tmp/ostia-heap/artifacts/run_608f71a09a849cca-heap.heapsnapshot
+Heap snapshot bun fixtures/work.ts · 1.53K objects · 109 KiB
+  type          objects
+  code              430
+  string            344
+  closure           326
+  object shape      218
+  hidden            129
+  /tmp/ostia-hot/artifacts/run_6dbc7f8302eedc8c-heap.heapsnapshot
 ```
 
 Use `ostia report --format collapsed|mermaid|speedscope|cpuprofile` on
@@ -245,6 +244,7 @@ ostia bench [flags] <suite.ts...>
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 
 With no suite files, `ostia bench` uses the config's `bench` section
 (`suites` globs and the rest).
@@ -395,17 +395,16 @@ this slack, so read small differences with that in mind;
 `--peak-mem` is for calls that allocate megabytes.
 
 ```
-Task                 Median     Spread             Range              Retained/op Peak mem   Relative
------------------------------------------------------------------------------------------------------
-mem:
-  garbage 40MB       1.29 ms    1.38 ms…6.01 ms    1.17 ms…6.73 ms    39B         38.22MiB   4291943.33× slower
-    ! slow-first-run
-  retains 8KB/call   819.4 ns   1027.8 ns…20563.9 ns 493.1 ns…357930.6 ns 7.58KiB     48.00KiB   2731.39× slower
-  noop               0.30 ns    0.31 ns…0.42 ns    0.29 ns…5.40 ns    0B          0B         1.00×
+  task             median   noise  instr/call  retained/op  peak mem  vs fastest
+  mem
+  ├ garbage 40MB  3.10 ms  ±35.8%       18.1M        222 B  38.3 MiB      5.34M×
+  ├ retains…      1.93 µs  ±20.2%       9.24K     7.73 KiB       0 B      3.33K×
+  └ noop          0.58 ns   ±8.8%           7          0 B       0 B     fastest
 ```
 
 The first task allocates and drops a 40MB array per call:
-`Retained/op` sees nothing, `Peak mem` sees all of it.
+`retained/op` sees nothing, `peak mem` sees all of it.
+A name that would push a row past 80 columns is cut at a word.
 The second keeps 8KB per call alive, which both see.
 Byte counts print 1024-based (`B`, `KiB`, `MiB`) everywhere,
 heap snapshot summaries included.
@@ -464,11 +463,20 @@ Space-separated flags within one value are split and all passed.
 
 ### Table layout
 
-Grouped tasks print under their group name;
+The first line is the verdict: how many tasks, the fastest and its time,
+and how many warnings.
+A dim line under it names the machine and the suite.
+Grouped tasks print under their group's name, as a tree;
 ungrouped tasks and subprocess commands print flat.
-`Relative` compares each task with its group's `{ baseline: true }`
-task, or else the group's fastest task.
-`Instr/call` is the median number of instructions each call retired,
+`noise` is ± the median absolute deviation, as a percent of the median.
+`vs fastest` compares each task with its group's fastest task;
+when a group has a `{ baseline: true }` task,
+the column is `vs baseline` and compares with that.
+A warning prints in words under its row,
+with its fix where there is one; outliers print gray
+unless dropping them moves the median past the noise.
+The spread (p75…p99) and range stay in `--json` and `markdown`.
+`instr/call` is the median number of instructions each call retired,
 where the machine counts them (see `ostia ab`'s "Instructions"):
 unlike time, it barely moves on a loaded machine.
 
@@ -509,8 +517,9 @@ ostia ab [flags] <suite.ts...>
 | `--noise-budget MS` | Sample the noise floor for exactly `MS` at the start and at the end, with no early stop. |
 | `--export-json PATH` | Write the document to `PATH`. |
 | `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
-| `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal and `--quiet` isn't given. |
+| `--progress` / `--no-progress` | Print progress to stderr. Default: on when stderr is a terminal, the format is `table`, no coding agent runs it, and `--quiet` isn't given. |
 | `--quiet` | Don't print the report. |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 
 `ostia ab` answers "did my change make this slower?"
 on a machine too noisy for two runs minutes apart to agree.
@@ -533,19 +542,30 @@ ostia ab bench/*.ts --filter 'source map' --rounds 21
 ```
 
 ```
-A/B: working tree vs HEAD (26e7d0d) · 15 rounds · threshold 10% · geomean threshold 1.5%
+fail · 1 regressed · geomean +76.2% · 1 unchanged
+HEAD 26e7d0d vs working tree · 15 rounds · thresholds 10%, geomean 1.5%
 
-Task     Base       Candidate  Change    p25…p75            Instr    Verdict
-----------------------------------------------------------------------------
-g:
-  work   66.9 µs    143.0 µs   +113.0%   +104.8%…+123.6%    +100.1%  regressed, confirmed (repeats: +103.1%, +101.8%)
-  same   87.1 µs    87.9 µs    -2.2%     -5.1%…+3.2%        0.0%
+  task                       base  candidate  change   noise  instr  verdict
+  dedupe
+  ├ naive (indexOf scan…   131 µs     147 µs     ~0%  ±13.3%   0.0%
+  └ Set-based (O(n))      47.8 µs     141 µs   +201%  ±22.2%  +257%  regressed
+      repeats +166%, +289%
 
-Output differs from the base (1):
-  g/work
-
-Geomean +41.0% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
+✗ A/B fails: dedupe/Set-based (O(n)) regressed +201%
+  profile it: ostia bench suite.ts --cpu --filter 'dedupe/Set-based \(O\(n\)\)'
 ```
+
+The first line is the gate's verdict.
+`change` is the median of the per-round ratios,
+and `noise` their median absolute deviation;
+a change inside the noise reads `~0%`.
+Past 10×, a change prints as a multiple (`501×`).
+Color marks only what the gate judged: green improved, red regressed.
+A flagged task that a fresh process didn't confirm reads `regressed?`
+and stays out of the verdict.
+Repeats, a changed output, memory readings and warnings print under the
+task's row.
+The last line names what failed and the next step.
 
 **The base tree.**
 The ref's commit is extracted with `git archive` into `.ostia/ab/<sha>/`
@@ -813,23 +833,29 @@ A memory regression fails the run like a time regression.
 Task and group `alloc`/`peakMem` options apply under `ab` as
 under `bench`.
 A task that's not comparable gets no memory verdict.
-The Change column leaves out the percent when the base reading is under
-the floor: a percent of almost nothing means little.
+Each reading prints under its task's row,
+with its verdict when it moved past the threshold;
+a reading that moved less than 10% and wasn't judged isn't shown.
 
 ```
-Memory:
-Task         Reading     Base       Candidate  Change             Verdict
--------------------------------------------------------------------------
-dom:
-  paint      retained/op 0B         21B        +21B
-  paint      peak        14.03MiB   2.44MiB    -11.59MiB (-82.6%) improved
-  remember   retained/op 21B        7.88KiB    +7.86KiB           regressed
+  task           base  candidate  change   noise   instr  verdict
+  dom
+  ├ paint      574 µs    75.8 µs  -85.7%  ±39.7%  -87.2%  not comparable
+      retained/op 10 B → 8 B (-23.2%)
+      peak 7.73 MiB → 559 KiB (-92.9%)
+      the suite and its output both changed, so it isn't judged
+  └ remember  3.46 ns    1.88 µs    501×  ±38.1%    156×  regressed
+      repeats 433×, 336×
+      retained/op 22 B → 7.89 KiB (370×) regressed
 ```
 
 **Progress.**
 A run over many suites, with confirmations, can take many minutes.
 On a terminal, `ostia ab` shows one progress line on stderr,
-replaced as it goes and cleared before the report.
+a bar of how far it is, the step and the seconds,
+replaced as it goes and cleared before the report;
+`time`, `bench` and `ci` do the same.
+A coding agent and a format other than `table` get none.
 `--progress` turns it on anywhere else too, as one line per step,
 which is how a script or agent can tell a long run from a stuck one:
 
@@ -875,6 +901,7 @@ ostia compare <candidate.json> --baseline <base.json>
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
 | `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 
 Exactly two document paths are taken (one with `--baseline`);
 a third is a usage error.
@@ -979,6 +1006,7 @@ ostia report <document.json> [flags]
 | Flag | Meaning |
 |---|---|
 | `--format FORMAT` | See below (default: `table`). |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 | `--measurement ID` | Visualization formats only: render only this measurement (default: every CPU measurement). |
 | `--out-dir PATH` | Visualization formats only: write files here instead of stdout. |
 
@@ -1045,18 +1073,21 @@ ostia ci [flags]
 | `--export-json PATH` | Write the candidate document, with comparisons, to `PATH`. |
 | `--format FORMAT` | `table`, `concise`, `events`, `json`, `jsonl`, `markdown`; `--json` for `--format json`. |
 | `--quiet` | Don't print the report. |
+| `--color` / `--no-color` | Force color in the table on or off. Default: on when stdout is a terminal no coding agent reads, and `NO_COLOR` isn't set. |
 
 `ostia ci` loads the config ([config.md](config.md)),
 measures every workload, compares against `<baselineDir>/<name>.json`,
 and gates on the result.
 
 ```
-1 workloads
-0 cached
-1 executed
-1 passed  0 regressed
+pass · 2 unchanged · geomean -9.0%
+baseline main · 0 cached, 2 executed · threshold 5.0%
 
-Profile CI: ✓
+  task        base  candidate  change  verdict
+  startup  16.1 ms    15.4 ms   -4.5%
+  version  12.3 ms    10.7 ms  -13.3%
+
+✓ Profile CI passes · 2 workloads in 384 ms
 ```
 
 ### Workloads

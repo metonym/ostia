@@ -1,263 +1,670 @@
-export const TIME_HELP = `ostia time [flags] <command...>
-ostia time [flags] -- <argv...>
+import { processEnv } from "../config/env.ts";
+import {
+  createPaint,
+  MEASURE,
+  type Paint,
+  PLAIN,
+  SEPARATOR,
+  wantsColor,
+} from "../terminal.ts";
+import { TOOL_VERSION } from "../version.ts";
+import { agentVariable } from "./agent.ts";
 
-Time commands as subprocesses. Each <command> is whitespace-split into argv (no shell);
-everything after -- is one more command's argv, verbatim.
+// A status line, Usage, Commands, Options, Examples, then the agent
+// section, within 80 columns. Section heads are bold and defaults gray,
+// so a reader scans for the flag, not the fine print.
 
-Flags:
-  --samples N          exact trials per command (default: ~3s budget, at least 10)
-  --budget MS          sampling time budget per command
-  --min-samples N      floor on trials when --samples isn't given
-  --warmup N           discarded warmup trials (default: 3)
-  --no-interleave      run commands one after another instead of round-robin
-  --prepare CMD        run before every trial, unmeasured; once, or once per command
-  --shell SH           run each command, and --prepare, as SH -c CMD (sh, bash)
-  --save-output DIR    save each trial's output as DIR/<command>/trial-N.log
-  --show-output        pass each trial's output to stderr
-  --time-source REGEX  take each trial's time from capture group 1 in the command's output
-  --time-unit UNIT     unit of --time-source: ns | us | ms | s (default: ms); needs --time-source
-  --cpu                capture one extra CPU-profile trial
-  --heap               capture one extra heap-snapshot trial
-  --cpu-interval US    CPU sampling interval (default: 1000); needs --cpu
-  --timeout MS         kill a trial or --prepare hook after MS
-  --ignore-failure[=CODE,...]  treat these exit codes (bare: all) as success
-  --out-dir PATH       artifact directory (default: node_modules/.cache/ostia)
-  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
-  --noise-budget MS    sample the noise floor for exactly MS, start and end
-  --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
-                       concise under a coding agent; OSTIA_FORMAT sets another)
-  --json               same as --format json
-  --quiet              don't print the report
-  --help               show this message
+export type HelpTopic =
+  "main" | "time" | "bench" | "ab" | "compare" | "report" | "ci" | "baseline";
 
-A command stops at its first non-ignored non-zero exit.
-Exit codes: 0 ok, 2 a command failed or produced no samples (or a bad flag), 130 Ctrl-C.
+const NAME_WIDTH = 22;
+const DESCRIPTION_AT = 2 + NAME_WIDTH;
 
-Examples:
-  ostia time "bun a.ts" "bun b.ts"
-  ostia time --samples 25 --cpu --heap "bun src/server.ts"
-  ostia time --prepare "rm -rf dist" "bun build.ts"
-  ostia time --time-source "built in (\\d+)ms" "bun build.ts"
-  ostia time -- bun -e "console.log('a b')"
-`;
+// Words packed into lines of `width`, so a long description wraps
+// under itself instead of running ragged.
+function wrapped(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line !== "" && line.length + 1 + word.length > width) {
+      lines.push(line);
+      line = word;
+    } else line = line === "" ? word : `${line} ${word}`;
+  }
+  if (line !== "") lines.push(line);
+  return lines;
+}
 
-export const BENCH_HELP = `ostia bench [flags] <suite.ts...>
+// The default goes gray after the separator, so the eye finds the flag
+// first; a long description wraps under itself, so the columns
+// stay straight.
+function flag(p: Paint, name: string, does: string, preset?: string): string {
+  const room = MEASURE - DESCRIPTION_AT;
+  const lines = wrapped(does, room);
+  if (preset !== undefined) {
+    const last = lines.at(-1) ?? "";
+    const tail = `${SEPARATOR}${preset}`;
+    if (last.length + tail.length <= room) {
+      lines[lines.length - 1] = `${last}${p.dim(tail)}`;
+    } else lines.push(p.dim(`default ${preset}`));
+  }
+  const pad = " ".repeat(DESCRIPTION_AT);
+  const first =
+    // Two spaces at least between a name and its description, or the
+    // description starts on the next line.
+    name.length <= NAME_WIDTH - 2
+      ? `  ${name.padEnd(NAME_WIDTH)}${lines[0] ?? ""}`
+      : `  ${name}\n${pad}${lines[0] ?? ""}`;
+  return [first, ...lines.slice(1).map((line) => `${pad}${line}`)].join("\n");
+}
 
-Run in-process group()/task() suites, each file in its own child process. With no files,
-uses ostia.config's "bench" section; each flag overrides its config field.
+// Examples carry their intent as a comment, so a reader picks one by
+// what it's for.
+const example = (p: Paint, intent: string, command: string) =>
+  `  ${p.dim(`# ${intent}`)}\n  ${command}`;
 
-Flags:
-  --budget MS          sampling budget per task (default: 500)
-  --samples N          exact trials per task (ignores --budget)
-  --min-samples N      floor on trials (default: cost-aware, 3-20)
-  --jobs N|auto        suite files at once (default: 1; >1 adds noise)
-  --isolate            one process per task, not per file (--no-isolate to undo config)
-  --gc                 Bun.gc(true) between trials (--no-gc)
-  --cpu                extra per-task CPU profile with JIT tiers, ~2,000 samples (--no-cpu)
-  --cpu-interval US    CPU sampling interval (default: 100)
-  --alloc              extra per-task retained-heap-per-call measurement: what calls keep
-                       alive after a full GC, not what they allocate (--no-alloc)
-  --peak-mem           extra per-task RSS rise during the task's first call, garbage
-                       included; median of 3 fresh processes (--no-peak-mem)
-  --filter REGEX       only tasks whose "group/name" matches
-  --preload PATH       import before each suite file (repeatable, in order)
-  --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
-  --timeout MS         kill a suite (or isolated task) process after MS
-  --out-dir PATH       scratch directory (default: node_modules/.cache/ostia)
-  --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
-  --noise-budget MS    sample the noise floor for exactly MS, start and end
-  --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
-                       concise under a coding agent; OSTIA_FORMAT sets another)
-  --json               same as --format json
-  --quiet              don't print the report
-  --help               show this message
+const paragraph = (text: string) =>
+  wrapped(text, MEASURE - 2)
+    .map((line) => `  ${line}`)
+    .join("\n");
 
-Per-task/per-group options ({ budgetMs, minSamples, gc, isolate, cpu, alloc, peakMem }) override
-the suite-wide defaults. Exit codes: 0 ok, 2 a suite failed (or a bad flag), 130 Ctrl-C.
+const status = (p: Paint, name: string, tagline: string) =>
+  `${p.bold(name)}${p.dim(`${SEPARATOR}${tagline}`)}`;
 
-Examples:
-  ostia bench bench/*.ts
-  ostia bench bench/*.ts --filter parse --cpu --alloc
-  ostia bench --preload ./bench/dom-setup.ts --bun-flags="--conditions=browser" bench/*.ts
-`;
+const OUTPUT_FORMATS = "table, concise, events, json, jsonl or markdown";
 
-export const AB_HELP = `ostia ab [flags] <suite.ts...>
+function outputFlags(p: Paint, exported = "the document"): string[] {
+  return [
+    flag(
+      p,
+      "--format <name>",
+      OUTPUT_FORMATS,
+      "table; concise for a coding agent",
+    ),
+    flag(p, "--json", "same as --format json"),
+    flag(p, "--export-json <path>", `write ${exported} to a file`),
+    flag(p, "--quiet", "don't print the report"),
+    flag(p, "--color, --no-color", "force color on or off", "on in a terminal"),
+    flag(p, "-h, --help", "this help"),
+  ];
+}
 
-Pair every task on a git ref's committed tree (base) against the working tree (candidate), in
-one process, alternating ~10ms batches, and gate on the per-round time ratio. Drift between
-the two sides cancels within a round. Each suite runs twice, once with each side first, and
-the rounds are pooled. With no files, uses ostia.config's "bench" suites.
+const noiseFlags = (p: Paint, budget = true) => [
+  flag(p, "--no-noise-check", "skip the noise-floor checks, 50 to 75 ms"),
+  ...(budget
+    ? [flag(p, "--noise-budget <ms>", "sample the noise floor for exactly ms")]
+    : []),
+];
 
-Flags:
-  --base REF           git ref for the base side (default: HEAD)
-  --base-setup CMD     shell command run once in a freshly extracted base tree, e.g. to build
-                       gitignored files the suites import (repeatable, in order)
-  --rounds N           base/candidate rounds per task (default: 15)
-  --metric METRIC      judge each round's time or instructions ratio (default: time);
-                       instructions retired per call barely move on a loaded machine
-  --threshold PCT      flag a task whose median ratio moves past PCT (default: 10)
-  --geomean-threshold PCT  fail when the geometric mean of all ratios is slower than PCT
-                       (default: 1.5)
-  --confirm N          re-measure each flagged task in N fresh processes (default: 2; 0 skips)
-  --alloc              also compare retained heap per call on each side (--no-alloc)
-  --peak-mem           also compare each side's first-call RSS rise (--no-peak-mem); both
-                       run in 3 fresh processes per side, and the median counts
-  --mem-threshold PCT  flag a memory reading that moves past PCT of the base's and past
-                       its noise floor (default: 10)
-  --filter REGEX       only tasks whose "group/name" matches
-  --preload PATH       import before each suite file (repeatable, in order)
-  --bun-flags FLAGS    extra flags for the bun process running each suite (repeatable)
-  --timeout MS         kill a suite (or repeat) process after MS
-  --out-dir PATH       scratch directory (default: node_modules/.cache/ostia)
-  --keep-trees N       base trees to keep cached, least recently used go first (default: 5)
-  --clean              remove every cached base tree, then exit
-  --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
-  --noise-budget MS    sample the noise floor for exactly MS, start and end
-  --export-json PATH   write the ProfileDocument to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
-                       concise under a coding agent; OSTIA_FORMAT sets another)
-  --json               same as --format json
-  --progress           print progress to stderr (default: when stderr is a terminal and not
-                       --quiet); --no-progress turns it off
-  --quiet              don't print the report
-  --help               show this message
+const suiteFlags = (p: Paint, kill: string) => [
+  flag(p, "--filter <regex>", 'only tasks whose "group/name" matches'),
+  flag(p, "--preload <path>", "import before each suite file; repeatable"),
+  flag(p, "--bun-flags <flags>", "more flags for the bun running each suite"),
+  flag(p, "--timeout <ms>", `kill a ${kill} process after ms`),
+  flag(p, "--out-dir <path>", "scratch directory", "node_modules/.cache/ostia"),
+  flag(p, "--config <path>", "this config file", "ostia.config.ts or .json"),
+];
 
-The base tree is cached per commit (and --base-setup commands) under .ostia/ab. Setup runs
-with the project's node_modules linked in, and OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR (the
-working tree) set. Instructions per call are counted where the machine allows (macOS;
-Linux with perf_event_paranoid <= 2 and a hardware counter) and shown next to time. A
-flagged task counts only when every fresh-process repeat flags it the same way. A task that throws isn't timed; one that throws on the candidate side only fails
-the run. A task whose suite file and output both changed reads "not comparable" and stays
-out of the verdict. Exit codes: 0 pass, 1 a confirmed regression, a candidate-only throw,
-the geomean over its threshold or a memory regression, 2 nothing paired or a harness error (not a git repo,
-unknown ref, a failed setup or suite), 130 Ctrl-C.
+const section = (p: Paint, head: string, lines: readonly string[]) =>
+  `${p.bold(head)}\n${lines.join("\n")}`;
 
-Examples:
-  ostia ab bench/parse.bench.ts
-  ostia ab bench/*.ts --base origin/main --rounds 21
-  ostia ab bench/*.ts --filter parse --format events
-  ostia ab bench/*.ts --metric instructions --threshold 3
-  ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"
-  ostia ab bench/paint.bench.ts --alloc --peak-mem
-`;
+function main(p: Paint): string {
+  return [
+    `${p.bold("ostia")} ${TOOL_VERSION}${p.dim(`${SEPARATOR}profiling and benchmarking for Bun`)}`,
+    section(p, "Usage", ["  ostia <command> [options]"]),
+    section(p, "Commands", [
+      flag(p, "time <command...>", "time commands as subprocesses"),
+      flag(
+        p,
+        "bench <suite.ts...>",
+        "run in-process group() and task() suites",
+      ),
+      flag(p, "ab <suite.ts...>", "pair suites against a git ref, gate on it"),
+      flag(p, "compare <a> <b>", "compare two saved documents, gate on it"),
+      flag(p, "report <doc.json>", "render a saved document, or its profile"),
+      flag(p, "ci", "run the config's workloads against a baseline"),
+      flag(p, "baseline <sub>", "save, list or show baselines"),
+    ]),
+    section(p, "Options", [
+      flag(p, "-h, --help", "help; <command> --help for a command's"),
+      flag(p, "-v, --version", "the version"),
+    ]),
+    section(p, "Examples", [
+      example(
+        p,
+        "which of two commands is faster",
+        'ostia time "bun a.ts" "bun b.ts"',
+      ),
+      example(
+        p,
+        "a suite's tasks, with CPU profiles",
+        "ostia bench bench/*.ts --cpu",
+      ),
+      example(
+        p,
+        "the working tree against HEAD",
+        "ostia ab bench/parse.bench.ts",
+      ),
+    ]),
+    section(p, "For agents", [
+      paragraph(
+        "A coding agent gets --format concise: one line per task, then its warnings. --json prints the whole document; --format events, one JSON line per task. Exit 0 done, 1 regressed, 2 called wrong or failed to measure. The fields are in docs/agent-protocol.md.",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-export const COMPARE_HELP = `ostia compare <base.json> <candidate.json>
-ostia compare <candidate.json> --baseline <base.json>
+function time(p: Paint): string {
+  return [
+    status(p, "ostia time", "time commands as subprocesses"),
+    section(p, "Usage", [
+      "  ostia time [options] <command...>",
+      "  ostia time [options] -- <argv...>",
+      "",
+      paragraph(
+        "Each <command> is split on whitespace into argv, with no shell; everything after -- is one more command's argv, verbatim. A command stops at its first non-zero exit not ignored. Exit 0 done, 2 a command failed or produced no samples, or a bad flag, 130 Ctrl-C.",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(
+        p,
+        "--samples <n>",
+        "exact runs per command",
+        "about 3 s, at least 10",
+      ),
+      flag(p, "--budget <ms>", "sampling time per command"),
+      flag(
+        p,
+        "--min-samples <n>",
+        "the fewest runs, when --samples isn't given",
+      ),
+      flag(p, "--warmup <n>", "runs to discard first", "3"),
+      flag(p, "--no-interleave", "run commands one after another, not in turn"),
+      flag(
+        p,
+        "--prepare <cmd>",
+        "run before every run, unmeasured; once, or once per command",
+      ),
+      flag(p, "--shell <sh>", "run each command and --prepare as sh -c CMD"),
+      flag(
+        p,
+        "--save-output <dir>",
+        "save each run's output as dir/<command>/trial-N.log",
+      ),
+      flag(p, "--show-output", "pass each run's output to stderr"),
+      flag(
+        p,
+        "--time-source <regex>",
+        "take each run's time from capture group 1 of its output",
+      ),
+      flag(
+        p,
+        "--time-unit <unit>",
+        "unit of --time-source: ns, us, ms or s",
+        "ms",
+      ),
+      flag(p, "--cpu", "capture one more run's CPU profile"),
+      flag(p, "--heap", "capture one more run's heap snapshot"),
+      flag(
+        p,
+        "--cpu-interval <us>",
+        "CPU sampling interval; needs --cpu",
+        "1000",
+      ),
+      flag(p, "--timeout <ms>", "kill a run or a --prepare hook after ms"),
+      flag(
+        p,
+        "--ignore-failure[=<codes>]",
+        "treat these exit codes, comma-separated, as success; bare, every one",
+      ),
+      flag(
+        p,
+        "--out-dir <path>",
+        "artifact directory",
+        "node_modules/.cache/ostia",
+      ),
+      ...noiseFlags(p),
+      ...outputFlags(p),
+    ]),
+    section(p, "Examples", [
+      example(p, "which of two is faster", 'ostia time "bun a.ts" "bun b.ts"'),
+      example(
+        p,
+        "25 runs, with a CPU profile and a heap snapshot",
+        'ostia time --samples 25 --cpu --heap "bun src/server.ts"',
+      ),
+      example(
+        p,
+        "a cold build each run",
+        'ostia time --prepare "rm -rf dist" "bun build.ts"',
+      ),
+      example(
+        p,
+        "the time the build prints, not its wall time",
+        'ostia time --time-source "built in (\\d+)ms" "bun build.ts"',
+      ),
+      example(
+        p,
+        "an argv with spaces in it",
+        "ostia time -- bun -e \"console.log('a b')\"",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Compare two ProfileDocuments by workload id (or a task's former names, from its
-"aliases"). Gates on ostia.config's "thresholds" when present (the same ones "ostia ci"
-uses), else the defaults, widened by machine noise and drift. Tasks on only one side are
-listed under "Not compared"; with --format json, "compared" holds one row per task.
+function bench(p: Paint): string {
+  return [
+    status(p, "ostia bench", "run in-process group() and task() suites"),
+    section(p, "Usage", [
+      "  ostia bench [options] <suite.ts...>",
+      "",
+      paragraph(
+        "Each suite file runs in its own process. With no files, the config's \"bench\" section names them; each option overrides its config field, and a task's or group's own options override both. Exit 0 done, 2 a suite failed or a bad flag, 130 Ctrl-C.",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(p, "--budget <ms>", "sampling time per task", "500"),
+      flag(p, "--samples <n>", "exact samples per task; ignores --budget"),
+      flag(p, "--min-samples <n>", "the fewest samples", "by cost, 3 to 20"),
+      flag(
+        p,
+        "--jobs <n|auto>",
+        "suite files at once; more than 1 adds noise",
+        "1",
+      ),
+      flag(
+        p,
+        "--isolate",
+        "one process per task, not per file; --no-isolate undoes the config's",
+      ),
+      flag(p, "--gc", "Bun.gc(true) between samples; --no-gc"),
+      flag(
+        p,
+        "--cpu",
+        "one more pass per task for a CPU profile with JIT tiers, about 2,000 samples; --no-cpu",
+      ),
+      flag(p, "--cpu-interval <us>", "CPU sampling interval", "100"),
+      flag(
+        p,
+        "--alloc",
+        "heap each call keeps alive after a full GC, not what it allocates; --no-alloc",
+      ),
+      flag(
+        p,
+        "--peak-mem",
+        "RSS rise of the first call, garbage included, median of 3 processes; --no-peak-mem",
+      ),
+      ...suiteFlags(p, "suite (or isolated task)"),
+      ...noiseFlags(p),
+      ...outputFlags(p),
+    ]),
+    section(p, "Examples", [
+      example(p, "every suite", "ostia bench bench/*.ts"),
+      example(
+        p,
+        "the parse tasks, with CPU profiles and retained heap",
+        "ostia bench bench/*.ts --filter parse --cpu --alloc",
+      ),
+      example(
+        p,
+        "suites that need a DOM",
+        'ostia bench --preload ./dom.ts --bun-flags="--conditions=browser" bench/*.ts',
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Flags:
-  --baseline PATH      the base document, when only the candidate is positional
-  --config PATH        read thresholds from this config file instead of ostia.config.ts/.json
-  --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
-                       concise under a coding agent; OSTIA_FORMAT sets another)
-  --json               same as --format json
-  --quiet              don't print the report
-  --help               show this message
+function ab(p: Paint): string {
+  return [
+    status(p, "ostia ab", "pair suites against a git ref, gate on regressions"),
+    section(p, "Usage", [
+      "  ostia ab [options] <suite.ts...>",
+      "",
+      paragraph(
+        'Each task runs on a git ref\'s committed tree (base) and the working tree (candidate) in one process, in alternating batches of about 10 ms, so drift cancels within a round. Each suite runs twice, each side first once. With no files, the config\'s "bench" suites. A flagged task counts only when every fresh-process repeat flags it the same way. A task whose suite file and output both changed reads "not comparable" and stays out of the verdict.',
+      ),
+      "",
+      paragraph(
+        "The base tree is cached per commit and --base-setup under .ostia/ab, with the project's node_modules linked in; setup runs with OSTIA_AB_SHA and OSTIA_AB_CANDIDATE_DIR set. Instructions per call are counted where the machine allows (macOS; Linux with perf_event_paranoid at most 2).",
+      ),
+      "",
+      paragraph(
+        "Exit 0 pass; 1 a confirmed regression, a throw on the candidate only, the geomean over its threshold, or a memory regression; 2 nothing paired or a harness error (not a git repo, an unknown ref, a failed setup or suite); 130 Ctrl-C.",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(p, "--base <ref>", "the git ref for the base side", "HEAD"),
+      flag(
+        p,
+        "--base-setup <cmd>",
+        "a shell command run once in a new base tree, to build what its suites import; repeatable",
+      ),
+      flag(p, "--rounds <n>", "base and candidate rounds per task", "15"),
+      flag(
+        p,
+        "--metric <name>",
+        "judge each round's time or instructions; instructions barely move on a busy machine",
+        "time",
+      ),
+      flag(
+        p,
+        "--threshold <pct>",
+        "flag a task whose median ratio moves past pct",
+        "10",
+      ),
+      flag(
+        p,
+        "--geomean-threshold <pct>",
+        "fail when the geometric mean of all ratios is slower by pct",
+        "1.5",
+      ),
+      flag(
+        p,
+        "--confirm <n>",
+        "recheck a flagged task in n fresh processes; 0 skips",
+        "2",
+      ),
+      flag(p, "--alloc", "compare retained heap per call too; --no-alloc"),
+      flag(
+        p,
+        "--peak-mem",
+        "compare the first call's RSS rise too, median of 3 processes a side; --no-peak-mem",
+      ),
+      flag(
+        p,
+        "--mem-threshold <pct>",
+        "flag a memory reading that moves past pct and its noise floor",
+        "10",
+      ),
+      ...suiteFlags(p, "suite (or repeat)"),
+      flag(
+        p,
+        "--keep-trees <n>",
+        "base trees to keep cached, oldest out first",
+        "5",
+      ),
+      flag(p, "--clean", "remove every cached base tree, then exit"),
+      flag(
+        p,
+        "--progress",
+        "progress on stderr (--no-progress)",
+        "on in a terminal",
+      ),
+      ...noiseFlags(p),
+      ...outputFlags(p),
+    ]),
+    section(p, "Examples", [
+      example(
+        p,
+        "the working tree against HEAD",
+        "ostia ab bench/parse.bench.ts",
+      ),
+      example(
+        p,
+        "against main, with more rounds",
+        "ostia ab bench/*.ts --base origin/main --rounds 21",
+      ),
+      example(
+        p,
+        "a tight gate on a busy CI machine",
+        "ostia ab bench/*.ts --metric instructions --threshold 3",
+      ),
+      example(
+        p,
+        "a base that needs a build step",
+        'ostia ab bench/*.ts --base-setup "bun scripts/generate.ts"',
+      ),
+      example(
+        p,
+        "memory too",
+        "ostia ab bench/paint.bench.ts --alloc --peak-mem",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Exactly two document paths (one with --baseline); anything more is an error.
-Exit codes: 0 pass, 1 a workload regressed, 2 nothing matched or a harness error.
-`;
+function compare(p: Paint): string {
+  return [
+    status(
+      p,
+      "ostia compare",
+      "compare two saved documents, gate on regressions",
+    ),
+    section(p, "Usage", [
+      "  ostia compare [options] <base.json> <candidate.json>",
+      "  ostia compare [options] <candidate.json> --baseline <base.json>",
+      "",
+      paragraph(
+        'Tasks match by workload id, or by a task\'s former names from its "aliases". The gate uses the config\'s "thresholds", as ostia ci does, else the defaults, widened by machine noise and drift. Exit 0 pass, 1 a workload regressed, 2 nothing matched or a harness error.',
+      ),
+    ]),
+    section(p, "Options", [
+      flag(
+        p,
+        "--baseline <path>",
+        "the base document, when only the candidate is positional",
+      ),
+      flag(
+        p,
+        "--config <path>",
+        "read thresholds from this config file",
+        "ostia.config.ts or .json",
+      ),
+      ...outputFlags(p, "the candidate with its comparisons"),
+    ]),
+    section(p, "Examples", [
+      example(
+        p,
+        "a branch's run against main's",
+        "ostia compare main.json branch.json",
+      ),
+      example(
+        p,
+        "every row, for a script",
+        "ostia compare main.json branch.json --json",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-export const REPORT_HELP = `ostia report <document.json> [flags]
+function report(p: Paint): string {
+  return [
+    status(p, "ostia report", "render a saved document, or its profile"),
+    section(p, "Usage", [
+      "  ostia report <document.json> [options]",
+      "",
+      paragraph(
+        "Files, not a GUI: hand a visualization format to speedscope.app, flamegraph.pl or a Mermaid renderer.",
+      ),
+    ]),
+    section(p, "Formats", [
+      flag(p, "table", "the terminal report", "default"),
+      flag(p, "json", "the document, pretty"),
+      flag(p, "jsonl", "a metadata line, then one line per measurement"),
+      flag(p, "markdown", "a report for a pull request or an agent"),
+      flag(p, "concise", "one line per task, then its warnings; alias agent"),
+      flag(p, "events", "one JSON line per timing measurement; alias minimal"),
+      flag(p, "collapsed", 'folded stacks, "root;a;b 42", for flamegraph.pl'),
+      flag(p, "mermaid", "the call tree, the top 15 frames by total time"),
+      flag(p, "speedscope", "a sampled profile for speedscope.app"),
+      flag(
+        p,
+        "cpuprofile",
+        "the .cpuprofile as captured, inspector origins only",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(p, "--format <name>", "one of the formats above", "table"),
+      flag(
+        p,
+        "--measurement <id>",
+        "visualizations: this measurement only",
+        "every CPU one",
+      ),
+      flag(
+        p,
+        "--out-dir <path>",
+        "visualizations: write files here, not to stdout",
+      ),
+      flag(
+        p,
+        "--color, --no-color",
+        "force color on or off",
+        "on in a terminal",
+      ),
+      flag(p, "-h, --help", "this help"),
+    ]),
+    section(p, "Examples", [
+      example(p, "the table again", "ostia report doc.json"),
+      example(
+        p,
+        "for a pull request",
+        "ostia report doc.json --format markdown",
+      ),
+      example(
+        p,
+        "a flame graph",
+        "ostia report doc.json --format collapsed | flamegraph.pl > flame.svg",
+      ),
+      example(
+        p,
+        "files for speedscope.app",
+        "ostia report doc.json --format speedscope --out-dir viz",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Render a saved ProfileDocument. Files, not a GUI for the visualization formats -
-hand the output to speedscope.app, flamegraph.pl, or a Mermaid renderer.
+function ci(p: Paint): string {
+  return [
+    status(p, "ostia ci", "run the config's workloads against a baseline"),
+    section(p, "Usage", [
+      "  ostia ci [options]",
+      "",
+      paragraph(
+        "Runs the config's workloads, reusing a cached run whose declared inputs haven't changed, compares them with a saved baseline and gates on regressions. Exit 0 pass, 1 a regression, 2 a harness error (no config or baseline, a workload failed or produced no samples, or an onMissingBaseline \"fail\" mismatch), 130 Ctrl-C (the partial document is exported; nothing is compared or saved).",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(p, "--full", "ignore the cache"),
+      flag(
+        p,
+        "--baseline <name>",
+        "gate on this baseline",
+        'the config\'s "baseline", or main',
+      ),
+      flag(
+        p,
+        "--save-baseline",
+        "after a pass, save this run as the baseline; always measures fresh",
+      ),
+      flag(
+        p,
+        "--config <path>",
+        "this config file",
+        "ostia.config.ts or .json",
+      ),
+      ...noiseFlags(p, false),
+      ...outputFlags(p, "the candidate with its comparisons"),
+    ]),
+    section(p, "Examples", [
+      example(p, "gate a pull request", "ostia ci"),
+      example(
+        p,
+        "after a merge to main, move the baseline",
+        "ostia ci --save-baseline",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Formats:
-  table        terminal timing/CPU/heap/comparison text (default)
-  json         pretty JSON document
-  jsonl        one metadata line, then one line per measurement
-  markdown     agent- and human-readable report
-  concise      one line per task, then its warnings (alias: agent)
-  events       one compact JSON object per timing measurement, for scripts and CI
-               (alias: minimal)
-  collapsed    folded stacks: "root;a;b 42" - flamegraph.pl and most flame tooling
-  mermaid      call tree, top-15 frames by total time (never the whole profile)
-  speedscope   sampled profile JSON for speedscope.app
-  cpuprofile   verbatim .cpuprofile pass-through (cpu-prof/inspector origins only)
+function baseline(p: Paint): string {
+  return [
+    status(p, "ostia baseline", "save, list or show baselines"),
+    section(p, "Usage", [
+      "  ostia baseline <save|list|show> [args]",
+      "",
+      paragraph(
+        "The documents ostia ci gates against and ostia compare --baseline reads.",
+      ),
+    ]),
+    section(p, "Commands", [
+      flag(
+        p,
+        "save [name]",
+        'measure every configured workload, as ostia ci does, without comparing; write <baselineDir>/<name>.json, name the config\'s "baseline", or main',
+      ),
+      flag(p, "list", "saved baselines: name, created date, workload count"),
+      flag(
+        p,
+        "show <name>",
+        "render a saved baseline, as ostia report does, with its --format, --measurement and --out-dir",
+      ),
+    ]),
+    section(p, "Options", [
+      flag(
+        p,
+        "--config <path>",
+        "this config file",
+        "ostia.config.ts or .json",
+      ),
+      flag(p, "-h, --help", "this help"),
+    ]),
+    section(p, "Examples", [
+      example(p, "save the main baseline", "ostia baseline save"),
+      example(p, "a named one, for a branch", "ostia baseline save my-feature"),
+      example(p, "what's saved", "ostia baseline list"),
+      example(
+        p,
+        "a baseline, for a pull request",
+        "ostia baseline show main --format markdown",
+      ),
+    ]),
+  ].join("\n\n");
+}
 
-Flags:
-  --format FORMAT     one of the formats above (default: table)
-  --measurement <id>  visualization formats only: render only this measurement
-                       (default: every CPU measurement in the document)
-  --out-dir PATH      visualization formats only: write files here instead of stdout
-  --help              show this message
+const TOPICS: Record<HelpTopic, (p: Paint) => string> = {
+  main,
+  time,
+  bench,
+  ab,
+  compare,
+  report,
+  ci,
+  baseline,
+};
 
-Examples:
-  ostia report doc.json
-  ostia report doc.json --format markdown
-  ostia report doc.json --format speedscope --out-dir node_modules/.cache/ostia/viz
-  ostia report doc.json --format collapsed | flamegraph.pl > flame.svg
-`;
+export function helpText(topic: HelpTopic, paint: Paint): string {
+  return `${TOPICS[topic](paint)}\n`;
+}
 
-export const CI_HELP = `ostia ci [flags]
+// The forced color from argv, read before (or without) the rest parsing,
+// so help and a usage error honor --no-color.
+function forcedColor(argv: readonly string[]): boolean | undefined {
+  const end = argv.indexOf("--");
+  const own = end === -1 ? argv : argv.slice(0, end);
+  if (own.includes("--no-color")) return false;
+  return own.includes("--color") ? true : undefined;
+}
 
-Run ostia.config's workloads (reusing cached runs whose declared inputs are unchanged),
-compare against a saved baseline, and gate on regressions.
+// The flag, then the terminal, so help, output and errors agree.
+export async function paintFor(
+  fd: 1 | 2,
+  forced: boolean | undefined = forcedColor(process.argv),
+): Promise<Paint> {
+  // perf: imported lazily, since loading node:tty up front costs every
+  // invocation about 4 ms (median of 150 runs, before and after).
+  const { isatty } = await import("node:tty");
+  const env = processEnv();
+  return wantsColor(forced, isatty(fd), env, agentVariable(env) !== undefined)
+    ? createPaint()
+    : PLAIN;
+}
 
-Flags:
-  --full               ignore the cache
-  --baseline NAME      baseline to compare against (default: config "baseline", or "main")
-  --save-baseline      after a pass, save this run as the new baseline (always measures
-                       fresh: the cache is not used)
-  --config PATH        read this config file instead of ostia.config.ts/.json
-  --no-noise-check     skip the noise-floor checks (50 to 75 ms in all)
-  --export-json PATH   write the candidate document with comparisons to PATH
-  --format FORMAT      table | concise | events | json | jsonl | markdown (default: table,
-                       concise under a coding agent; OSTIA_FORMAT sets another)
-  --json               same as --format json
-  --quiet              don't print the report
-  --help               show this message
-
-Exit codes: 0 pass, 1 regression, 2 harness error (missing config/baseline, a workload
-failed or produced no samples, or an onMissingBaseline "fail" mismatch), 130 Ctrl-C (the
-partial document is exported; nothing is compared or saved).
-`;
-
-export const BASELINE_HELP = `ostia baseline <save|list|show> [args]
-
-Manage the baseline ProfileDocuments "ostia ci" gates against and "ostia compare --baseline"
-reads.
-
-Flags (every subcommand): --config PATH reads that config file instead of
-ostia.config.ts/.json.
-
-Subcommands:
-  save [name]              measure every configured workload (same code path as "ostia ci",
-                            no comparison) and write it to <baselineDir>/<name>.json
-                            (default name: config's "baseline" field, or "main")
-  list                     list saved baselines: name, created date, workload count
-                            (takes no arguments)
-  show <name> [flags]      render a saved baseline, like "ostia report" (same
-                            --format/--measurement/--out-dir flags)
-
-Examples:
-  ostia baseline save
-  ostia baseline save my-feature
-  ostia baseline list
-  ostia baseline show main
-  ostia baseline show main --format markdown
-`;
-
-export const MAIN_HELP = `ostia - profiling and benchmarking for Bun
-
-Commands:
-  time      Time commands N times and report timing/CPU/heap
-  bench     Run in-process benchmark suites (group()/task())
-  ab        Pair suites against a git ref in one process, gate on regressions
-  compare   Compare two ProfileDocuments
-  report    Render a saved ProfileDocument (table/json/markdown/collapsed/mermaid/speedscope/...)
-  ci        Run configured workloads against a baseline, gate on regressions
-  baseline  Manage baseline ProfileDocuments (save/list/show)
-
-Run "ostia <command> --help" for details, "ostia --version" for the version.
-`;
+export async function showHelp(
+  topic: HelpTopic,
+  requested: boolean,
+): Promise<0 | 2> {
+  await Bun.write(Bun.stdout, helpText(topic, await paintFor(1)));
+  return requested ? 0 : 2;
+}

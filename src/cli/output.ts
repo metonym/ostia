@@ -5,7 +5,11 @@ import {
   serializeDocument,
 } from "../ir/document.ts";
 import type { ProfileDocument } from "../ir/types.ts";
-import type { FormatName, RenderResult } from "../renderers/index.ts";
+import type {
+  FormatName,
+  RenderResult,
+  TableOptions,
+} from "../renderers/index.ts";
 import { renderers } from "../renderers/index.ts";
 import {
   MINIMAL_PROTOCOL_VERSION,
@@ -110,14 +114,6 @@ export async function writeCliError(
   );
 }
 
-export async function showHelp(
-  text: string,
-  requested: boolean,
-): Promise<0 | 2> {
-  await out(text);
-  return requested ? 0 : 2;
-}
-
 export async function writeRenderResult(
   result: RenderResult,
   outDir?: string,
@@ -165,16 +161,20 @@ export async function exportDocument(
 }
 
 // Shared tail of time/bench/ab/compare: `--export-json`, then the report
-// unless `--quiet`. `rendererOptions` reaches the renderer verbatim.
+// unless `--quiet`. `rendererOptions` reaches the event renderers
+// verbatim, `tableOptions` the table.
 export async function emitDocument(
   doc: ProfileDocument,
   args: OutputOptions,
   rendererOptions: MinimalRenderOptions = {},
+  tableOptions: TableOptions = {},
 ): Promise<void> {
   const jsonText = await exportDocument(doc, args);
   if (args.quiet) return;
   if (jsonText !== undefined) await out(jsonText);
-  else {
+  else if (args.format === "table") {
+    await writeRenderResult(await renderers.table.render(doc, tableOptions));
+  } else {
     await writeRenderResult(
       await renderers[args.format].render(doc, rendererOptions),
     );

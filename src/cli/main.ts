@@ -10,9 +10,8 @@ if (first === "--version" || first === "-v") {
   process.exit(0);
 }
 if (first === undefined || first === "--help" || first === "-h") {
-  const { MAIN_HELP } = await import("./help.ts");
-  await Bun.write(Bun.stdout, MAIN_HELP);
-  process.exit(first === undefined ? 2 : 0);
+  const { showHelp } = await import("./help.ts");
+  process.exit(await showHelp("main", first !== undefined));
 }
 const { main } = await import("./run.ts");
 process.exit(await main());

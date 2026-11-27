@@ -10,13 +10,9 @@ import {
 } from "../ab/index.ts";
 import { listBaselines, saveBaseline } from "../baseline/index.ts";
 import { bench, resolveBenchOptions } from "../bench/index.ts";
-import {
-  BaselineError,
-  BaselineNotFoundError,
-  renderCiReport,
-  runCi,
-} from "../ci/index.ts";
+import { BaselineError, BaselineNotFoundError, runCi } from "../ci/index.ts";
 import { compareDocuments, DEFAULT_THRESHOLDS } from "../compare/index.ts";
+import { nowMs, processEnv } from "../config/env.ts";
 import {
   baselinePath,
   CONFIG_FILES,
@@ -37,12 +33,27 @@ import type { AbSummary, ProfileDocument } from "../ir/types.ts";
 import { sideLabel } from "../measure/paired.ts";
 import { isHarnessFailure } from "../measure/timing.ts";
 import { formatGit, workloadLabel } from "../renderers/format.ts";
-import { type FormatName, renderers } from "../renderers/index.ts";
+import {
+  type FormatName,
+  renderers,
+  type TableOptions,
+} from "../renderers/index.ts";
 import type { MinimalProtocolContext } from "../renderers/minimal.ts";
 import type { TimeSource, TimeUnit } from "../spawn/index.ts";
-import { withDefaultFormat } from "./agent.ts";
+import {
+  createProgress,
+  type Paint,
+  PLAIN,
+  plural,
+  type Progress,
+  SILENT,
+  truncatePath,
+  truncateWords,
+} from "../terminal.ts";
+import { agentVariable, withDefaultFormat } from "./agent.ts";
 import {
   CliUsageError,
+  COLOR_FLAGS,
   CONFIG_FLAGS,
   type ConfigArgs,
   flag,
@@ -60,16 +71,7 @@ import {
   SUITE_FLAGS,
   VIZ_FORMATS,
 } from "./flags.ts";
-import {
-  AB_HELP,
-  BASELINE_HELP,
-  BENCH_HELP,
-  CI_HELP,
-  COMPARE_HELP,
-  MAIN_HELP,
-  REPORT_HELP,
-  TIME_HELP,
-} from "./help.ts";
+import { type HelpTopic, paintFor, showHelp } from "./help.ts";
 import {
   CliError,
   type CliErrorCode,
@@ -77,12 +79,52 @@ import {
   exportDocument,
   orFail,
   out,
-  showHelp,
   writeCliError,
   writeRenderResult,
 } from "./output.ts";
 
 const isHelpArg = (arg: string | undefined) => arg === "--help" || arg === "-h";
+
+interface Human {
+  paint: Paint;
+  progress: Progress;
+  startNs: number;
+}
+
+// Room for a progress step after its 20-cell bar and before its seconds,
+// so the line fits 80 columns.
+const PROGRESS_TEXT_WIDTH = 48;
+
+const stepText = (text: string) => truncateWords(text, PROGRESS_TEXT_WIDTH);
+
+const elapsedMsSince = (startNs: number) => (Bun.nanoseconds() - startNs) / 1e6;
+
+// Color and the progress line only for the table on a terminal no coding
+// agent reads, since every other format is read by a program.
+async function humanFor(args: {
+  format: FormatName;
+  quiet: boolean;
+  color?: boolean;
+}): Promise<Human> {
+  const startNs = Bun.nanoseconds();
+  if (args.format !== "table") {
+    return { paint: PLAIN, progress: SILENT, startNs };
+  }
+  const { isatty } = await import("node:tty");
+  const shown =
+    !args.quiet && isatty(2) && agentVariable(processEnv()) === undefined;
+  return {
+    paint: await paintFor(1, args.color),
+    progress: shown
+      ? createProgress(
+          (text) => writeSync(2, text),
+          await paintFor(2, args.color),
+          nowMs,
+        )
+      : SILENT,
+    startNs,
+  };
+}
 
 // Runs `run` with SIGINT wired to its `AbortSignal`, so Ctrl-C cancels
 // cleanly with partial results.
@@ -224,7 +266,7 @@ async function timeCommand(argv: string[]): Promise<number> {
     ...(parsed.argvCommand.length > 0 ? [parsed.argvCommand] : []),
   ];
   if (parsed.help || commandList.length === 0) {
-    return showHelp(TIME_HELP, parsed.help);
+    return showHelp("time", parsed.help);
   }
 
   if (
@@ -273,11 +315,19 @@ async function timeCommand(argv: string[]): Promise<number> {
     }),
   }));
 
+  const human = await humanFor(parsed);
   const { result: doc, aborted } = await withSigintAbort(
     "Run failed",
     (signal) =>
       time({
         commands,
+        ...(human.progress !== SILENT && {
+          onProgress: (p) =>
+            human.progress.step(
+              stepText(`time ${p.command} of ${p.commands} · ${p.label}`),
+              p.doneRatio,
+            ),
+        }),
         ...definedFields({
           timeSource,
           samples: parsed.samples,
@@ -298,10 +348,15 @@ async function timeCommand(argv: string[]): Promise<number> {
           showOutput: parsed.showOutput,
         }),
         signal,
-      }),
+      }).finally(() => human.progress.clear()),
   );
 
-  await emitDocument(doc, parsed);
+  await emitDocument(
+    doc,
+    parsed,
+    {},
+    { paint: human.paint, elapsedMs: elapsedMsSince(human.startNs) },
+  );
   if (aborted) return 130;
 
   // A failing command is exit 2 (couldn't measure), not 1, because 1 is
@@ -386,21 +441,55 @@ function parseBenchArgs(argv: string[]): BenchArgs {
   });
 }
 
+// One suite names itself and several are counted, so the context stays
+// one line.
+function suitesRun(suites: readonly string[]): string {
+  const [only] = suites;
+  return suites.length === 1 && only !== undefined
+    ? truncatePath(only, 40)
+    : plural(suites.length, "suite");
+}
+
 async function benchCommand(argv: string[]): Promise<number> {
   const parsed = parseBenchArgs(argv);
-  if (parsed.help) return showHelp(BENCH_HELP, true);
+  if (parsed.help) return showHelp("bench", true);
 
   const config = await loadProjectConfig(parsed.config);
   const resolved = await resolveBenchOptions(parsed, config?.bench);
 
-  if (resolved.suites.length === 0) return showHelp(BENCH_HELP, false);
+  if (resolved.suites.length === 0) return showHelp("bench", false);
 
+  const human = await humanFor(parsed);
   const { result: doc, aborted } = await withSigintAbort(
     "Bench failed",
-    (signal) => bench({ ...resolved, signal }),
+    (signal) =>
+      bench({
+        ...resolved,
+        signal,
+        ...(human.progress !== SILENT && {
+          onProgress: (p) =>
+            human.progress.step(
+              stepText(
+                p.suites > 1
+                  ? `bench ${p.file} · ${p.task} of ${p.tasks} · ${p.label}`
+                  : `bench ${p.task} of ${p.tasks} · ${p.label}`,
+              ),
+              (p.suite - 1 + (p.task - 1) / p.tasks) / p.suites,
+            ),
+        }),
+      }).finally(() => human.progress.clear()),
   );
 
-  await emitDocument(doc, parsed);
+  await emitDocument(
+    doc,
+    parsed,
+    {},
+    {
+      paint: human.paint,
+      ran: suitesRun(resolved.suites),
+      elapsedMs: elapsedMsSince(human.startNs),
+    },
+  );
   return aborted ? 130 : 0;
 }
 
@@ -484,6 +573,50 @@ function progressWriter(tty: boolean): {
   };
 }
 
+// The shared progress line: the step, and how far through every suite's
+// two passes. Confirming and memory runs come after the passes, so they
+// keep the bar where the passes left it.
+function abProgressLine(line: Progress): {
+  onProgress: (p: AbProgress) => void;
+  done: () => void;
+} {
+  let doneRatio = 0;
+  return {
+    onProgress: (p) => {
+      switch (p.phase) {
+        case "setup":
+          line.step(stepText(`ab base setup · ${p.command}`), 0);
+          return;
+        case "measure": {
+          doneRatio =
+            ((p.suite - 1) * p.passes + p.pass - 1 + (p.task - 1) / p.tasks) /
+            (p.suites * p.passes);
+          const suite = p.suites > 1 ? `${p.file} · ` : "";
+          line.step(
+            stepText(`ab ${suite}${p.task} of ${p.tasks} · ${p.label}`),
+            doneRatio,
+          );
+          return;
+        }
+        case "confirm":
+          line.step(
+            stepText(`ab confirming ${p.repeat} of ${p.repeats} · ${p.label}`),
+            doneRatio,
+          );
+          return;
+        case "memory":
+          line.step(
+            stepText(
+              `ab memory ${p.run} of ${p.runs} · ${sideLabel(p.side)} · ${p.label}`,
+            ),
+            doneRatio,
+          );
+      }
+    },
+    done: () => line.clear(),
+  };
+}
+
 function parseAbArgs(argv: string[]): AbArgs {
   const args: AbArgs = {
     ...RUN_DEFAULTS,
@@ -503,7 +636,7 @@ function parseAbArgs(argv: string[]): AbArgs {
 
 async function abCommand(argv: string[]): Promise<number> {
   const parsed = parseAbArgs(argv);
-  if (parsed.help) return showHelp(AB_HELP, true);
+  if (parsed.help) return showHelp("ab", true);
 
   const config = await loadProjectConfig(parsed.config);
   if (parsed.clean) {
@@ -528,14 +661,20 @@ async function abCommand(argv: string[]): Promise<number> {
     noiseCheck,
     noiseBudgetMs,
   } = await resolveBenchOptions(parsed, config?.bench);
-  if (suites.length === 0) return showHelp(AB_HELP, false);
+  if (suites.length === 0) return showHelp("ab", false);
 
+  const human = await humanFor(parsed);
   const { isatty } = await import("node:tty");
-  const tty = isatty(2);
+  // The redrawn line where a person watches; the plain lines only when
+  // asked for, as for a log.
   const progress =
-    (parsed.progress ?? (tty && !parsed.quiet))
-      ? progressWriter(tty)
-      : undefined;
+    parsed.progress === false
+      ? undefined
+      : human.progress !== SILENT
+        ? abProgressLine(human.progress)
+        : parsed.progress
+          ? progressWriter(isatty(2))
+          : undefined;
 
   const { result: doc, aborted } = await withSigintAbort(
     "A/B run failed",
@@ -602,17 +741,26 @@ async function abCommand(argv: string[]): Promise<number> {
   const byId = new Map(doc.workloads.map((w) => [w.id, w]));
   const workloadsFor = (ids: string[] = []) =>
     ids.flatMap((id) => byId.get(id) ?? []);
-  await emitDocument(doc, parsed, {
-    protocol: {
-      command: "ab",
-      exitCode,
-      unmatched: {
-        baseOnly: workloadsFor(doc.unmatched?.baseOnly),
-        candOnly: workloadsFor(doc.unmatched?.candOnly),
-      },
-      ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
-    } satisfies MinimalProtocolContext,
-  });
+  await emitDocument(
+    doc,
+    parsed,
+    {
+      protocol: {
+        command: "ab",
+        exitCode,
+        unmatched: {
+          baseOnly: workloadsFor(doc.unmatched?.baseOnly),
+          candOnly: workloadsFor(doc.unmatched?.candOnly),
+        },
+        ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
+      } satisfies MinimalProtocolContext,
+    },
+    {
+      paint: human.paint,
+      ran: suitesRun(suites),
+      elapsedMs: elapsedMsSince(human.startNs),
+    },
+  );
   if (exitCode === 2) {
     const allNew = summary.newSuites?.length === suites.length;
     await writeCliError(
@@ -648,7 +796,7 @@ function parseCompareArgs(argv: string[]): CompareArgs {
 
 async function compareCommand(argv: string[]): Promise<number> {
   const parsed = parseCompareArgs(argv);
-  if (parsed.help) return showHelp(COMPARE_HELP, true);
+  if (parsed.help) return showHelp("compare", true);
 
   const maxPaths = parsed.baseline ? 1 : 2;
   if (parsed.paths.length > maxPaths) {
@@ -661,7 +809,7 @@ async function compareCommand(argv: string[]): Promise<number> {
   const [basePath, candPath] = parsed.baseline
     ? [parsed.baseline, parsed.paths[0]]
     : parsed.paths;
-  if (!basePath || !candPath) return showHelp(COMPARE_HELP, false);
+  if (!basePath || !candPath) return showHelp("compare", false);
 
   const [base, cand] = await orFail(
     "document-load-failed",
@@ -686,31 +834,41 @@ async function compareCommand(argv: string[]): Promise<number> {
     compared: result.compared,
   };
 
-  // json/jsonl/minimal stay pure JSON on stdout, so only the human formats
-  // get prose banners.
-  const humanFormat =
-    !parsed.quiet &&
-    (parsed.format === "table" || parsed.format === "markdown");
-  if (humanFormat) {
+  // json/jsonl/minimal stay pure JSON on stdout, so only markdown gets
+  // prose banners; the table puts the same facts in its context line.
+  if (!parsed.quiet && parsed.format === "markdown") {
     await out(`thresholds: ${thresholdsSource}\n`);
     if (base.git && cand.git) {
       await out(`base ${formatGit(base.git)} → cand ${formatGit(cand.git)}\n`);
     }
   }
+  const human = await humanFor(parsed);
 
   // Computed before rendering because `minimal`'s trailing `summary` event
   // carries it.
   const exitCode = gateExitCode(result.summary);
 
-  await emitDocument(outDoc, parsed, {
-    protocol: {
-      command: "compare",
-      exitCode,
-      unmatched: result.unmatched,
-      ...definedFields({ baseGit: base.git, candGit: cand.git }),
-      ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
-    } satisfies MinimalProtocolContext,
-  });
+  await emitDocument(
+    outDoc,
+    parsed,
+    {
+      protocol: {
+        command: "compare",
+        exitCode,
+        unmatched: result.unmatched,
+        ...definedFields({ baseGit: base.git, candGit: cand.git }),
+        ...(parsed.exportJson && { exportedTo: parsed.exportJson }),
+      } satisfies MinimalProtocolContext,
+    },
+    {
+      paint: human.paint,
+      compare: {
+        thresholds: thresholdsSource ?? "the config",
+        baseGit: base.git,
+        candGit: cand.git,
+      },
+    },
+  );
 
   if (result.summary.matched === 0) {
     await writeCliError(
@@ -728,10 +886,12 @@ interface ReportArgs extends ConfigArgs {
   measurementId?: string;
   outDir?: string;
   help: boolean;
+  color?: boolean;
 }
 
 const REPORT_FLAGS = {
   ...HELP_FLAGS,
+  ...COLOR_FLAGS,
   "--format": flag.oneOf("format", REPORT_FORMATS, FORMAT_ALIASES),
   "--measurement": flag.str("measurementId"),
   "--out-dir": flag.str("outDir"),
@@ -759,7 +919,7 @@ const NO_CPU_EVIDENCE =
 
 async function renderReport(
   path: string,
-  { format, measurementId, outDir }: ReportArgs,
+  { format, measurementId, outDir, color }: ReportArgs,
 ): Promise<number> {
   const viz = VIZ_FORMATS.some((f) => f === format);
   const inapplicable = [
@@ -786,10 +946,12 @@ async function renderReport(
     throw new CliError("no-cpu-evidence", NO_CPU_EVIDENCE);
   }
 
-  const result = await renderers[format].render(
-    doc,
-    definedFields({ measurementId }),
-  );
+  const result =
+    format === "table"
+      ? await renderers.table.render(doc, {
+          paint: await paintFor(1, color),
+        })
+      : await renderers[format].render(doc, definedFields({ measurementId }));
   if (!result.text && (!result.files || result.files.length === 0)) {
     throw new CliError(
       "no-cpu-evidence",
@@ -804,7 +966,7 @@ async function renderReport(
 
 async function reportCommand(argv: string[]): Promise<number> {
   const parsed = parseReportArgs(argv);
-  if (parsed.help || !parsed.path) return showHelp(REPORT_HELP, parsed.help);
+  if (parsed.help || !parsed.path) return showHelp("report", parsed.help);
   return renderReport(parsed.path, parsed);
 }
 
@@ -844,7 +1006,7 @@ function ciFailure(err: unknown): never {
 
 async function ciCommand(argv: string[]): Promise<number> {
   const parsed = parseCiArgs(argv);
-  if (parsed.help) return showHelp(CI_HELP, true);
+  if (parsed.help) return showHelp("ci", true);
 
   const loaded = await requireConfig("ostia ci", parsed.config);
   const config: OstiaConfig = parsed.noiseCheck
@@ -853,6 +1015,7 @@ async function ciCommand(argv: string[]): Promise<number> {
 
   // A saved baseline must be fresh measurements, never a cached run.
   const full = parsed.full || parsed.saveBaseline;
+  const human = await humanFor(parsed);
   const { result: outcome, aborted } = await withSigintAbort(
     "CI run failed",
     (signal) =>
@@ -861,12 +1024,18 @@ async function ciCommand(argv: string[]): Promise<number> {
         full,
         ...definedFields({ baselineName: parsed.baseline }),
         signal,
-      }).catch(ciFailure),
+        ...(human.progress !== SILENT && {
+          onProgress: (step: string, doneRatio: number) =>
+            human.progress.step(stepText(step), doneRatio),
+        }),
+      })
+        .catch(ciFailure)
+        .finally(() => human.progress.clear()),
   );
   const { document, summary } = outcome;
   if (aborted) {
     // Partial: no comparison, no gate, never a baseline.
-    await emitDocument(document, parsed);
+    await emitDocument(document, parsed, {}, { paint: human.paint });
     return 130;
   }
   const baselineName = parsed.baseline ?? config.baseline;
@@ -897,10 +1066,23 @@ async function ciCommand(argv: string[]): Promise<number> {
   if (jsonText !== undefined) {
     await out(jsonText);
   } else if (parsed.format === "table") {
-    await out(renderCiReport(summary));
-    if (document.comparisons && document.comparisons.length > 0) {
-      await writeRenderResult(await renderers.table.render(document, {}));
-    }
+    const ci: NonNullable<TableOptions["ci"]> = {
+      baseline: baselineName,
+      workloads: summary.total,
+      cached: summary.cached,
+      executed: summary.executed,
+      failed: summary.results
+        .filter((r) => r.harnessFailed)
+        .map((r) => workloadLabel(r.workload)),
+      missingBaseline: summary.missingBaseline,
+    };
+    await writeRenderResult(
+      await renderers.table.render(document, {
+        paint: human.paint,
+        elapsedMs: elapsedMsSince(human.startNs),
+        ci,
+      }),
+    );
   } else if (parsed.format === "markdown") {
     await out(
       `## ostia ci\n\nBaseline: \`${baselineName}\` (\`${baselineFile}\`) · ${summary.cached} cached, ${summary.executed} executed\n\n`,
@@ -994,7 +1176,7 @@ async function baselineSaveCommand(argv: string[]): Promise<number> {
     help,
     config: configPath,
   } = parseBaselineArgs(argv, "baseline save", true);
-  if (help) return showHelp(BASELINE_HELP, true);
+  if (help) return showHelp("baseline", true);
   if (name !== undefined) assertBaselineName(name);
 
   const config = await requireConfig("ostia baseline save", configPath);
@@ -1008,7 +1190,7 @@ async function baselineListCommand(argv: string[]): Promise<number> {
     "baseline list",
     false,
   );
-  if (help) return showHelp(BASELINE_HELP, true);
+  if (help) return showHelp("baseline", true);
 
   const config = await requireConfig(undefined, configPath);
   const infos = await listBaselines(config);
@@ -1027,7 +1209,7 @@ async function baselineListCommand(argv: string[]): Promise<number> {
 
 async function baselineShowCommand(argv: string[]): Promise<number> {
   const [name, ...rest] = argv;
-  if (!name || isHelpArg(name)) return showHelp(BASELINE_HELP, !!name);
+  if (!name || isHelpArg(name)) return showHelp("baseline", !!name);
   assertBaselineName(name);
 
   const parsed = parseFlags<ReportArgs>(rest, {
@@ -1040,7 +1222,7 @@ async function baselineShowCommand(argv: string[]): Promise<number> {
       );
     },
   });
-  if (parsed.help) return showHelp(REPORT_HELP, true);
+  if (parsed.help) return showHelp("report", true);
 
   const config = await requireConfig(undefined, parsed.config);
   const path = baselinePath(config, name);
@@ -1058,7 +1240,7 @@ async function dispatchSubcommand(
   sub: string | undefined,
   rest: string[],
   handlers: Record<string, Handler>,
-  help: string,
+  help: HelpTopic,
   unknownMessage: (sub: string) => string,
   commandPrefix = "",
 ): Promise<number> {
@@ -1098,7 +1280,7 @@ function baselineCommand(argv: string[]): Promise<number> {
       list: baselineListCommand,
       show: baselineShowCommand,
     },
-    BASELINE_HELP,
+    "baseline",
     (s) => `Unknown "ostia baseline ${s}". Run "ostia baseline --help".`,
     "baseline ",
   );
@@ -1128,7 +1310,7 @@ export async function main(): Promise<number> {
       ci: ciCommand,
       baseline: baselineCommand,
     },
-    MAIN_HELP,
+    "main",
     (s) => `Unknown subcommand "${s}". Run "ostia --help".`,
   );
 }

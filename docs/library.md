@@ -14,9 +14,10 @@ import {
 import type {
   ProfileDocument, Workload, Comparison, Warning, WarningCode, CompareResult, Thresholds,
   TaskOptions, GroupOptions, RunOptions, OstiaConfig, OstiaConfigInput, WorkloadConfig,
-  TimeOptions, CommandSpec, PrepareHook, PrepareFn, PrepareRun, TimeSource, TimeUnit,
-  BenchOptions, AbOptions, ProfileOptions, ProfileResult,
+  TimeOptions, TimeProgress, CommandSpec, PrepareHook, PrepareFn, PrepareRun, TimeSource, TimeUnit,
+  BenchOptions, BenchProgress, AbOptions, ProfileOptions, ProfileResult,
   MinimalEvent, MinimalRenderOptions, MinimalProtocolContext, MermaidOptions, VizOptions,
+  TableOptions,
 } from "ostia"
 ```
 
@@ -44,6 +45,7 @@ const doc = await time({
   timeoutMs: 30_000,            // no default
   ignoreExitCodes: [1],
   signal: controller.signal,
+  onProgress: (p) => console.error(p), // { command, commands, label, runs, doneRatio }
 })
 ```
 
@@ -157,6 +159,8 @@ Each call keeps its scratch files in a directory of its own under
 `outDir`, so concurrent calls can share one.
 It also takes a `signal`: aborting kills in-flight suite processes
 and resolves with the suites and tasks that had finished.
+`onProgress` is called before each task is measured,
+with `{ suite, suites, file, task, tasks, label }`.
 
 ### `TaskOptions`
 
@@ -164,7 +168,7 @@ and resolves with the suites and tasks that had finished.
 |---|---|
 | `budgetMs`, `samples`, `minSamples` | Override the suite-wide sampling settings for this task. |
 | `isolate`, `gc`, `cpu`, `alloc`, `peakMem` | Override the suite-wide flag (and the group's) for this task. |
-| `baseline` | This task is the group's Relative reference (default: the group's fastest). |
+| `baseline` | This task is the group's reference for the table's `vs baseline` column (default: the group's fastest). |
 | `description` | Stored as `Workload.description` and shown in `events` output. |
 | `aliases` | Former names of the task in the same group. `compare`, `ci` and `ab` match a base measured under any of them, so a rename still compares. |
 | `params` | Structured parameters; part of the workload id. Merged over the current `sweep()` point. |
@@ -385,13 +389,18 @@ Each renderer's options are typed per format:
 (`VizOptions` plus `topN?`), `events`
 and `minimal` take `MinimalRenderOptions`
 (`{ protocol? }`, a `MinimalProtocolContext`, to emit the `unmatched`
-and `summary` events), and the rest take no options (pass `{}`).
+and `summary` events), `table` takes `TableOptions`
+(`{ paint?, ran?, elapsedMs?, compare?, ci? }`: color, the context line
+and the closing line, all optional, plain when absent),
+and the rest take no options (pass `{}`).
 
 The `table` and `markdown` renderers agree on grouping
 (a task's `group`, else the part of its id before the last `/`),
 on percent deltas
-(`+3.2%`, `-1.5%`, and `0.0%` with no sign when a delta rounds to zero),
-on byte counts (1024-based `B`/`KiB`/`MiB`),
+(`+3.2%`, `-1.5%`, and `0.0%` with no sign when a delta rounds to zero;
+the table prints one past +900% as a multiple),
+on byte counts
+(1024-based `B`/`KiB`/`MiB`; the table puts a space before the unit),
 and on naming a comparison or capture whose workload is missing from the
 document by its raw id.
 

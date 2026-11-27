@@ -55,6 +55,8 @@ export interface RunnerOpts extends MeasureTasksOpts {
    * Scripts imported, in order, before the suite file, in this same process
    * (so globals or `Bun.plugin()` loaders they install reach the suite). */
   preload?: string[];
+  /** Send a `TaskProgress` message over IPC before each task. */
+  progress?: boolean;
 }
 
 // The parent serializes a `RunnerOpts`; only that it's an object
@@ -154,7 +156,12 @@ async function main(): Promise<number> {
     ? tasks
     : tasks.filter((t) => !taskIsolate(t, opts.isolate ?? false));
 
-  const doc = await measureTasks(suiteFile, toRun, opts);
+  const doc = await measureTasks(
+    suiteFile,
+    toRun,
+    opts,
+    opts.progress ? (progress) => process.send?.(progress) : undefined,
+  );
   await saveDocument(doc, outputPath);
   return 0;
 }

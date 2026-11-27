@@ -15,6 +15,7 @@ import { stampDrift } from "../measure/environment.ts";
 import type { PeakMemResult } from "../measure/peak.ts";
 import { assertSamplingOptions } from "../measure/timing.ts";
 import { type SuiteLaunch, suiteLauncher } from "./projects.ts";
+import type { TaskProgress } from "./run-tasks.ts";
 import type { RunnerOpts } from "./runner.ts";
 import {
   absolutePath,
@@ -106,6 +107,20 @@ export interface BenchOptions {
    * `aborted` warning on the last measurement. A suite killed mid-run is
    * dropped entirely: it only writes its result once, at the end. */
   signal?: AbortSignal;
+  /** Called before each task is measured, for a progress line. */
+  onProgress?: (progress: BenchProgress) => void;
+}
+
+/** What `bench()` is doing, for `onProgress`. Counts start at 1. */
+export interface BenchProgress {
+  suite: number;
+  suites: number;
+  /** The suite file, as given. */
+  file: string;
+  /** The task, among the ones its process measures. */
+  task: number;
+  tasks: number;
+  label: string;
 }
 
 const RUNNER_PATH = new URL("./runner.ts", import.meta.url).pathname;
@@ -301,6 +316,8 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
     noiseCheck: false,
   };
   const filter = opts.filter !== undefined && { filter: opts.filter };
+  const onProgress = opts.onProgress;
+  const progress = onProgress !== undefined && { progress: true };
 
   const outPath = (tag: string, suite: Suite, ...rest: unknown[]) =>
     `${tmpDir}/${fp(tag, suite.path, ...rest)}.json`;
@@ -338,6 +355,15 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
               timeoutMs: opts.timeoutMs,
               signal: opts.signal,
               inFlight,
+              ...(job.runnerOpts.progress && {
+                ipc: (message: TaskProgress) =>
+                  onProgress?.({
+                    suite: suites.indexOf(job.suite) + 1,
+                    suites: suites.length,
+                    file: job.suite.given,
+                    ...message,
+                  }),
+              }),
             },
           );
           if (!ran) return;
@@ -371,6 +397,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
           ...measureOpts,
           ...filter,
           ...(opts.isolate !== undefined && { isolate: opts.isolate }),
+          ...progress,
           preload: p.suite.preload,
           planPath: p.planPath,
         },
@@ -414,6 +441,7 @@ export async function bench(opts: BenchOptions): Promise<ProfileDocument> {
         runnerOpts: {
           ...measureOpts,
           workloadIds: [item.task.workloadId],
+          ...progress,
           preload: item.suite.preload,
           markIsolated: true,
         },

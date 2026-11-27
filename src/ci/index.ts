@@ -1,4 +1,8 @@
-import { bench, resolveBenchOptions } from "../bench/index.ts";
+import {
+  bench,
+  type BenchProgress,
+  resolveBenchOptions,
+} from "../bench/index.ts";
 import { captureRunEnvironment } from "../bench/support.ts";
 import { computeCacheKey, computeInputsDigest } from "../cache/fingerprint.ts";
 import { readCachedRun, writeCachedRun } from "../cache/store.ts";
@@ -27,7 +31,6 @@ import type {
 } from "../ir/types.ts";
 import { stampDrift } from "../measure/environment.ts";
 import { isHarnessFailure, runTimingPhase } from "../measure/timing.ts";
-import { formatSignedPct, workloadLabel } from "../renderers/format.ts";
 import { abortedWarning } from "../time.ts";
 import { TOOL_VERSION } from "../version.ts";
 
@@ -42,7 +45,12 @@ interface CiOptions {
    * the cache.
    */
   signal?: AbortSignal;
+  /** Called as each workload (and each suite task) starts. */
+  onProgress?: CiProgress;
 }
+
+/** A progress line's step text, and how far the run is, 0 to 1. */
+type CiProgress = (step: string, doneRatio: number) => void;
 
 // So a hung workload times out instead of blocking a CI job;
 // `WorkloadConfig.timeoutMs` / `BenchConfig.timeoutMs` override this.
@@ -136,6 +144,7 @@ async function measureSuiteWorkloads(
   suites: string[],
   noiseWarning: Warning | undefined,
   signal: AbortSignal | undefined,
+  onProgress?: (progress: BenchProgress) => void,
 ): Promise<MeasuredWorkload[]> {
   // Always executes: a suite file's task ids (so its cache keys) are unknown
   // without importing it.
@@ -157,6 +166,7 @@ async function measureSuiteWorkloads(
     outDir: benchOpts.outDir ?? config.outDir,
     timeoutMs: wc.timeoutMs ?? benchOpts.timeoutMs ?? DEFAULT_CI_TIMEOUT_MS,
     ...(signal && { signal }),
+    ...(onProgress && { onProgress }),
   });
   const results: MeasuredWorkload[] = [];
   for (const workload of doc.workloads) {
@@ -256,14 +266,21 @@ export async function measureConfigWorkloads(
   config: OstiaConfig,
   full: boolean,
   signal?: AbortSignal,
+  onProgress?: CiProgress,
 ): Promise<MeasureConfigWorkloadsResult> {
   // Stamped on every measurement taken now, never on a cached one.
   const { environment, noiseWarning } = captureRunEnvironment(
     config.noiseCheck,
   );
   const results: MeasuredWorkload[] = [];
-  for (const wc of config.workloads) {
+  const count = config.workloads.length;
+  for (const [i, wc] of config.workloads.entries()) {
     if (signal?.aborted) break;
+    const step = `ci ${i + 1} of ${count}`;
+    onProgress?.(
+      `${step} · ${wc.label ?? wc.command?.join(" ") ?? wc.suites?.join(", ") ?? ""}`,
+      i / count,
+    );
     if (wc.suites) {
       results.push(
         ...(await measureSuiteWorkloads(
@@ -272,6 +289,12 @@ export async function measureConfigWorkloads(
           wc.suites,
           noiseWarning,
           signal,
+          onProgress &&
+            ((p) =>
+              onProgress(
+                `${step} · ${p.label}`,
+                (i + (p.suite - 1 + (p.task - 1) / p.tasks) / p.suites) / count,
+              )),
         )),
       );
     } else if (wc.command) {
@@ -321,7 +344,12 @@ export async function runCi(opts: CiOptions): Promise<{
     results: measured,
     environment,
     aborted,
-  } = await measureConfigWorkloads(config, opts.full, opts.signal);
+  } = await measureConfigWorkloads(
+    config,
+    opts.full,
+    opts.signal,
+    opts.onProgress,
+  );
   const results: CiWorkloadResult[] = measured.map((m) => ({ ...m }));
   const executed = results.filter((r) => r.status === "executed").length;
   const candidateDoc = createDocument(
@@ -400,42 +428,4 @@ export async function runCi(opts: CiOptions): Promise<{
     baseline,
     aborted: false,
   };
-}
-
-export function renderCiReport(summary: CiSummary): string {
-  const lines = [
-    `${summary.total} workloads`,
-    `${summary.cached} cached`,
-    `${summary.executed} executed`,
-  ];
-  if (summary.missingBaseline > 0) {
-    lines.push(
-      `${summary.missingBaseline} skipped (no matching baseline workload)`,
-    );
-  }
-  if (summary.failed > 0) {
-    const failedLabels = summary.results
-      .filter((r) => r.harnessFailed)
-      .map((r) => workloadLabel(r.workload));
-    lines.push(
-      `${summary.failed} failed (harness error, a command exited non-zero or produced no samples: ${failedLabels.join(", ")})`,
-    );
-  }
-
-  const regressionDetails = summary.results
-    .filter((r) => r.comparison?.verdict === "fail")
-    .map((r) => {
-      const t = r.comparison?.timing;
-      const label = workloadLabel(r.workload);
-      return t
-        ? `${formatSignedPct(t.medianDeltaPct)} median on ${label}`
-        : label;
-    });
-
-  lines.push(
-    `${summary.passed} passed  ${summary.regressed} regressed${regressionDetails.length > 0 ? ` (${regressionDetails.join(", ")})` : ""}`,
-    "",
-    `Profile CI: ${summary.regressed > 0 || summary.failed > 0 ? "✗" : "✓"}`,
-  );
-  return `${lines.join("\n")}\n`;
 }

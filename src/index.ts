@@ -2,7 +2,7 @@ import type { OstiaConfigInput } from "./config/index.ts";
 
 export type { AbOptions, AbProgress } from "./ab/index.ts";
 export { ab, AbBaseError, AbSetupError, AbSuiteError } from "./ab/index.ts";
-export type { BenchOptions } from "./bench/index.ts";
+export type { BenchOptions, BenchProgress } from "./bench/index.ts";
 export { bench } from "./bench/index.ts";
 export { range } from "./bench/range.ts";
 export type { GroupOptions, TaskOptions } from "./bench/registry.ts";
@@ -60,6 +60,7 @@ export type {
   MinimalUnmatchedLine,
 } from "./renderers/minimal.ts";
 export { MINIMAL_PROTOCOL_VERSION } from "./renderers/minimal.ts";
+export type { TableOptions } from "./renderers/terminal.ts";
 export type { FormatName, Renderer, VizOptions } from "./renderers/types.ts";
 export type {
   PrepareFn,
@@ -68,7 +69,7 @@ export type {
   TimeSource,
   TimeUnit,
 } from "./spawn/index.ts";
-export type { CommandSpec, TimeOptions } from "./time.ts";
+export type { CommandSpec, TimeOptions, TimeProgress } from "./time.ts";
 export { time } from "./time.ts";
 
 /** Identity function that types an `ostia.config.ts` default export. */

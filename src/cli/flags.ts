@@ -121,6 +121,8 @@ export interface OutputArgs {
   format: FormatName;
   quiet: boolean;
   help: boolean;
+  /** `--color` or `--no-color`; absent, color follows the terminal. */
+  color?: boolean;
 }
 
 export interface RunArgs extends OutputArgs {
@@ -143,8 +145,14 @@ export const HELP_FLAGS: FlagTable = {
   "-h": flag.on("help"),
 };
 
+export const COLOR_FLAGS: FlagTable = {
+  "--color": flag.on("color"),
+  "--no-color": flag.off("color"),
+};
+
 export const OUTPUT_FLAGS: FlagTable = {
   ...HELP_FLAGS,
+  ...COLOR_FLAGS,
   "--export-json": flag.str("exportJson"),
   "--format": flag.oneOf("format", DOCUMENT_FORMATS, FORMAT_ALIASES),
   "--json": flag.is("format", "json"),

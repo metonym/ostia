@@ -11,9 +11,10 @@ Every timing measurement stores its raw samples plus `mean`, `median`,
 (mild: beyond 1.5×IQR from the quartiles; severe: beyond 3×IQR).
 Percentiles interpolate linearly between order statistics.
 
-Reports lead with the median and show Spread as p75…p99,
-since wall-clock timings have a long right tail that skews the mean
-and standard deviation.
+Reports lead with the median, since wall-clock timings have a long right
+tail that skews the mean and standard deviation.
+The table shows noise as ± the MAD, a percent of the median;
+markdown shows Spread as p75…p99.
 
 ## Sampling
 

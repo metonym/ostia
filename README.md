@@ -24,13 +24,15 @@ group("dedupe", () => {
 
 ```console
 $ ostia bench suite.ts
-Apple M2 · 8 cores · load 3.5 · noise floor 0.4%
+2 tasks · fastest Set-based (O(n)) 35.7 µs
+suite.ts
 
-Task                            Median     Spread             Range              Relative
------------------------------------------------------------------------------------------
-dedupe:
-  naive (indexOf scan, O(n²))   173.9 µs   180.4 µs…205.8 µs  170.1 µs…635.5 µs  7.40× slower
-  Set-based (O(n))              23.5 µs    24.9 µs…72.5 µs    18.7 µs…208.3 µs   1.00×
+  task                            median   noise  instr/call  vs fastest
+  dedupe
+  ├ naive (indexOf scan, O(n²))   122 µs  ±17.4%       1.24M       3.42×
+  └ Set-based (O(n))             35.7 µs  ±15.2%        347K     fastest
+
+✓ Measured 2 tasks · 8.60K samples in 1.42 s
 ```
 
 **It tells you when a change made something slower.**
@@ -39,15 +41,17 @@ and the working tree in alternating batches in one process:
 
 ```console
 $ ostia ab suite.ts
-A/B: working tree vs HEAD (3945768) · 15 rounds · threshold 10% · geomean threshold 1.5%
+fail · 1 regressed · geomean +76.2% · 1 unchanged
+HEAD 3945768 vs working tree · 15 rounds · thresholds 10%, geomean 1.5%
 
-Task                            Base       Candidate  Change    p25…p75            Verdict
-------------------------------------------------------------------------------------------
-dedupe:
-  naive (indexOf scan, O(n²))   183.5 µs   178.5 µs   -1.9%     -3.5%…-0.3%
-  Set-based (O(n))              25.2 µs    181.2 µs   +618.1%   +554.2%…+659.2%    regressed, confirmed (repeats: +630.6%, +584.5%)
+  task                       base  candidate  change   noise  instr  verdict
+  dedupe
+  ├ naive (indexOf scan…   131 µs     147 µs     ~0%  ±13.3%   0.0%
+  └ Set-based (O(n))      47.8 µs     141 µs   +201%  ±22.2%  +257%  regressed
+      repeats +166%, +289%
 
-Geomean +165.4% (threshold 1.5%) · 1 regressed, 0 improved, 1 unchanged of 2 · fail
+✗ A/B fails: dedupe/Set-based (O(n)) regressed +201%
+  profile it: ostia bench suite.ts --cpu --filter 'dedupe/Set-based \(O\(n\)\)'
 ```
 
 Exit 1 on a regression, so CI can gate on it.

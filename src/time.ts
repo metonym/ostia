@@ -22,11 +22,7 @@ import {
   noisyMachineWarning,
   stampDrift,
 } from "./measure/environment.ts";
-import {
-  assertSamplingOptions,
-  createTimingPhase,
-  drainTimingPhase,
-} from "./measure/timing.ts";
+import { assertSamplingOptions, createTimingPhase } from "./measure/timing.ts";
 import {
   type PrepareHook,
   type PrepareRun,
@@ -122,6 +118,19 @@ export interface TimeOptions {
    * trial still contributes its sample and gets no `nonzero-exit` warning.
    * */
   ignoreExitCodes?: number[];
+  /** Called after each trial, for a progress line. */
+  onProgress?: (progress: TimeProgress) => void;
+}
+
+/** What `time()` is doing, for `onProgress`. Counts start at 1. */
+export interface TimeProgress {
+  command: number;
+  commands: number;
+  label: string;
+  /** Trials run so far for this command, warmup excluded. */
+  runs: number;
+  /** How far the whole run is, 0 to 1. */
+  doneRatio: number;
 }
 
 export function abortedWarning(): Warning {
@@ -254,19 +263,49 @@ export async function time(opts: TimeOptions): Promise<ProfileDocument> {
     ? { command: opts.shell, startupNs: await shellStartupNs(opts.shell) }
     : undefined;
 
+  const runsDone = runs.map(() => 0);
+  const report = (index: number) => {
+    const entry = runs[index]?.entry;
+    if (!opts.onProgress || !entry) return;
+    opts.onProgress({
+      command: index + 1,
+      commands: runs.length,
+      label: entry.workload.label ?? entry.argv.join(" "),
+      runs: runsDone[index] ?? 0,
+      doneRatio:
+        runs.reduce((sum, { phase }) => sum + phase.doneRatio(), 0) /
+        runs.length,
+    });
+  };
+  const step = async (index: number): Promise<boolean> => {
+    const stepped = (await runs[index]?.phase.step()) ?? false;
+    if (stepped) {
+      runsDone[index] = (runsDone[index] ?? 0) + 1;
+      report(index);
+    }
+    return stepped;
+  };
+
   if (interleave) {
-    for (const { phase } of runs) await phase.warmup();
+    for (const [index, { phase }] of runs.entries()) {
+      report(index);
+      await phase.warmup();
+    }
     let stepped = true;
     while (stepped) {
       stepped = false;
-      for (const { phase } of runs) {
-        if (await phase.step()) stepped = true;
+      for (const index of runs.keys()) {
+        if (await step(index)) stepped = true;
       }
     }
     for (const run of runs) await record(run);
   } else {
-    for (const run of runs) {
-      await drainTimingPhase(run.phase);
+    for (const [index, run] of runs.entries()) {
+      report(index);
+      await run.phase.warmup();
+      while (await step(index)) {
+        // Each step runs one trial.
+      }
       await record(run);
     }
   }

@@ -77,12 +77,22 @@ export function taskWorkload(
   });
 }
 
+/**
+ * Sent before each task is measured, for a progress line. `task` counts
+ * the measured tasks from 1; skipped ones aren't counted. */
+export interface TaskProgress {
+  task: number;
+  tasks: number;
+  label: string;
+}
+
 // The caller has already selected `tasks` and handled isolation, so
 // neither happens here.
 export async function measureTasks(
   suiteFile: string,
   tasks: readonly RegisteredTask[],
   opts: MeasureTasksOpts,
+  onTask?: (progress: TaskProgress) => void,
 ): Promise<ProfileDocument> {
   const willMeasure = tasks.some((t) => !t.skipped);
   const { environment, noiseWarning } = captureRunEnvironment(
@@ -92,11 +102,15 @@ export async function measureTasks(
 
   const workloads: Workload[] = [];
   const measurements: Measurement[] = [];
+  const measuredCount = tasks.filter((t) => !t.skipped).length;
+  let started = 0;
   for (const [idx, t] of tasks.entries()) {
     const workload = taskWorkload(suiteFile, t, opts.markIsolated);
     workloads.push(workload);
 
     if (t.skipped) continue;
+    started++;
+    onTask?.({ task: started, tasks: measuredCount, label: taskIdOf(t) });
 
     const { enter, leave } = edges(idx);
     await runGroupHooks(t, "before", enter);

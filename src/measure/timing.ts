@@ -53,6 +53,8 @@ interface TimingPhaseIterator {
    */
   step(): Promise<boolean>;
   done(): boolean;
+  /** How far toward its stopping criterion, 0 to 1, for a progress line. */
+  doneRatio(): number;
   result(): TimingPhaseResult;
 }
 
@@ -157,6 +159,12 @@ export function createTimingPhase(
       return true;
     },
     done,
+    doneRatio() {
+      if (done()) return 1;
+      if (samples !== undefined) return i / samples;
+      // Both must be met, so the one further from it is how far along.
+      return Math.min(i / Math.max(minSamples, 1), totalNs / budgetNs);
+    },
     result(): TimingPhaseResult {
       // Excluded, never a `wallNs` fallback: that would mix wall time into a
       // reported-time series.
@@ -207,9 +215,7 @@ export function createTimingPhase(
   };
 }
 
-export async function drainTimingPhase(
-  phase: TimingPhaseIterator,
-): Promise<void> {
+async function drainTimingPhase(phase: TimingPhaseIterator): Promise<void> {
   await phase.warmup();
   while (await phase.step()) {
     // Each step runs one trial.

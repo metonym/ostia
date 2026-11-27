@@ -5,6 +5,7 @@
 
 import { isAbsolute, relative } from "node:path";
 
+import type { Unpaired } from "../ab/unpaired.ts";
 import { cpuSampleCount } from "../ir/cpu.ts";
 import type {
   AbSummary,
@@ -41,6 +42,7 @@ import {
   namedTable,
   type Note,
   noteLines,
+  numberIn,
   RUN_WARNINGS,
   toBytes,
   toChange,
@@ -94,6 +96,8 @@ export interface TableOptions {
     baseGit?: GitMetadata | undefined;
     candGit?: GitMetadata | undefined;
   };
+  /** `ab` that paired nothing: each side's task count, and why. */
+  unpaired?: Unpaired;
   /** `ci`: the baseline it gated against, and what the cache saved. */
   ci?: {
     baseline: string;
@@ -157,9 +161,26 @@ function toReport(
 // short can't be pasted.
 function failWith(paint: Paint, what: string, next: string): string {
   const line = failLine(paint, what, next);
-  return textWidth(line) <= MEASURE
-    ? line
-    : `${failLine(paint, what)}\n${paint.dim(`  ${next}`)}`;
+  if (textWidth(line) <= MEASURE) return line;
+  return [failLine(paint, what), ...wrapWords(next, MEASURE - 2)]
+    .map((text, i) => (i === 0 ? text : paint.dim(`  ${text}`)))
+    .join("\n");
+}
+
+// Lines of at most `width` columns, broken between words, so a long next
+// step stays inside the measure instead of running off it.
+function wrapWords(text: string, width: number): string[] {
+  const lines: string[] = [];
+  let line = "";
+  for (const word of text.split(" ")) {
+    if (line !== "" && textWidth(`${line} ${word}`) > width) {
+      lines.push(line);
+      line = word;
+    } else {
+      line = line === "" ? word : `${line} ${word}`;
+    }
+  }
+  return line === "" ? lines : [...lines, line];
 }
 
 const elapsedPart = (options: TableOptions) =>
@@ -635,6 +656,8 @@ function pairedReport(
       for (const w of entry.run.warnings) {
         if (RUN_WARNINGS.has(w.code)) continue;
         if (w.code === "suite-changed" && comparable(p)) continue;
+        // pairedNotes says it beside the repeats.
+        if (w.code === "repeats-disagree") continue;
         notes.push(toWarningNote(w, entry.run.timing));
       }
     }
@@ -818,7 +841,24 @@ function pairedNotes(run: PairedRun, metric: AbSummary["metric"]): Note[] {
       const ratio = metricRatios(r, metric)?.medianRatio;
       return ratio === undefined ? MISSING : toChange((ratio - 1) * 100);
     });
-    notes.push({ text: `repeats ${changes.join(", ")}`, tone: "dim" });
+    const apart = numberIn(
+      run.warnings.find((w) => w.code === "repeats-disagree")?.data,
+      "factor",
+    );
+    if (apart === undefined) {
+      notes.push({ text: `repeats ${changes.join(", ")}`, tone: "dim" });
+    } else {
+      notes.push(
+        {
+          text: `repeats ${changes.join(", ")}: ${toTimes(apart)} apart from the paired run`,
+          tone: "warn",
+        },
+        {
+          text: "another task in this process may shape it; --filter to measure it alone",
+          tone: "dim",
+        },
+      );
+    }
   }
   // A changed suite whose output changed says so in its verdict.
   if (!p.sameOutput && comparable(p)) {
@@ -838,7 +878,9 @@ function abClosing(
   paint: Paint,
 ): string {
   if (ab.matched + ab.threw === 0) {
-    return failWith(paint, "Nothing paired", "no task is on both sides");
+    return options.unpaired
+      ? failWith(paint, options.unpaired.what, options.unpaired.next)
+      : failWith(paint, "Nothing paired", "no task is on both sides");
   }
   if (ab.verdict === "pass") {
     return closingLine(

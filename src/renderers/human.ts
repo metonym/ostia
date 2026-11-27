@@ -197,7 +197,10 @@ function isOutlierShifted(timing: TimingStats): boolean {
   return Math.abs(median - timing.median) > Math.max(timing.mad, 0);
 }
 
-const numberIn = (data: Warning["data"], key: string): number | undefined => {
+export const numberIn = (
+  data: Warning["data"],
+  key: string,
+): number | undefined => {
   const value = data?.[key];
   return typeof value === "number" ? value : undefined;
 };
@@ -293,6 +296,16 @@ export function toWarningNote(w: Warning, timing?: TimingStats): Note {
         text: "the suite and its output both changed, so it isn't judged",
         tone: "dim",
       };
+    case "repeats-disagree": {
+      const factor = numberIn(data, "factor");
+      return {
+        text:
+          factor === undefined
+            ? asNote(w.message)
+            : `fresh-process repeats ${toTimes(factor)} apart from the paired run: --filter to measure it alone`,
+        tone: "warn",
+      };
+    }
     case "skipped":
       return { text: asNote(w.message), tone: "dim" };
     case "aborted":

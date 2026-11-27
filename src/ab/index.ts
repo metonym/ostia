@@ -687,6 +687,33 @@ export function poolOrders(
 }
 
 // `metric`'s median ratio over the main run and any fresh-process repeats,
+// A task measured after another that calls the same function can run at
+// a speed the JIT gave it for the other's input, which a fresh process,
+// running only it, doesn't reproduce: so the factor between them, when
+// every repeat falls outside the paired rounds' middle half and they
+// differ by 1.5× or more.
+export function repeatsApart(
+  p: PairedEvidence,
+  metric: AbSummary["metric"],
+): number | undefined {
+  const main = metricRatios(p, metric);
+  const repeats = (p.repeats ?? []).flatMap((r) => {
+    const ratio = metricRatios(r, metric)?.medianRatio;
+    return ratio === undefined ? [] : [ratio];
+  });
+  if (main === undefined || repeats.length === 0) return undefined;
+  const outside = repeats.every((r) => r < main.ratioP25 || r > main.ratioP75);
+  const factor = Math.max(
+    main.medianRatio / median(repeats),
+    median(repeats) / main.medianRatio,
+  );
+  return outside && factor >= REPEATS_APART ? factor : undefined;
+}
+
+// Below 1.5×, a gap is the ordinary drift between one process and the
+// next; past it, the paired run measured something a fresh one doesn't.
+const REPEATS_APART = 1.5;
+
 // so one process's JIT luck moves the geomean less; undefined when the
 // task has no `metric` reading.
 function ratioEstimate(
@@ -1096,6 +1123,20 @@ export async function ab(opts: AbOptions): Promise<ProfileDocument> {
         p.repeats.length === confirm &&
         p.repeats.every((r) => r.flagged === flagged);
       p.verdict = p.confirmed ? flagged : "unchanged";
+      const apart = repeatsApart(p, metric);
+      if (apart !== undefined) {
+        m.warnings.push({
+          code: "repeats-disagree",
+          message: `Fresh-process repeats measured ${apart.toFixed(1)}x apart from the paired run; another task in the same process may shape it. Run it alone with --filter.`,
+          data: {
+            factor: apart,
+            pairedRatio: metricRatios(p, metric)?.medianRatio,
+            repeatRatios: p.repeats.map(
+              (r) => metricRatios(r, metric)?.medianRatio,
+            ),
+          },
+        });
+      }
     }
 
     // Memory, for tasks that timed without throwing: each side in its own

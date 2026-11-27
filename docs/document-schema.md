@@ -209,6 +209,7 @@ table; `--format events` includes `code` and `data`.
 | `skipped` | comparison | The candidate task was skipped; treated as unchanged. |
 | `environment-mismatch` | comparison | The documents came from different platforms, Bun versions, or CPUs. |
 | `suite-changed` | `ab` | The suite file's text differs from the base ref's copy, so each side may run a different benchmark. When the output differs too, the task is not comparable: verdict `unchanged`, left out of the geomean. |
+| `repeats-disagree` | `ab` | A flagged task's fresh-process repeats sit 1.5× or more from its paired run, outside the paired rounds' middle half. Another task in the same process can shape how the JIT compiles a function they share; `--filter` measures the task alone. `data`: `factor`, `pairedRatio`, `repeatRatios`. The verdict is unchanged. |
 | `peak-hidden` | `--peak-mem` | Earlier work in the process (module-scope setup, `before` hooks) freed 16 MiB or more that the allocator still held, which the call could reuse without RSS rising, so `peakBytes` can be that much low. `data: { slackBytes, processes }`. |
 
 ## Files on disk

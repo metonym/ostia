@@ -467,6 +467,7 @@ export const WARNING_CODES: readonly [
   "environment-mismatch",
   "peak-hidden",
   "suite-changed",
+  "repeats-disagree",
 ] = [
   "slow-first-run",
   "outliers-detected",
@@ -485,6 +486,7 @@ export const WARNING_CODES: readonly [
   "environment-mismatch",
   "peak-hidden",
   "suite-changed",
+  "repeats-disagree",
 ];
 
 export type WarningCode = (typeof WARNING_CODES)[number];

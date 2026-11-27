@@ -8,6 +8,7 @@ import {
   AbSuiteError,
   cleanAbTrees,
 } from "../ab/index.ts";
+import { importsHarnessRelatively, unpairedReason } from "../ab/unpaired.ts";
 import { listBaselines, saveBaseline } from "../baseline/index.ts";
 import { bench, resolveBenchOptions } from "../bench/index.ts";
 import { BaselineError, BaselineNotFoundError, runCi } from "../ci/index.ts";
@@ -443,6 +444,18 @@ function parseBenchArgs(argv: string[]): BenchArgs {
 
 // One suite names itself and several are counted, so the context stays
 // one line.
+async function anyImportsHarnessRelatively(
+  suites: readonly string[],
+): Promise<boolean> {
+  for (const suite of suites) {
+    const file = Bun.file(suite);
+    if ((await file.exists()) && importsHarnessRelatively(await file.text())) {
+      return true;
+    }
+  }
+  return false;
+}
+
 function suitesRun(suites: readonly string[]): string {
   const [only] = suites;
   return suites.length === 1 && only !== undefined
@@ -741,6 +754,17 @@ async function abCommand(argv: string[]): Promise<number> {
   const byId = new Map(doc.workloads.map((w) => [w.id, w]));
   const workloadsFor = (ids: string[] = []) =>
     ids.flatMap((id) => byId.get(id) ?? []);
+  const paired = summary.matched + summary.threw;
+  const unpaired =
+    exitCode === 2 && paired === 0
+      ? unpairedReason({
+          ref: summary.base.ref,
+          base: paired + (doc.unmatched?.baseOnly.length ?? 0),
+          cand: paired + (doc.unmatched?.candOnly.length ?? 0),
+          allNew: summary.newSuites?.length === suites.length,
+          relativeHarness: await anyImportsHarnessRelatively(suites),
+        })
+      : undefined;
   await emitDocument(
     doc,
     parsed,
@@ -759,16 +783,11 @@ async function abCommand(argv: string[]): Promise<number> {
       paint: human.paint,
       ran: suitesRun(suites),
       elapsedMs: elapsedMsSince(human.startNs),
+      ...definedFields({ unpaired }),
     },
   );
-  if (exitCode === 2) {
-    const allNew = summary.newSuites?.length === suites.length;
-    await writeCliError(
-      "no-matches",
-      allNew
-        ? `No suite exists at ${summary.base.ref}; nothing was paired. Use "ostia bench" to time new suites.`
-        : `No task exists both at ${summary.base.ref} and in the working tree; nothing was paired.`,
-    );
+  if (unpaired) {
+    await writeCliError("no-matches", `${unpaired.what}: ${unpaired.next}.`);
   }
   return exitCode;
 }

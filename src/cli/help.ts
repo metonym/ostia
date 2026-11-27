@@ -1,6 +1,7 @@
 import { processEnv } from "../config/env.ts";
 import {
   createPaint,
+  fitTerminal,
   MEASURE,
   type Paint,
   PLAIN,
@@ -665,6 +666,14 @@ export async function showHelp(
   topic: HelpTopic,
   requested: boolean,
 ): Promise<0 | 2> {
-  await Bun.write(Bun.stdout, helpText(topic, await paintFor(1)));
+  const { isatty } = await import("node:tty");
+  await Bun.write(
+    Bun.stdout,
+    fitTerminal(
+      helpText(topic, await paintFor(1)),
+      isatty(1),
+      process.stdout.columns,
+    ),
+  );
   return requested ? 0 : 2;
 }

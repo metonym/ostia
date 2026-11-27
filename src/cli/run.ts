@@ -43,6 +43,7 @@ import type { MinimalProtocolContext } from "../renderers/minimal.ts";
 import type { TimeSource, TimeUnit } from "../spawn/index.ts";
 import {
   createProgress,
+  isDumb,
   type Paint,
   PLAIN,
   plural,
@@ -113,7 +114,10 @@ async function humanFor(args: {
   }
   const { isatty } = await import("node:tty");
   const shown =
-    !args.quiet && isatty(2) && agentVariable(processEnv()) === undefined;
+    !args.quiet &&
+    isatty(2) &&
+    !isDumb(processEnv()) &&
+    agentVariable(processEnv()) === undefined;
   return {
     paint: await paintFor(1, args.color),
     progress: shown
